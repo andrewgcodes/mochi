@@ -9,9 +9,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Color representation supporting all terminal color modes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Color {
     /// Default terminal color (foreground or background)
+    #[default]
     Default,
     /// Indexed color (0-255)
     /// 0-7: standard colors
@@ -61,12 +62,6 @@ impl Color {
             Color::Indexed(idx) => index_to_rgb(*idx),
             Color::Rgb { r, g, b } => (*r, *g, *b),
         }
-    }
-}
-
-impl Default for Color {
-    fn default() -> Self {
-        Color::Default
     }
 }
 

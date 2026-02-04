@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::load().unwrap_or_default();
 
     // Run the application
-    let mut app = App::new(config)?;
+    let app = App::new(config)?;
     app.run()?;
 
     log::info!("Mochi Terminal exited");

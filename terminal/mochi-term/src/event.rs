@@ -4,6 +4,7 @@ use std::time::Duration;
 
 /// Events that can occur in the terminal application
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum TerminalEvent {
     /// Data received from PTY
     PtyOutput(Vec<u8>),
@@ -20,6 +21,7 @@ pub enum TerminalEvent {
 }
 
 /// Event loop timing
+#[allow(dead_code)]
 pub struct EventTiming {
     /// Target frame rate
     pub target_fps: u32,
@@ -38,6 +40,7 @@ impl Default for EventTiming {
 
 impl EventTiming {
     /// Get frame duration
+    #[allow(dead_code)]
     pub fn frame_duration(&self) -> Duration {
         Duration::from_secs_f64(1.0 / self.target_fps as f64)
     }

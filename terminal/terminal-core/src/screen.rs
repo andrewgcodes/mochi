@@ -3,8 +3,6 @@
 //! The Screen struct ties together the grid, cursor, scrollback, and modes
 //! to provide a complete terminal emulation state machine.
 
-use serde::{Deserialize, Serialize};
-
 use crate::cell::CellAttributes;
 use crate::cursor::{Cursor, SavedCursor};
 use crate::grid::Grid;

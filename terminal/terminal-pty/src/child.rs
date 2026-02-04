@@ -4,15 +4,13 @@
 
 use std::ffi::{CString, OsStr};
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
-use std::process::ExitStatus;
 
 use nix::libc;
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{close, dup2, execvp, fork, setsid, ForkResult, Pid};
+use nix::unistd::{dup2, execvp, fork, setsid, ForkResult, Pid};
 
 use crate::error::{Error, Result};
 use crate::pty::{configure_slave, open_slave, Pty};
@@ -89,7 +87,7 @@ impl Child {
                 // Child process - this code runs in the child
 
                 // Create new session and set controlling terminal
-                if let Err(_) = setsid() {
+                if setsid().is_err() {
                     std::process::exit(1);
                 }
 
@@ -109,7 +107,7 @@ impl Child {
                 }
 
                 // Configure terminal
-                if let Err(_) = configure_slave(slave_raw) {
+                if configure_slave(slave_raw).is_err() {
                     std::process::exit(1);
                 }
 
@@ -256,7 +254,6 @@ impl Drop for Child {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
     use std::thread;
     use std::time::Duration;
 

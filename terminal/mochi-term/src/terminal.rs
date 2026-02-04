@@ -2,10 +2,7 @@
 //!
 //! Integrates the parser and screen model to handle terminal emulation.
 
-use terminal_core::{
-    Cell, CellAttributes, Color, Cursor, CursorStyle, Dimensions, Modes, Screen, Selection,
-    Snapshot,
-};
+use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
 
 /// Terminal emulator state
@@ -40,6 +37,7 @@ impl Terminal {
     }
 
     /// Get screen mutably
+    #[allow(dead_code)]
     pub fn screen_mut(&mut self) -> &mut Screen {
         &mut self.screen
     }
@@ -127,7 +125,7 @@ impl Terminal {
                 // HT
                 self.screen.tab();
             }
-            0x0A | 0x0B | 0x0C => {
+            0x0A..=0x0C => {
                 // LF, VT, FF
                 self.screen.linefeed();
             }
@@ -633,7 +631,7 @@ impl Terminal {
                     self.screen.cursor_mut().hyperlink_id = id;
                 }
             }
-            OscAction::Clipboard { clipboard, data } => {
+            OscAction::Clipboard { clipboard: _, data } => {
                 // OSC 52 clipboard - handled by the application layer
                 log::debug!("OSC 52 clipboard: {} bytes", data.len());
             }
@@ -670,6 +668,7 @@ impl Terminal {
     }
 
     /// Create a snapshot of the current state
+    #[allow(dead_code)]
     pub fn snapshot(&self) -> Snapshot {
         self.screen.snapshot(false)
     }

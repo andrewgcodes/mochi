@@ -182,7 +182,7 @@ impl Parser {
                     // CAN, SUB - cancel current sequence
                     self.state = ParserState::Ground;
                 }
-                0x07 | 0x08 | 0x09 | 0x0A | 0x0B | 0x0C | 0x0D => {
+                0x07..=0x0D => {
                     // BEL, BS, HT, LF, VT, FF, CR
                     callback(Action::Control(byte));
                 }
@@ -276,7 +276,7 @@ impl Parser {
         F: FnMut(Action),
     {
         // Printable characters
-        if byte >= 0x20 && byte < 0x7F {
+        if (0x20..0x7F).contains(&byte) {
             callback(Action::Print(byte as char));
         } else if byte >= 0x80 {
             // UTF-8 handling

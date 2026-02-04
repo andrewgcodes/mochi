@@ -120,7 +120,7 @@ impl Utf8Decoder {
                     | ((self.buffer[2] & 0x3F) as u32) << 6
                     | (self.buffer[3] & 0x3F) as u32;
                 // Check for overlong encoding and valid range
-                if cp < 0x10000 || cp > 0x10FFFF {
+                if !(0x10000..=0x10FFFF).contains(&cp) {
                     Utf8Result::Invalid
                 } else {
                     char::from_u32(cp)

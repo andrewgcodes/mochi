@@ -8,8 +8,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
 use nix::pty::{grantpt, posix_openpt, ptsname, unlockpt, PtyMaster};
-use nix::sys::termios::{self, SetArg, Termios};
-use nix::unistd::close;
+use nix::sys::termios::{self, SetArg};
 
 use crate::error::{Error, Result};
 use crate::size::WindowSize;

@@ -8,8 +8,6 @@ use crate::cursor::{Cursor, CursorStyle};
 use crate::grid::Grid;
 use crate::modes::Modes;
 use crate::scrollback::Scrollback;
-use crate::selection::Selection;
-use crate::Dimensions;
 
 /// A complete snapshot of terminal state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,7 +255,7 @@ fn extract_attr_spans(line: &crate::line::Line) -> Vec<SnapshotAttrSpan> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cell::CellAttributes;
+    use crate::Dimensions;
 
     #[test]
     fn test_snapshot_creation() {

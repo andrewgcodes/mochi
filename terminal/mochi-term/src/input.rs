@@ -2,7 +2,7 @@
 //!
 //! Converts GUI input events to terminal escape sequences.
 
-use winit::event::{ElementState, MouseButton};
+use winit::event::MouseButton;
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 /// Encode a key press to terminal escape sequence
@@ -13,7 +13,7 @@ pub fn encode_key(
 ) -> Option<Vec<u8>> {
     let ctrl = modifiers.control_key();
     let alt = modifiers.alt_key();
-    let shift = modifiers.shift_key();
+    let _shift = modifiers.shift_key();
 
     match key {
         Key::Character(c) => {
@@ -207,12 +207,10 @@ fn encode_function_key(num: u8, modifier: Option<u8>) -> Vec<u8> {
         } else {
             vec![0x1b, b'O', code]
         }
+    } else if let Some(m) = modifier {
+        format!("\x1b[{};{}~", code, m).into_bytes()
     } else {
-        if let Some(m) = modifier {
-            format!("\x1b[{};{}~", code, m).into_bytes()
-        } else {
-            format!("\x1b[{}~", code).into_bytes()
-        }
+        format!("\x1b[{}~", code).into_bytes()
     }
 }
 

@@ -2,7 +2,7 @@
 //!
 //! Ties together the terminal, PTY, and renderer.
 
-use std::io::{self, Write};
+use std::io;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -32,6 +32,7 @@ pub struct App {
     /// Child process
     child: Option<Child>,
     /// Clipboard
+    #[allow(dead_code)]
     clipboard: Option<Clipboard>,
     /// Current modifiers state
     modifiers: ModifiersState,
@@ -340,6 +341,7 @@ impl App {
     }
 
     /// Handle paste
+    #[allow(dead_code)]
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
             return;

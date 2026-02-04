@@ -38,6 +38,7 @@ struct GlyphEntry {
 /// Terminal renderer
 pub struct Renderer {
     /// Softbuffer context
+    #[allow(dead_code)]
     context: Context<Rc<Window>>,
     /// Softbuffer surface
     surface: Surface<Rc<Window>, Rc<Window>>,
@@ -260,6 +261,7 @@ impl Renderer {
     }
 
     /// Fill a rectangle with a color (static version)
+    #[allow(clippy::too_many_arguments)]
     fn fill_rect_static(
         buffer: &mut [u32],
         x: i32,
@@ -293,6 +295,7 @@ impl Renderer {
     }
 
     /// Draw a glyph (static version)
+    #[allow(clippy::too_many_arguments)]
     fn draw_glyph_static(
         buffer: &mut [u32],
         x: i32,

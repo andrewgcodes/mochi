@@ -72,15 +72,13 @@ impl Params {
         }
 
         // Don't forget the last parameter
-        if has_value || !params.values.is_empty() {
-            if params.values.len() < MAX_PARAMS {
-                params.values.push(if has_value { current } else { 0 });
-                if !current_subparams.is_empty() {
-                    current_subparams.push(current);
-                    params.subparams.push(current_subparams);
-                } else {
-                    params.subparams.push(Vec::new());
-                }
+        if (has_value || !params.values.is_empty()) && params.values.len() < MAX_PARAMS {
+            params.values.push(if has_value { current } else { 0 });
+            if !current_subparams.is_empty() {
+                current_subparams.push(current);
+                params.subparams.push(current_subparams);
+            } else {
+                params.subparams.push(Vec::new());
             }
         }
 
@@ -183,7 +181,8 @@ mod tests {
     fn test_params_overflow() {
         // Should saturate instead of overflow
         let params = Params::parse(b"99999");
-        assert!(params.get(0).unwrap() <= 65535);
+        // Value should be saturated to u16::MAX
+        assert_eq!(params.get(0), Some(65535));
     }
 
     #[test]
