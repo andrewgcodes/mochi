@@ -23,6 +23,18 @@ use crate::terminal::Terminal;
 /// Maximum time between clicks to count as multi-click (in milliseconds)
 const MULTI_CLICK_THRESHOLD_MS: u64 = 500;
 
+/// Search match location
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct SearchMatch {
+    /// Row in terminal (negative for scrollback)
+    pub row: isize,
+    /// Starting column
+    pub col: usize,
+    /// Length of match
+    pub len: usize,
+}
+
 /// Application state
 pub struct App {
     /// Configuration
@@ -62,6 +74,14 @@ pub struct App {
     last_click_pos: (u16, u16),
     /// Whether we're currently dragging a selection
     selecting: bool,
+    /// Whether search mode is active
+    search_active: bool,
+    /// Current search query
+    search_query: String,
+    /// Search matches
+    search_matches: Vec<SearchMatch>,
+    /// Current match index (for navigation)
+    current_match_index: usize,
 }
 
 impl App {
@@ -87,6 +107,10 @@ impl App {
             click_count: 0,
             last_click_pos: (0, 0),
             selecting: false,
+            search_active: false,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            current_match_index: 0,
         })
     }
 
@@ -243,6 +267,12 @@ impl App {
             return;
         }
 
+        // Handle search mode input
+        if self.search_active {
+            self.handle_search_input(event);
+            return;
+        }
+
         // Extract key string for keybinding lookup
         let key_str = match &event.logical_key {
             Key::Character(c) => c.to_string(),
@@ -283,7 +313,7 @@ impl App {
                         return;
                     }
                     Action::Find => {
-                        log::info!("Find action triggered (not yet implemented)");
+                        self.open_search();
                         return;
                     }
                     Action::FontSizeIncrease => {
@@ -348,6 +378,217 @@ impl App {
         if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
         {
             let _ = child.write_all(&data);
+        }
+    }
+
+    /// Handle keyboard input in search mode
+    fn handle_search_input(&mut self, event: &winit::event::KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.close_search();
+            }
+            Key::Named(NamedKey::Enter) => {
+                if self.modifiers.shift_key() {
+                    self.search_prev();
+                } else {
+                    self.search_next();
+                }
+            }
+            Key::Named(NamedKey::Backspace) => {
+                self.search_query.pop();
+                self.perform_search();
+                self.update_window_title_with_search();
+            }
+            Key::Character(c) => {
+                // Only add printable characters
+                if !self.modifiers.control_key() && !self.modifiers.alt_key() {
+                    self.search_query.push_str(c);
+                    self.perform_search();
+                    self.update_window_title_with_search();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Open search mode
+    fn open_search(&mut self) {
+        self.search_active = true;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.current_match_index = 0;
+        self.update_window_title_with_search();
+        log::info!("Search mode activated");
+    }
+
+    /// Close search mode
+    fn close_search(&mut self) {
+        self.search_active = false;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.current_match_index = 0;
+
+        // Restore window title
+        if let Some(window) = &self.window {
+            if let Some(terminal) = &self.terminal {
+                window.set_title(terminal.title());
+            }
+        }
+
+        self.needs_redraw = true;
+        log::info!("Search mode closed");
+    }
+
+    /// Perform search in scrollback and visible buffer
+    fn perform_search(&mut self) {
+        self.search_matches.clear();
+        self.current_match_index = 0;
+
+        if self.search_query.is_empty() {
+            self.needs_redraw = true;
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let query = self.search_query.to_lowercase();
+
+        // Search in scrollback (negative row indices)
+        let scrollback = screen.scrollback();
+        for (idx, line) in scrollback.iter().enumerate() {
+            let line_text: String = (0..line.cols())
+                .map(|col| line.cell(col).display_char())
+                .collect();
+            let line_lower = line_text.to_lowercase();
+
+            let mut start = 0;
+            while let Some(pos) = line_lower[start..].find(&query) {
+                let col = start + pos;
+                self.search_matches.push(SearchMatch {
+                    row: -(scrollback.len() as isize - idx as isize),
+                    col,
+                    len: query.len(),
+                });
+                start = col + 1;
+            }
+        }
+
+        // Search in visible screen (positive row indices)
+        for row in 0..screen.rows() {
+            let line = screen.line(row);
+            let line_text: String = (0..line.cols())
+                .map(|col| line.cell(col).display_char())
+                .collect();
+            let line_lower = line_text.to_lowercase();
+
+            let mut start = 0;
+            while let Some(pos) = line_lower[start..].find(&query) {
+                let col = start + pos;
+                self.search_matches.push(SearchMatch {
+                    row: row as isize,
+                    col,
+                    len: query.len(),
+                });
+                start = col + 1;
+            }
+        }
+
+        log::info!(
+            "Search '{}': found {} matches",
+            self.search_query,
+            self.search_matches.len()
+        );
+
+        // Jump to first match if any
+        if !self.search_matches.is_empty() {
+            self.jump_to_current_match();
+        }
+
+        self.needs_redraw = true;
+    }
+
+    /// Navigate to next search match
+    fn search_next(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+
+        self.current_match_index = (self.current_match_index + 1) % self.search_matches.len();
+        self.jump_to_current_match();
+        self.update_window_title_with_search();
+    }
+
+    /// Navigate to previous search match
+    fn search_prev(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+
+        if self.current_match_index == 0 {
+            self.current_match_index = self.search_matches.len() - 1;
+        } else {
+            self.current_match_index -= 1;
+        }
+        self.jump_to_current_match();
+        self.update_window_title_with_search();
+    }
+
+    /// Jump to the current search match
+    fn jump_to_current_match(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let match_info = self.search_matches[self.current_match_index];
+        let scrollback_len = terminal.screen().scrollback().len();
+        let rows = terminal.screen().rows();
+
+        // Calculate scroll offset to show the match
+        if match_info.row < 0 {
+            // Match is in scrollback
+            let scrollback_row = (scrollback_len as isize + match_info.row) as usize;
+            // Scroll to show this row near the top
+            self.scroll_offset = scrollback_len.saturating_sub(scrollback_row);
+        } else {
+            // Match is in visible screen
+            let screen_row = match_info.row as usize;
+            if screen_row < rows {
+                // Already visible, no need to scroll
+                self.scroll_offset = 0;
+            }
+        }
+
+        self.needs_redraw = true;
+    }
+
+    /// Update window title to show search status
+    fn update_window_title_with_search(&mut self) {
+        if let Some(window) = &self.window {
+            let match_info = if self.search_matches.is_empty() {
+                if self.search_query.is_empty() {
+                    String::new()
+                } else {
+                    " (no matches)".to_string()
+                }
+            } else {
+                format!(
+                    " ({}/{})",
+                    self.current_match_index + 1,
+                    self.search_matches.len()
+                )
+            };
+
+            window.set_title(&format!(
+                "Search: {}{}",
+                self.search_query, match_info
+            ));
         }
     }
 
