@@ -252,7 +252,7 @@ mod tests {
         for i in 0..10 {
             line.cell_mut(i)
                 .unwrap()
-                .set_content(('A' as u8 + i as u8) as char);
+                .set_content((b'A' + i as u8) as char);
         }
 
         line.clear_from(5, Color::Default);
@@ -268,7 +268,7 @@ mod tests {
         for i in 0..10 {
             line.cell_mut(i)
                 .unwrap()
-                .set_content(('A' as u8 + i as u8) as char);
+                .set_content((b'A' + i as u8) as char);
         }
 
         line.clear_to(4, Color::Default);
@@ -284,7 +284,7 @@ mod tests {
         for i in 0..10 {
             line.cell_mut(i)
                 .unwrap()
-                .set_content(('A' as u8 + i as u8) as char);
+                .set_content((b'A' + i as u8) as char);
         }
 
         line.insert_cells(2, 3, Color::Default);
@@ -304,7 +304,7 @@ mod tests {
         for i in 0..10 {
             line.cell_mut(i)
                 .unwrap()
-                .set_content(('A' as u8 + i as u8) as char);
+                .set_content((b'A' + i as u8) as char);
         }
 
         line.delete_cells(2, 3, Color::Default);

@@ -805,7 +805,7 @@ mod tests {
                 final_byte,
             } => {
                 assert_eq!(params, &[25]);
-                assert_eq!(intermediates, &[b'?']);
+                assert_eq!(intermediates, b"?");
                 assert_eq!(*final_byte, b'h');
             },
             _ => panic!("Expected CsiDispatch"),

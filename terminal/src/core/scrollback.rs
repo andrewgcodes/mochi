@@ -151,7 +151,7 @@ mod tests {
             let mut line = Line::new(10);
             line.cell_mut(0)
                 .unwrap()
-                .set_content(('A' as u8 + i as u8) as char);
+                .set_content((b'A' + i as u8) as char);
             sb.push(line);
         }
 
@@ -170,7 +170,7 @@ mod tests {
             let mut line = Line::new(10);
             line.cell_mut(0)
                 .unwrap()
-                .set_content(('A' as u8 + i as u8) as char);
+                .set_content((b'A' + i as u8) as char);
             sb.push(line);
         }
 
@@ -188,7 +188,7 @@ mod tests {
             let mut line = Line::new(10);
             line.cell_mut(0)
                 .unwrap()
-                .set_content(('A' as u8 + i as u8) as char);
+                .set_content((b'A' + i as u8) as char);
             sb.push(line);
         }
 
@@ -205,7 +205,7 @@ mod tests {
             let mut line = Line::new(10);
             line.cell_mut(0)
                 .unwrap()
-                .set_content(('A' as u8 + i as u8) as char);
+                .set_content((b'A' + i as u8) as char);
             sb.push(line);
         }
 
