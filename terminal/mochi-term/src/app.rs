@@ -62,6 +62,32 @@ pub struct App {
     click_count: u8,
     /// Whether we're currently dragging a selection
     selecting: bool,
+    /// Search state
+    search_state: SearchState,
+}
+
+/// Search state for the find bar
+#[derive(Default)]
+struct SearchState {
+    /// Whether the search bar is visible
+    active: bool,
+    /// Current search query
+    query: String,
+    /// Search matches (row, start_col, end_col)
+    matches: Vec<SearchMatch>,
+    /// Current match index
+    current_match: usize,
+}
+
+/// A search match location
+#[derive(Clone, Debug)]
+struct SearchMatch {
+    /// Row in the terminal (can be negative for scrollback)
+    row: isize,
+    /// Start column
+    start_col: usize,
+    /// End column (exclusive)
+    end_col: usize,
 }
 
 impl App {
@@ -86,6 +112,7 @@ impl App {
             last_click_pos: (0, 0),
             click_count: 0,
             selecting: false,
+            search_state: SearchState::default(),
         })
     }
 
@@ -242,6 +269,20 @@ impl App {
             return;
         }
 
+        // Handle search input if search bar is active
+        if self.search_state.active {
+            // Handle Shift+Enter for previous match
+            if self.modifiers.shift_key() {
+                if let Key::Named(NamedKey::Enter) = &event.logical_key {
+                    self.search_prev();
+                    return;
+                }
+            }
+            if self.handle_search_input(&event.logical_key) {
+                return;
+            }
+        }
+
         // Get key name for keybinding matching
         let key_name = match &event.logical_key {
             Key::Character(c) => c.to_string(),
@@ -351,8 +392,166 @@ impl App {
 
     /// Toggle search UI
     fn toggle_search(&mut self) {
-        log::info!("Search toggled (not yet implemented)");
-        // TODO: Implement search UI in M5
+        self.search_state.active = !self.search_state.active;
+        if self.search_state.active {
+            log::info!("Search bar opened");
+            self.search_state.query.clear();
+            self.search_state.matches.clear();
+            self.search_state.current_match = 0;
+        } else {
+            log::info!("Search bar closed");
+            self.search_state.query.clear();
+            self.search_state.matches.clear();
+        }
+        self.needs_redraw = true;
+    }
+
+    /// Handle search input when search bar is active
+    fn handle_search_input(&mut self, key: &Key) -> bool {
+        if !self.search_state.active {
+            return false;
+        }
+
+        match key {
+            Key::Named(NamedKey::Escape) => {
+                self.toggle_search();
+                true
+            }
+            Key::Named(NamedKey::Enter) => {
+                self.search_next();
+                true
+            }
+            Key::Named(NamedKey::Backspace) => {
+                self.search_state.query.pop();
+                self.perform_search();
+                self.needs_redraw = true;
+                true
+            }
+            Key::Character(c) => {
+                self.search_state.query.push_str(c);
+                self.perform_search();
+                self.needs_redraw = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Perform search in terminal buffer
+    fn perform_search(&mut self) {
+        self.search_state.matches.clear();
+        self.search_state.current_match = 0;
+
+        if self.search_state.query.is_empty() {
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let query = &self.search_state.query;
+        let rows = screen.rows();
+
+        // Search visible buffer
+        for row_idx in 0..rows {
+            let line = screen.line(row_idx);
+            let line_text: String = (0..line.cols())
+                .map(|col| line.cell(col).display_char())
+                .collect();
+
+            // Find all occurrences in this line
+            let mut start = 0;
+            while let Some(pos) = line_text[start..].find(query) {
+                let abs_pos = start + pos;
+                self.search_state.matches.push(SearchMatch {
+                    row: row_idx as isize,
+                    start_col: abs_pos,
+                    end_col: abs_pos + query.len(),
+                });
+                start = abs_pos + 1;
+            }
+        }
+
+        // Search scrollback buffer
+        let scrollback = screen.scrollback();
+        let scrollback_len = scrollback.len();
+        for i in 0..scrollback_len {
+            if let Some(line) = scrollback.get(i) {
+                let line_text: String = (0..line.cols())
+                    .map(|col| line.cell(col).display_char())
+                    .collect();
+
+                let mut start = 0;
+                while let Some(pos) = line_text[start..].find(query) {
+                    let abs_pos = start + pos;
+                    self.search_state.matches.push(SearchMatch {
+                        row: -((scrollback_len - i) as isize),
+                        start_col: abs_pos,
+                        end_col: abs_pos + query.len(),
+                    });
+                    start = abs_pos + 1;
+                }
+            }
+        }
+
+        log::debug!("Found {} matches for '{}'", self.search_state.matches.len(), query);
+    }
+
+    /// Navigate to next search match
+    fn search_next(&mut self) {
+        if self.search_state.matches.is_empty() {
+            return;
+        }
+
+        self.search_state.current_match = 
+            (self.search_state.current_match + 1) % self.search_state.matches.len();
+        self.scroll_to_current_match();
+        self.needs_redraw = true;
+    }
+
+    /// Navigate to previous search match
+    fn search_prev(&mut self) {
+        if self.search_state.matches.is_empty() {
+            return;
+        }
+
+        if self.search_state.current_match == 0 {
+            self.search_state.current_match = self.search_state.matches.len() - 1;
+        } else {
+            self.search_state.current_match -= 1;
+        }
+        self.scroll_to_current_match();
+        self.needs_redraw = true;
+    }
+
+    /// Scroll to make current match visible
+    fn scroll_to_current_match(&mut self) {
+        if self.search_state.matches.is_empty() {
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let current = &self.search_state.matches[self.search_state.current_match];
+        let rows = terminal.screen().rows() as isize;
+
+        // Calculate scroll offset needed to show this match
+        if current.row < 0 {
+            // Match is in scrollback
+            self.scroll_offset = (-current.row) as usize;
+        } else if current.row >= rows - self.scroll_offset as isize {
+            // Match is below visible area
+            self.scroll_offset = 0;
+        } else {
+            // Match is visible or above, adjust if needed
+            if (current.row as usize) < self.scroll_offset {
+                self.scroll_offset = current.row.max(0) as usize;
+            }
+        }
     }
 
     /// Reload configuration
@@ -816,8 +1015,49 @@ impl App {
         let screen = terminal.screen();
         let selection = screen.selection();
 
-        if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
-            log::warn!("Render error: {:?}", e);
+        // Render with search highlights if search is active
+        if self.search_state.active && !self.search_state.matches.is_empty() {
+            let search_matches: Vec<(isize, usize, usize)> = self
+                .search_state
+                .matches
+                .iter()
+                .map(|m| (m.row, m.start_col, m.end_col))
+                .collect();
+
+            if let Err(e) = renderer.render_with_search(
+                screen,
+                selection,
+                self.scroll_offset,
+                &search_matches,
+                self.search_state.current_match,
+            ) {
+                log::warn!("Render error: {:?}", e);
+            }
+
+            // Draw search bar overlay
+            if let Err(e) = renderer.draw_search_bar(
+                &self.search_state.query,
+                self.search_state.matches.len(),
+                self.search_state.current_match,
+            ) {
+                log::warn!("Search bar render error: {:?}", e);
+            }
+        } else if self.search_state.active {
+            // Search bar is active but no matches yet
+            if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
+                log::warn!("Render error: {:?}", e);
+            }
+            if let Err(e) = renderer.draw_search_bar(
+                &self.search_state.query,
+                0,
+                0,
+            ) {
+                log::warn!("Search bar render error: {:?}", e);
+            }
+        } else {
+            if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
+                log::warn!("Render error: {:?}", e);
+            }
         }
 
         self.needs_redraw = false;

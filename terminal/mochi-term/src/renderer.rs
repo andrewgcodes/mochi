@@ -551,4 +551,353 @@ impl Renderer {
     fn rgb_to_pixel(r: u8, g: u8, b: u8) -> u32 {
         0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
     }
+
+    /// Draw search bar overlay at the top of the terminal
+    pub fn draw_search_bar(
+        &mut self,
+        query: &str,
+        match_count: usize,
+        current_match: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let width = self.width;
+        let height = self.height;
+
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+
+        // Resize surface
+        self.surface.resize(
+            NonZeroU32::new(width).unwrap(),
+            NonZeroU32::new(height).unwrap(),
+        )?;
+
+        // Search bar dimensions
+        let bar_height = (self.cell_size.height * 1.5) as i32;
+        let bar_y = 0;
+        let bar_bg = (50, 50, 60);
+        let text_color = (220, 220, 220);
+        let border_color = (100, 100, 120);
+
+        // Pre-cache all glyphs we'll need BEFORE getting the buffer
+        let label = "Find: ";
+        let display_text = format!("{}{}", label, query);
+        for c in display_text.chars() {
+            self.ensure_glyph_cached(c, false);
+        }
+
+        // Pre-cache match count text glyphs
+        let match_text = if match_count > 0 {
+            format!("{}/{}", current_match + 1, match_count)
+        } else if !query.is_empty() {
+            "No matches".to_string()
+        } else {
+            String::new()
+        };
+        for c in match_text.chars() {
+            self.ensure_glyph_cached(c, false);
+        }
+
+        // Now get the buffer and draw
+        let mut buffer = self.surface.buffer_mut()?;
+
+        // Draw search bar background
+        Self::fill_rect_static(
+            &mut buffer,
+            0,
+            bar_y,
+            width as i32,
+            bar_height,
+            bar_bg,
+            width,
+            height,
+        );
+
+        // Draw bottom border
+        Self::fill_rect_static(
+            &mut buffer,
+            0,
+            bar_y + bar_height - 2,
+            width as i32,
+            2,
+            border_color,
+            width,
+            height,
+        );
+
+        // Draw "Find: " label and query
+        let mut x = 8;
+        let y = bar_y + (bar_height - self.cell_size.height as i32) / 2;
+
+        for c in display_text.chars() {
+            if let Some(glyph) = self.glyph_cache.get(&(c, false)) {
+                Self::draw_glyph_static(
+                    &mut buffer,
+                    x,
+                    y,
+                    glyph,
+                    text_color,
+                    self.cell_size.baseline,
+                    width,
+                    height,
+                );
+            }
+            x += self.cell_size.width as i32;
+        }
+
+        // Draw cursor after query
+        let cursor_x = x;
+        let cursor_height = self.cell_size.height as i32 - 4;
+        let cursor_y = y + 2;
+        Self::fill_rect_static(
+            &mut buffer,
+            cursor_x,
+            cursor_y,
+            2,
+            cursor_height,
+            text_color,
+            width,
+            height,
+        );
+
+        // Draw match count on the right side
+        if !match_text.is_empty() {
+            let match_text_width = match_text.len() as i32 * self.cell_size.width as i32;
+            let match_x = width as i32 - match_text_width - 16;
+
+            for (i, c) in match_text.chars().enumerate() {
+                if let Some(glyph) = self.glyph_cache.get(&(c, false)) {
+                    Self::draw_glyph_static(
+                        &mut buffer,
+                        match_x + (i as i32 * self.cell_size.width as i32),
+                        y,
+                        glyph,
+                        text_color,
+                        self.cell_size.baseline,
+                        width,
+                        height,
+                    );
+                }
+            }
+        }
+
+        buffer.present()?;
+        Ok(())
+    }
+
+    /// Render terminal with search highlights
+    pub fn render_with_search(
+        &mut self,
+        screen: &Screen,
+        selection: &Selection,
+        scroll_offset: usize,
+        search_matches: &[(isize, usize, usize)],
+        current_match_idx: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let width = self.width;
+        let height = self.height;
+
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+
+        // Resize surface
+        self.surface.resize(
+            NonZeroU32::new(width).unwrap(),
+            NonZeroU32::new(height).unwrap(),
+        )?;
+
+        // Pre-cache colors we'll need
+        let bg_color = self.colors.background_rgb();
+        let fg_color = self.colors.foreground_rgb();
+        let sel_color = self.colors.selection_rgb();
+        let cursor_color = self.colors.cursor_rgb();
+        let search_highlight = (255, 200, 0); // Yellow highlight for search matches
+        let current_match_highlight = (255, 100, 0); // Orange for current match
+        let cell_width_px = self.cell_size.width;
+        let cell_height_px = self.cell_size.height;
+        let baseline = self.cell_size.baseline;
+
+        let cols = screen.cols();
+        let rows = screen.rows();
+        let scrollback = screen.scrollback();
+        let scrollback_len = scrollback.len();
+
+        // Pre-cache all glyphs we'll need
+        for row in 0..rows {
+            let line = if scroll_offset > 0 {
+                let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                if scrollback_row < scrollback_len {
+                    if let Some(sb_line) = scrollback.get(scrollback_row) {
+                        for col in 0..cols.min(sb_line.cols()) {
+                            let cell = sb_line.cell(col);
+                            if !cell.is_continuation() && !cell.is_empty() {
+                                let c = cell.display_char();
+                                if c != ' ' {
+                                    self.ensure_glyph_cached(c, cell.attrs.bold);
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                } else {
+                    let screen_row = scrollback_row - scrollback_len;
+                    if screen_row < rows {
+                        screen.line(screen_row)
+                    } else {
+                        continue;
+                    }
+                }
+            } else {
+                screen.line(row)
+            };
+
+            for col in 0..cols {
+                let cell = line.cell(col);
+                if !cell.is_continuation() && !cell.is_empty() {
+                    let c = cell.display_char();
+                    if c != ' ' {
+                        self.ensure_glyph_cached(c, cell.attrs.bold);
+                    }
+                }
+            }
+        }
+
+        let mut buffer = self.surface.buffer_mut()?;
+
+        // Clear with background color
+        let bg_pixel = Self::rgb_to_pixel(bg_color.0, bg_color.1, bg_color.2);
+        buffer.fill(bg_pixel);
+
+        let cursor = screen.cursor();
+
+        // Render each cell
+        for row in 0..rows {
+            let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
+                let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                if scrollback_row < scrollback_len {
+                    if let Some(sb_line) = scrollback.get(scrollback_row) {
+                        (sb_line, true, None)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    let screen_row = scrollback_row - scrollback_len;
+                    if screen_row < rows {
+                        (screen.line(screen_row), false, Some(screen_row))
+                    } else {
+                        continue;
+                    }
+                }
+            } else {
+                (screen.line(row), false, Some(row))
+            };
+
+            // Calculate the logical row for search matching
+            let logical_row = if scroll_offset > 0 {
+                let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                if scrollback_row < scrollback_len {
+                    -((scrollback_len - scrollback_row) as isize)
+                } else {
+                    (scrollback_row - scrollback_len) as isize
+                }
+            } else {
+                row as isize
+            };
+
+            for col in 0..cols.min(line.cols()) {
+                let cell = line.cell(col);
+
+                if cell.is_continuation() {
+                    continue;
+                }
+
+                let x = (col as f32 * cell_width_px) as i32;
+                let y = (row as f32 * cell_height_px) as i32;
+
+                // Check if this cell is part of a search match
+                let mut is_search_match = false;
+                let mut is_current_match = false;
+                for (idx, (match_row, start_col, end_col)) in search_matches.iter().enumerate() {
+                    if *match_row == logical_row && col >= *start_col && col < *end_col {
+                        is_search_match = true;
+                        is_current_match = idx == current_match_idx;
+                        break;
+                    }
+                }
+
+                let is_selected = selection.contains(col, row as isize);
+                let is_cursor = !is_from_scrollback
+                    && scroll_offset == 0
+                    && cursor.visible
+                    && actual_screen_row == Some(cursor.row)
+                    && cursor.col == col;
+
+                let (fg, bg) = if is_current_match {
+                    ((0, 0, 0), current_match_highlight)
+                } else if is_search_match {
+                    ((0, 0, 0), search_highlight)
+                } else if is_selected {
+                    (fg_color, sel_color)
+                } else if is_cursor {
+                    (bg_color, cursor_color)
+                } else {
+                    let fg = Self::resolve_color_static(
+                        &self.colors,
+                        &cell.attrs.effective_fg(),
+                        true,
+                        fg_color,
+                        bg_color,
+                    );
+                    let bg = Self::resolve_color_static(
+                        &self.colors,
+                        &cell.attrs.effective_bg(),
+                        false,
+                        fg_color,
+                        bg_color,
+                    );
+                    (fg, bg)
+                };
+
+                // Draw background
+                let cell_w = (cell.width() as f32 * cell_width_px) as i32;
+                let cell_h = cell_height_px as i32;
+                Self::fill_rect_static(&mut buffer, x, y, cell_w, cell_h, bg, width, height);
+
+                // Draw character
+                let c = cell.display_char();
+                if c != ' ' && !cell.is_empty() {
+                    if let Some(glyph) = self.glyph_cache.get(&(c, cell.attrs.bold)) {
+                        Self::draw_glyph_static(
+                            &mut buffer,
+                            x,
+                            y,
+                            glyph,
+                            fg,
+                            baseline,
+                            width,
+                            height,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Draw scrollbar if there's scrollback content
+        if scrollback_len > 0 {
+            Self::draw_scrollbar_static(
+                &mut buffer,
+                scroll_offset,
+                scrollback_len,
+                rows,
+                width,
+                height,
+            );
+        }
+
+        // Present
+        buffer.present()?;
+
+        Ok(())
+    }
 }
