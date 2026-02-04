@@ -12,7 +12,8 @@ mod terminal;
 use std::error::Error;
 
 use app::App;
-use config::Config;
+use clap::Parser;
+use config::{CliArgs, Config};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logging
@@ -20,8 +21,20 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     log::info!("Starting Mochi Terminal");
 
-    // Load configuration
-    let config = Config::load().unwrap_or_default();
+    // Parse CLI arguments
+    let args = CliArgs::parse();
+
+    // Load configuration with precedence: CLI > env > file > defaults
+    let config = match Config::load_with_args(&args) {
+        Ok(config) => config,
+        Err(e) => {
+            log::error!("Configuration error: {}", e);
+            eprintln!("Configuration error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    log::info!("Using theme: {:?}", config.theme);
 
     // Run the application
     let app = App::new(config)?;
