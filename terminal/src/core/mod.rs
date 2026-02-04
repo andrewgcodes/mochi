@@ -9,6 +9,7 @@ mod line;
 mod modes;
 mod screen;
 mod scrollback;
+pub mod selection;
 pub mod snapshot;
 
 pub use cell::{Cell, CellAttributes, Color};
@@ -17,4 +18,5 @@ pub use line::Line;
 pub use modes::{Modes, MouseEncoding, MouseMode};
 pub use screen::Screen;
 pub use scrollback::Scrollback;
+pub use selection::{Selection, SelectionManager, SelectionPoint, SelectionType};
 pub use snapshot::{CompactSnapshot, Snapshot};
