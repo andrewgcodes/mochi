@@ -988,4 +988,86 @@ mod tests {
         scheme.foreground = "invalid".to_string();
         assert!(scheme.validate().is_err());
     }
+
+    #[test]
+    fn test_parsed_keybinding_parse() {
+        let kb = ParsedKeybinding::parse("Ctrl+Shift+C").unwrap();
+        assert!(kb.ctrl);
+        assert!(kb.shift);
+        assert!(!kb.alt);
+        assert_eq!(kb.key, "C");
+
+        let kb = ParsedKeybinding::parse("Alt+F4").unwrap();
+        assert!(!kb.ctrl);
+        assert!(!kb.shift);
+        assert!(kb.alt);
+        assert_eq!(kb.key, "F4");
+
+        let kb = ParsedKeybinding::parse("Ctrl+Plus").unwrap();
+        assert!(kb.ctrl);
+        assert!(!kb.shift);
+        assert!(!kb.alt);
+        assert_eq!(kb.key, "PLUS");
+
+        // Empty key should return None
+        assert!(ParsedKeybinding::parse("Ctrl+Shift+").is_none());
+    }
+
+    #[test]
+    fn test_parsed_keybinding_matches() {
+        let kb = ParsedKeybinding::parse("Ctrl+Shift+C").unwrap();
+        assert!(kb.matches(true, false, true, "C"));
+        assert!(kb.matches(true, false, true, "c")); // Case insensitive
+        assert!(!kb.matches(true, false, false, "C")); // Missing shift
+        assert!(!kb.matches(false, false, true, "C")); // Missing ctrl
+        assert!(!kb.matches(true, false, true, "V")); // Wrong key
+    }
+
+    #[test]
+    fn test_keybindings_match_key() {
+        let keybindings = Keybindings::default();
+
+        // Test default keybindings
+        assert_eq!(
+            keybindings.match_key(true, false, true, "C"),
+            Some(KeyAction::Copy)
+        );
+        assert_eq!(
+            keybindings.match_key(true, false, true, "V"),
+            Some(KeyAction::Paste)
+        );
+        assert_eq!(
+            keybindings.match_key(true, false, true, "T"),
+            Some(KeyAction::ToggleTheme)
+        );
+        assert_eq!(
+            keybindings.match_key(true, false, true, "R"),
+            Some(KeyAction::ReloadConfig)
+        );
+        assert_eq!(
+            keybindings.match_key(true, false, true, "F"),
+            Some(KeyAction::Find)
+        );
+
+        // Test non-matching
+        assert_eq!(keybindings.match_key(false, false, false, "C"), None);
+        assert_eq!(keybindings.match_key(true, false, false, "X"), None);
+    }
+
+    #[test]
+    fn test_keybindings_toml_parsing() {
+        let toml_str = r#"
+            [keybindings]
+            copy = "Ctrl+C"
+            paste = "Ctrl+V"
+            toggle_theme = "Alt+T"
+        "#;
+
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.keybindings.copy, "Ctrl+C");
+        assert_eq!(config.keybindings.paste, "Ctrl+V");
+        assert_eq!(config.keybindings.toggle_theme, "Alt+T");
+        // Defaults should still be used for unspecified keybindings
+        assert_eq!(config.keybindings.reload_config, "Ctrl+Shift+R");
+    }
 }
