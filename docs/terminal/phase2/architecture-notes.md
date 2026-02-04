@@ -1,215 +1,312 @@
-# Mochi Terminal - Phase 2 Architecture Notes
+# Mochi Terminal Architecture Notes
+
+This document describes the architecture of the Mochi Terminal emulator as of Phase 2 development.
 
 ## Overview
 
-Mochi Terminal is a VT/xterm-compatible terminal emulator built from scratch in Rust. It uses a 4-crate workspace architecture with clear separation of concerns.
+Mochi Terminal is a VT/xterm-compatible terminal emulator built from scratch in Rust. It does not use any terminal emulation libraries - all parsing, screen management, and rendering are implemented directly.
 
 ## Crate Structure
 
+The terminal is organized into four crates with clear separation of concerns:
+
 ```
 terminal/
-├── Cargo.toml              # Workspace configuration
-├── terminal-core/          # Core terminal state (screen, grid, cursor, etc.)
-├── terminal-parser/        # VT/xterm escape sequence parser
-├── terminal-pty/           # Linux PTY management
-└── mochi-term/             # GUI application (winit + softbuffer + fontdue)
+├── mochi-term/       # Main application (GUI, config, rendering)
+├── terminal-core/    # Platform-independent terminal state
+├── terminal-parser/  # VT/xterm escape sequence parser
+└── terminal-pty/     # Linux PTY management
 ```
 
-### 1. terminal-core
+### terminal-core (Platform-Independent State)
 
-**Purpose**: Core terminal state management without any I/O or rendering concerns.
+This crate provides the core data structures for terminal emulation. It is designed to be deterministic - given the same sequence of operations, it produces the same screen state.
 
-**Key Types**:
-- `Screen` - Main interface tying together grid, cursor, scrollback, modes, selection
-- `Grid` - 2D array of cells (primary and alternate screens)
+Key types:
+- `Screen` - Main interface tying together grid, cursor, scrollback, modes, and selection
+- `Grid` - 2D array of cells representing visible terminal content
 - `Line` - Single row of cells with wrap tracking
-- `Cell` / `CellAttributes` - Individual character cell with styling
-- `Cursor` / `SavedCursor` - Cursor position and attributes
-- `Scrollback` - Ring buffer for scrolled-off lines
-- `Selection` - Text selection state (Normal/Word/Line/Block types)
-- `Modes` - Terminal mode flags (auto-wrap, origin, mouse tracking, etc.)
-- `Color` - Color enum (Default, Indexed 0-255, RGB)
-- `CharsetState` - G0-G3 character set designations
+- `Cell` - Individual character with attributes (colors, bold, italic, etc.)
+- `CellAttributes` - Text styling (fg/bg color, bold, italic, underline, etc.)
+- `Cursor` - Position, style, visibility, and pending attributes
+- `Scrollback` - Ring buffer of historical lines
+- `Selection` - Text selection state (Normal, Word, Line, Block types)
+- `Modes` - Terminal mode flags (insert, autowrap, mouse tracking, etc.)
+- `Color` - Color representation (Default, Indexed 0-255, RGB)
+- `Dimensions` - Terminal size (cols, rows)
+- `CharsetState` - G0-G3 character set designation and shifting
 
-**Key Features**:
-- Primary/alternate screen support (for vim, htop, etc.)
-- Scroll regions (DECSTBM)
-- Tab stops
-- Hyperlink registry
-- Unicode width handling
+### terminal-parser (Escape Sequence Parser)
 
-### 2. terminal-parser
+Streaming parser that converts byte input into semantic terminal actions. Handles arbitrary chunk boundaries and supports UTF-8.
 
-**Purpose**: Streaming parser for VT/xterm escape sequences.
-
-**Key Types**:
-- `Parser` / `ParserState` - State machine for parsing byte streams
+Key types:
+- `Parser` - State machine for parsing escape sequences
+- `ParserState` - Current parser state (Ground, Escape, CSI, OSC, etc.)
 - `Action` - Parsed action enum (Print, Control, Esc, Csi, Osc, Dcs, etc.)
 - `CsiAction` - CSI sequence with params, intermediates, final byte
-- `EscAction` - ESC sequence actions
-- `OscAction` - OSC sequence actions (title, hyperlinks, clipboard, colors)
-- `Params` - Parameter list for CSI sequences
+- `EscAction` - ESC sequence actions (SaveCursor, Index, DesignateG0, etc.)
+- `OscAction` - OSC sequence actions (SetTitle, SetHyperlink, etc.)
+- `Params` - Parameter iterator for CSI sequences
 
-**Design**:
-- Handles arbitrary chunk boundaries (streaming)
-- UTF-8 aware
-- Deterministic state machine
+Supported sequences:
+- C0 control characters (BEL, BS, HT, LF, CR, etc.)
+- ESC sequences (DECSC, DECRC, IND, RI, NEL, HTS, RIS, charset designation)
+- CSI sequences (cursor movement, erase, scroll, SGR, modes, etc.)
+- OSC sequences (title, hyperlinks)
+- DCS sequences (parsed but not fully implemented)
 
-### 3. terminal-pty
+### terminal-pty (PTY Management)
 
-**Purpose**: Linux pseudoterminal management.
+Linux-specific PTY functionality for spawning and managing child processes.
 
-**Key Types**:
-- `Pty` - PTY master/slave pair
-- `Child` - Child process with PTY
+Key types:
+- `Pty` - Pseudoterminal file descriptor management
+- `Child` - Child process with PTY attachment
 - `WindowSize` - Terminal dimensions for TIOCSWINSZ
+- `Error` / `Result` - PTY-specific error handling
 
-**Features**:
-- PTY creation via `posix_openpt` (Linux) or `openpty` (macOS)
-- Session setup with `setsid`, `TIOCSCTTY`
+Features:
+- PTY creation via posix_openpt/grantpt/unlockpt
+- Child process spawning with proper session setup
 - Non-blocking I/O
-- Window size management
+- Window size management (TIOCSWINSZ)
 
-### 4. mochi-term
+### mochi-term (Main Application)
 
-**Purpose**: GUI application integrating all components.
+The GUI application that ties everything together.
 
-**Key Modules**:
-- `app.rs` - Main application state and event loop
-- `config.rs` - Configuration loading/saving (TOML, XDG paths)
-- `renderer.rs` - CPU-based rendering (softbuffer + fontdue)
+Key modules:
+- `main.rs` - Entry point, logging setup, config loading
+- `app.rs` - Application state, event loop, window management
 - `terminal.rs` - Terminal state integrating parser and screen
-- `input.rs` - Keyboard/mouse input encoding
-- `event.rs` - Event types
-
-**Dependencies**:
-- `winit 0.29` - Window creation and event loop
-- `softbuffer 0.4` - CPU-based framebuffer
-- `fontdue 0.9` - Font rasterization
-- `arboard 3.4` - Clipboard access
-- `toml 0.8` - Config file parsing
-- `dirs 5.0` - XDG directory paths
+- `renderer.rs` - CPU-based rendering with softbuffer and fontdue
+- `config.rs` - Configuration loading/saving, themes, color schemes
+- `input.rs` - Keyboard/mouse input encoding to escape sequences
+- `event.rs` - Terminal event types
 
 ## Data Flow
 
-### Input Flow (User -> Shell)
 ```
 User Input (keyboard/mouse)
-    ↓
-winit WindowEvent
-    ↓
-App::handle_key_input() / handle_mouse_input()
-    ↓
-input.rs encode_key() / encode_mouse()
-    ↓
-Child::write_all() -> PTY master
-    ↓
-Shell process reads from PTY slave
+    │
+    ▼
+┌─────────────────┐
+│   App (winit)   │ ◄── Window events, resize, focus
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  input.rs       │ ◄── Encode to escape sequences
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   PTY (write)   │ ◄── Send to child process
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Shell/Program  │ ◄── Child process
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   PTY (read)    │ ◄── Read output
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│     Parser      │ ◄── Parse escape sequences
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│    Terminal     │ ◄── Handle actions, update screen
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│     Screen      │ ◄── Grid, cursor, scrollback, modes
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│    Renderer     │ ◄── Rasterize glyphs, composite
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   softbuffer    │ ◄── Present to window
+└─────────────────┘
 ```
 
-### Output Flow (Shell -> Display)
-```
-Shell writes to PTY slave
-    ↓
-App::poll_pty() reads from PTY master
-    ↓
-Terminal::process(bytes)
-    ↓
-Parser::parse() -> Actions
-    ↓
-Terminal::handle_action() -> Screen mutations
-    ↓
-App::render()
-    ↓
-Renderer::render(screen, selection, scroll_offset)
-    ↓
-softbuffer Surface::present()
-```
+## Key Data Types
 
-## Threading Model
-
-**Single-threaded**: All operations run on the main thread.
-- Event loop polls for window events
-- PTY is set to non-blocking mode
-- `poll_pty()` called in `AboutToWait` event
-
-## Memory Management
-
-- **Scrollback**: Bounded ring buffer (default 10,000 lines)
-- **Glyph Cache**: HashMap cleared on font size change
-- **Parser Buffers**: Fixed-size internal buffers
-
-## Current Config System
-
-Located in `mochi-term/src/config.rs`:
+### Cell and Attributes
 
 ```rust
-pub struct Config {
-    pub font_family: String,      // "monospace"
-    pub font_size: f32,           // 14.0
-    pub scrollback_lines: usize,  // 10000
-    pub dimensions: (u16, u16),   // (80, 24)
-    pub theme: ThemeName,         // Dark/Light/SolarizedDark/etc.
-    pub colors: ColorScheme,      // Custom colors when theme=Custom
-    pub osc52_clipboard: bool,    // false (disabled for security)
-    pub osc52_max_size: usize,    // 100000
-    pub shell: Option<String>,    // None (use $SHELL)
-    pub cursor_style: String,     // "block"
-    pub cursor_blink: bool,       // true
+struct Cell {
+    c: char,           // Character (or '\0' for empty)
+    attrs: CellAttributes,
+    hyperlink_id: u32, // 0 = no hyperlink
+}
+
+struct CellAttributes {
+    fg: Color,
+    bg: Color,
+    bold: bool,
+    faint: bool,
+    italic: bool,
+    underline: bool,
+    blink: bool,
+    inverse: bool,
+    hidden: bool,
+    strikethrough: bool,
 }
 ```
 
-**Config Path**: `~/.config/mochi/config.toml` (XDG)
+### Color
 
-**Existing Themes**: Dark, Light, SolarizedDark, SolarizedLight, Dracula, Nord, Custom
+```rust
+enum Color {
+    Default,           // Use theme default
+    Indexed(u8),       // 0-15 ANSI, 16-255 extended
+    Rgb { r, g, b },   // True color
+}
+```
+
+### Screen State
+
+```rust
+struct Screen {
+    primary_grid: Grid,
+    alternate_grid: Grid,
+    using_alternate: bool,
+    scrollback: Scrollback,
+    cursor: Cursor,
+    saved_cursor_primary: SavedCursor,
+    saved_cursor_alternate: SavedCursor,
+    modes: Modes,
+    scroll_region: Option<(usize, usize)>,
+    tab_stops: Vec<bool>,
+    selection: Selection,
+    title: String,
+    hyperlinks: Vec<String>,
+    charset: CharsetState,
+}
+```
+
+### Terminal Modes
+
+```rust
+struct Modes {
+    insert_mode: bool,
+    linefeed_mode: bool,
+    cursor_keys_application: bool,
+    auto_wrap: bool,
+    cursor_visible: bool,
+    mouse_vt200: bool,
+    mouse_button_event: bool,
+    mouse_any_event: bool,
+    mouse_sgr: bool,
+    focus_events: bool,
+    alternate_screen: bool,
+    bracketed_paste: bool,
+    // ... more
+}
+```
+
+## Configuration System (Current State)
+
+The current config system uses TOML and supports:
+- Font family and size
+- Scrollback lines
+- Window dimensions
+- Theme selection (Dark, Light, SolarizedDark, SolarizedLight, Dracula, Nord, Custom)
+- Color scheme (16 ANSI colors + fg/bg/cursor/selection)
+- OSC 52 clipboard settings (disabled by default)
+- Shell command
+- Cursor style and blink
+
+Config location: `~/.config/mochi/config.toml` (via dirs crate)
+
+## Rendering Pipeline
+
+1. **Glyph Caching**: Characters are rasterized once using fontdue and cached
+2. **Cell Iteration**: Iterate over visible cells (including scrollback if scrolled)
+3. **Color Resolution**: Resolve Color enum to RGB using theme
+4. **Background Fill**: Fill cell rectangle with background color
+5. **Glyph Drawing**: Alpha-blend glyph bitmap onto background
+6. **Selection Overlay**: Apply selection highlighting
+7. **Cursor Overlay**: Draw cursor at current position
+8. **Scrollbar**: Draw scrollbar if scrollback exists
+9. **Present**: Copy buffer to window via softbuffer
 
 ## Where to Add Phase 2 Features
 
-### M1: Config System Foundation
-- Extend `config.rs` with CLI argument parsing (use `clap` or manual)
-- Add config validation with clear error messages
+### Config System (M1)
+- Extend `config.rs` with CLI argument parsing (clap)
 - Add environment variable support
-- Keep existing `Config::load()` but add precedence logic
+- Implement config validation with clear error messages
+- Add precedence logic (CLI > env > file > defaults)
 
-### M2: Themes
-- Themes already exist in `config.rs` (ColorScheme methods)
-- Need to add runtime theme switching (keybinding -> update renderer colors)
-- Renderer stores `colors: ColorScheme` - need method to update it
+### Themes (M2)
+- Theme definitions already exist in `config.rs` (ColorScheme)
+- Add runtime theme switching in `app.rs`
+- Add keybinding for theme toggle
+- Renderer already accepts ColorScheme, just needs method to update it
 
-### M3: Font Customization
-- `Renderer::new()` loads bundled DejaVu fonts
-- `Renderer::set_font_size()` exists - clears glyph cache, recalculates cell size
-- Need to add font family loading (fontconfig or file path)
-- Need fallback font support for missing glyphs
+### Font Customization (M3)
+- Font loading already in `renderer.rs`
+- Add font family selection (fontconfig or bundled fonts)
+- Add fallback font chain
+- Cell padding/line height adjustments in CellSize calculation
+- PTY resize already handled in `app.rs` change_font_size
 
-### M4: Keybinding Customization
-- Currently hardcoded in `App::handle_key_input()`
-- Need keybinding config struct and action dispatch
-- Actions: Copy, Paste, Find, ReloadConfig, ToggleTheme
+### Keybindings (M4)
+- Add keybinding config to `config.rs`
+- Add keybinding parser and action mapper
+- Modify `handle_key_input` in `app.rs` to check custom bindings first
+- Reserve Ctrl+Shift+* combinations for app shortcuts
 
-### M5: UX Polish
-- Selection exists in `terminal-core/src/selection.rs`
-- Need word/line selection (double/triple click)
-- Need search UI overlay (not in terminal state)
-- Hyperlinks exist (OSC 8) - need click handling
+### UX Polish (M5)
+- Selection types defined in `terminal-core/selection.rs`
+- Add word/line selection logic based on click count
+- Add search UI overlay in renderer
+- Add search state to App
+- Hyperlink rendering already partially supported (hyperlink_id in Cell)
 
-### M6: Config Reload + Safety
-- Add reload keybinding
-- Add file watcher (optional)
-- OSC 52 already has `osc52_clipboard` flag and `osc52_max_size`
-- Title throttling: `Screen::set_title()` already limits to 4096 chars
+### Config Reload (M6)
+- Add reload keybinding handler in `app.rs`
+- Add file watcher (notify crate) for auto-reload
+- Add error display mechanism (toast/status line)
+- Security: OSC 52 already has osc52_clipboard and osc52_max_size settings
 
-## Key Invariants to Preserve
+## Dependencies
 
-1. **Parser is stateless between calls** - can be reset without side effects
-2. **Screen owns all terminal state** - cursor, grid, modes, selection
-3. **Renderer is pure** - takes screen snapshot, produces pixels
-4. **PTY is non-blocking** - poll in event loop, don't block
-5. **No terminal emulation dependencies** - all VT parsing is custom
+Current dependencies (relevant to Phase 2):
+- `winit 0.29` - Windowing and event loop
+- `softbuffer 0.4` - CPU-based window surface
+- `fontdue 0.9` - Font rasterization
+- `arboard 3.4` - Clipboard access
+- `toml 0.8` - Config parsing
+- `serde 1.0` - Serialization
+- `dirs 5.0` - XDG directory paths
+- `env_logger 0.11` - Logging
+- `unicode-width 0.1` - Character width calculation
+- `nix 0.29` - Unix system calls (PTY)
 
-## Testing Strategy
+Potential additions for Phase 2:
+- `clap` - CLI argument parsing
+- `notify` - File watching (optional)
 
-- **Unit tests**: In each crate's `tests` module
-- **Integration tests**: `Terminal::process()` with escape sequences
-- **Golden tests**: Snapshot screen state after processing input
-- **Manual tests**: Visual inspection with screenshots
+## Test Coverage
+
+Current test counts:
+- mochi-term: 19 tests (config, terminal, input)
+- terminal-core: 76 tests (screen, grid, cell, cursor, selection, etc.)
+- terminal-parser: 33 tests (parser, params, utf8)
+- terminal-pty: 11 tests (pty, child, size)
+
+Total: 139 tests, all passing.

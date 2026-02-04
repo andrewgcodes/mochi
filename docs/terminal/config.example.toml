@@ -4,8 +4,8 @@
 # Copy this file to ~/.config/mochi/config.toml and customize as needed.
 #
 # Configuration precedence (highest to lowest):
-# 1. CLI arguments (e.g., --theme dark)
-# 2. Environment variables (e.g., MOCHI_THEME=dark)
+# 1. CLI arguments (e.g., --font-size 16)
+# 2. Environment variables (e.g., MOCHI_FONT_SIZE=16)
 # 3. This config file
 # 4. Built-in defaults
 
@@ -13,27 +13,26 @@
 # Font Settings
 # =============================================================================
 
-# Font family name (system font or bundled font)
+# Font family name. Use a monospace font for best results.
 # Default: "monospace"
 font_family = "monospace"
 
-# Font size in points
-# Valid range: 6.0 - 128.0
+# Font size in points.
+# Valid range: 6.0 to 128.0
 # Default: 14.0
 font_size = 14.0
 
 # =============================================================================
-# Terminal Dimensions
+# Window Settings
 # =============================================================================
 
-# Initial window dimensions as [columns, rows]
-# Columns valid range: 10 - 1000
-# Rows valid range: 5 - 500
+# Initial window dimensions as [columns, rows].
+# Valid ranges: columns 10-1000, rows 5-500
 # Default: [80, 24]
 dimensions = [80, 24]
 
-# Number of lines to keep in scrollback buffer
-# Valid range: 0 - 1,000,000
+# Number of lines to keep in scrollback buffer.
+# Valid range: 0 to 1000000
 # Default: 10000
 scrollback_lines = 10000
 
@@ -41,35 +40,35 @@ scrollback_lines = 10000
 # Theme Settings
 # =============================================================================
 
-# Theme name
-# Available built-in themes:
-#   - "dark" (default) - VS Code inspired dark theme
-#   - "light" - Clean light theme
-#   - "solarized-dark" - Solarized dark palette
-#   - "solarized-light" - Solarized light palette
-#   - "dracula" - Dracula theme
-#   - "nord" - Nord theme
-#   - "monokai" - Monokai theme
-#   - "gruvbox-dark" - Gruvbox dark theme
-#   - "custom" - Use the [colors] section below
+# Theme name. Available built-in themes:
+# - "dark"           (default, VS Code inspired dark theme)
+# - "light"          (VS Code inspired light theme)
+# - "solarized-dark" (Solarized dark color scheme)
+# - "solarized-light"(Solarized light color scheme)
+# - "dracula"        (Dracula color scheme)
+# - "nord"           (Nord color scheme)
+# - "custom"         (use the [colors] section below)
+#
+# Default: "dark"
 theme = "dark"
 
 # =============================================================================
-# Custom Color Scheme (only used when theme = "custom")
+# Custom Color Scheme
 # =============================================================================
+# Only used when theme = "custom"
+# All colors are specified as hex strings (with or without # prefix)
 
 [colors]
-# All colors are specified as hex strings (#RRGGBB)
-
 # Main colors
 foreground = "#d4d4d4"
 background = "#1e1e1e"
 cursor = "#ffffff"
 selection = "#264f78"
 
-# ANSI 16-color palette
-# Colors 0-7: Normal colors
-# Colors 8-15: Bright colors
+# ANSI colors (16 colors: 8 normal + 8 bright)
+# Order: black, red, green, yellow, blue, magenta, cyan, white,
+#        bright_black, bright_red, bright_green, bright_yellow,
+#        bright_blue, bright_magenta, bright_cyan, bright_white
 ansi = [
     "#000000",  # 0: Black
     "#cd3131",  # 1: Red
@@ -105,21 +104,75 @@ cursor_blink = true
 # Shell Settings
 # =============================================================================
 
-# Shell command to run (optional)
-# If not specified, uses the SHELL environment variable
+# Shell command to run. If not specified, uses $SHELL environment variable.
+# Default: not set (uses $SHELL)
 # shell = "/bin/bash"
+
+# =============================================================================
+# Layout Settings
+# =============================================================================
+
+# Line height multiplier. Affects vertical spacing between lines.
+# Valid range: 1.0 to 3.0
+# Default: 1.4
+line_height = 1.4
+
+# Cell padding as [horizontal, vertical] in pixels.
+# Adds extra space around each character cell.
+# Default: [0.0, 0.0]
+cell_padding = [0.0, 0.0]
+
+# =============================================================================
+# Keybindings
+# =============================================================================
+# Format: "Modifier+Modifier+Key"
+# Available modifiers: Ctrl, Alt, Shift
+# Examples: "Ctrl+Shift+C", "Alt+T", "Ctrl+Plus"
+
+[keybindings]
+# Copy selection to clipboard
+# Default: "Ctrl+Shift+C"
+copy = "Ctrl+Shift+C"
+
+# Paste from clipboard
+# Default: "Ctrl+Shift+V"
+paste = "Ctrl+Shift+V"
+
+# Cycle through themes (dark -> light -> solarized-dark -> etc.)
+# Default: "Ctrl+Shift+T"
+toggle_theme = "Ctrl+Shift+T"
+
+# Reload configuration from file
+# Default: "Ctrl+Shift+R"
+reload_config = "Ctrl+Shift+R"
+
+# Open search bar (not yet implemented)
+# Default: "Ctrl+Shift+F"
+find = "Ctrl+Shift+F"
+
+# Increase font size
+# Default: "Ctrl+Plus"
+zoom_in = "Ctrl+Plus"
+
+# Decrease font size
+# Default: "Ctrl+Minus"
+zoom_out = "Ctrl+Minus"
+
+# Reset font size to default
+# Default: "Ctrl+0"
+zoom_reset = "Ctrl+0"
 
 # =============================================================================
 # Security Settings
 # =============================================================================
 
-# Enable OSC 52 clipboard support
-# WARNING: This allows applications to read/write your clipboard via escape sequences.
-# This is disabled by default for security reasons.
-# Default: false
+# Enable OSC 52 clipboard sequences.
+# WARNING: This allows programs to read/write your clipboard via escape sequences.
+# Only enable if you trust all programs you run in the terminal.
+# Default: false (disabled for security)
 osc52_clipboard = false
 
-# Maximum size (in bytes) for OSC 52 clipboard payloads
+# Maximum payload size for OSC 52 clipboard operations (in bytes).
 # This limits the amount of data that can be copied via escape sequences.
 # Default: 100000
 osc52_max_size = 100000
