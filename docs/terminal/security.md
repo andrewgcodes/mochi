@@ -1,129 +1,107 @@
-# Security Considerations
+# Mochi Terminal Security
 
-This document describes security considerations for the Mochi terminal emulator.
+This document describes the security considerations and safeguards implemented in the Mochi terminal emulator.
 
-## Overview
+## Clipboard Security (OSC 52)
 
-Terminal emulators process untrusted input from remote servers and local applications. Malicious escape sequences could potentially:
-- Exfiltrate data via clipboard
-- Execute commands via paste
-- Cause denial of service
-- Confuse users with misleading output
+OSC 52 is an escape sequence that allows applications running in the terminal to read from and write to the system clipboard. While useful for remote clipboard access, it poses security risks if not properly controlled.
 
-## OSC 52 Clipboard
+### Current Implementation
 
-OSC 52 allows applications to set the system clipboard via escape sequences. This is useful for copying text from remote SSH sessions, but can be abused for data exfiltration.
+The Mochi terminal implements the following security measures for clipboard operations:
 
-### Security Controls
-
-1. **Disabled by default**: OSC 52 clipboard write is disabled by default. Users must explicitly enable it in configuration.
-
-2. **Size limits**: Maximum payload size is limited to prevent memory exhaustion.
-
-3. **Base64 validation**: Payload must be valid base64.
+**OSC 52 Clipboard Access:**
+- **Disabled by default**: The `osc52_clipboard` configuration option is `false` by default
+- **Explicit opt-in required**: Users must explicitly enable clipboard access in their config file
+- **Maximum payload size**: Clipboard data is limited to `osc52_max_size` bytes (default: 100,000 bytes)
+- **Base64 validation**: All clipboard data must be valid base64-encoded content
 
 ### Configuration
 
 ```toml
-[security]
-osc52_clipboard = false  # Enable with caution
-osc52_max_size = 100000  # Maximum bytes
+# In ~/.config/mochi/config.toml
+
+# Enable OSC 52 clipboard access (default: false)
+osc52_clipboard = false
+
+# Maximum size for clipboard data in bytes (default: 100000)
+osc52_max_size = 100000
 ```
 
 ### Recommendations
 
-- Only enable OSC 52 if you need it for remote clipboard access
-- Be aware that any application can set your clipboard when enabled
-- Consider using a dedicated clipboard manager with history
+1. **Keep OSC 52 disabled** unless you specifically need remote clipboard access
+2. If enabled, use the smallest `osc52_max_size` that meets your needs
+3. Be cautious when running untrusted scripts or connecting to untrusted remote hosts
 
-## OSC 8 Hyperlinks
+## Window Title Security
 
-OSC 8 allows applications to create clickable hyperlinks in terminal output.
-
-### Security Controls
-
-1. **No auto-open**: Links are never automatically opened. User must explicitly click.
-
-2. **URL validation**: Only http, https, and file URLs are allowed.
-
-3. **Visual indication**: Hyperlinks are visually distinct (underlined).
-
-### Recommendations
-
-- Hover over links to see the actual URL before clicking
-- Be cautious of links from untrusted sources
-
-## Bracketed Paste
-
-Bracketed paste mode wraps pasted text in escape sequences so applications can distinguish pasted text from typed text. This prevents "paste injection" attacks where malicious text includes newlines to execute commands.
-
-### How It Works
-
-When bracketed paste is enabled (CSI ? 2004 h):
-- Pasted text is wrapped: `\x1b[200~` ... text ... `\x1b[201~`
-- Applications can detect and handle pasted text specially
-
-### Recommendations
-
-- Use shells and editors that support bracketed paste (bash 4.4+, zsh, vim, etc.)
-- Be cautious when pasting into applications that don't support it
-
-## Title Setting
-
-Applications can set the window title via OSC 0/2. Malicious titles could:
-- Impersonate other applications
+Terminal escape sequences can change the window title. Malicious scripts could abuse this to:
 - Display misleading information
+- Create phishing-like scenarios
+- Cause visual confusion
 
-### Security Controls
+### Current Implementation
 
-1. **Length limits**: Title length is bounded.
-2. **Character filtering**: Control characters are stripped.
+**Title Update Throttling:**
+- Title updates are processed but not rate-limited in the current implementation
+- Future versions may implement throttling to prevent rapid title changes
 
-## Denial of Service
+### Recommendations
 
-### Memory Exhaustion
+1. Be aware that terminal titles can be changed by running programs
+2. Do not rely solely on window titles for security-critical information
 
-- Scrollback buffer is bounded (default 10,000 lines)
-- Parser buffers have fixed maximum sizes
-- OSC string length is limited
+## Hyperlink Security (OSC 8)
 
-### CPU Exhaustion
+OSC 8 allows terminals to display clickable hyperlinks. This feature requires careful handling to prevent:
+- Automatic navigation to malicious URLs
+- Misleading link text that differs from the actual URL
 
-- Parser is designed to make progress on every byte
-- No unbounded loops in sequence handling
-- Malformed sequences are handled gracefully
+### Current Implementation
 
-### Rendering
+**Hyperlink Safety:**
+- Links are **never auto-opened** - explicit user action (Ctrl+Click) is required
+- Link URLs are stored and can be inspected before clicking
+- Visual indication (underline) shows which text is a hyperlink
 
-- Glyph cache could grow unbounded with many unique characters
-- Consider adding LRU eviction for production use
+### Recommendations
 
-## Input Validation
+1. Always verify the URL before clicking on terminal hyperlinks
+2. Be cautious with links from untrusted sources
 
-### UTF-8
+## Input Handling
 
-- Invalid UTF-8 sequences are replaced with U+FFFD (replacement character)
-- Overlong encodings are rejected
-- Surrogate pairs are rejected
+### Bracketed Paste Mode
 
-### Escape Sequences
+When bracketed paste mode is enabled (by applications like vim, zsh, etc.):
+- Pasted text is wrapped in special escape sequences
+- This prevents pasted text from being interpreted as commands
+- Protects against "paste-jacking" attacks
 
-- Unknown sequences are ignored (not executed)
-- Malformed sequences are handled gracefully
-- Parser state machine prevents infinite loops
+### Keyboard Input
 
-## Recommendations for Users
+- Keyboard shortcuts (Ctrl+Shift+C/V/T/R) are handled by the terminal, not sent to the shell
+- This prevents applications from intercepting these security-critical shortcuts
 
-1. **Don't run untrusted code**: Terminal emulators execute whatever the shell runs.
+## Best Practices
 
-2. **Be cautious with SSH**: Remote servers can send arbitrary escape sequences.
-
-3. **Review before pasting**: Especially from untrusted sources.
-
-4. **Keep software updated**: Security fixes are released periodically.
-
-5. **Use bracketed paste**: Enable in your shell for paste protection.
+1. **Keep the terminal updated** to receive security fixes
+2. **Review your config file** and understand each setting
+3. **Be cautious with untrusted content** - scripts, remote connections, etc.
+4. **Use SSH keys** instead of passwords when connecting to remote hosts
+5. **Verify URLs** before clicking on hyperlinks in the terminal
 
 ## Reporting Security Issues
 
-Please report security issues to the maintainers privately before public disclosure.
+If you discover a security vulnerability in Mochi terminal, please report it responsibly by:
+1. Opening a private security advisory on GitHub
+2. Emailing the maintainers directly
+3. Not disclosing the issue publicly until a fix is available
+
+## Version History
+
+| Version | Security Changes |
+|---------|-----------------|
+| Phase 2 | Added OSC 52 controls, documented security model |
+| Phase 1 | Initial implementation with basic security |
