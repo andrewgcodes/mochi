@@ -147,6 +147,135 @@ impl Screen {
         &mut self.selection
     }
 
+    /// Start a new selection at the given point
+    pub fn start_selection(
+        &mut self,
+        point: crate::selection::Point,
+        selection_type: crate::selection::SelectionType,
+    ) {
+        use crate::selection::{Point, SelectionType};
+
+        let point = Point::new(point.col, point.row);
+
+        match selection_type {
+            SelectionType::Word => {
+                let (start, end) = self.expand_word_selection(point);
+                self.selection.start(start, SelectionType::Word);
+                self.selection.update(end);
+            }
+            SelectionType::Line => {
+                let cols = self.cols();
+                let start = Point::new(0, point.row);
+                let end = Point::new(cols.saturating_sub(1), point.row);
+                self.selection.start(start, SelectionType::Line);
+                self.selection.update(end);
+            }
+            _ => {
+                self.selection.start(point, selection_type);
+            }
+        }
+    }
+
+    /// Update the current selection to the given point
+    pub fn update_selection(&mut self, point: crate::selection::Point) {
+        let point = crate::selection::Point::new(point.col, point.row);
+        self.selection.update(point);
+    }
+
+    /// Clear the current selection
+    pub fn clear_selection(&mut self) {
+        self.selection.clear();
+    }
+
+    /// Expand a point to word boundaries
+    fn expand_word_selection(
+        &self,
+        point: crate::selection::Point,
+    ) -> (crate::selection::Point, crate::selection::Point) {
+        use crate::selection::Point;
+
+        let row = point.row;
+        if row < 0 || row as usize >= self.rows() {
+            return (point, point);
+        }
+
+        let row_idx = row as usize;
+        let line = self.line(row_idx);
+        let cols = line.cols();
+        let col = point.col.min(cols.saturating_sub(1));
+
+        let is_word_char = |c: char| -> bool { c.is_alphanumeric() || c == '_' };
+
+        let current_char = line.cell(col).display_char();
+        let selecting_word = is_word_char(current_char);
+
+        let mut start_col = col;
+        while start_col > 0 {
+            let c = line.cell(start_col - 1).display_char();
+            if selecting_word != is_word_char(c) {
+                break;
+            }
+            start_col -= 1;
+        }
+
+        let mut end_col = col;
+        while end_col + 1 < cols {
+            let c = line.cell(end_col + 1).display_char();
+            if selecting_word != is_word_char(c) {
+                break;
+            }
+            end_col += 1;
+        }
+
+        (Point::new(start_col, row), Point::new(end_col, row))
+    }
+
+    /// Get the text content of the current selection
+    pub fn get_selected_text(&self, selection: &Selection) -> String {
+        if selection.is_empty() {
+            return String::new();
+        }
+
+        let (start, end) = selection.bounds();
+        let mut result = String::new();
+
+        for row in start.row..=end.row {
+            if row < 0 {
+                continue;
+            }
+            let row_idx = row as usize;
+            if row_idx >= self.rows() {
+                break;
+            }
+
+            let line = self.line(row_idx);
+            let line_cols = line.cols();
+
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col.min(line_cols.saturating_sub(1)) + 1
+            } else {
+                line_cols
+            };
+
+            for col in start_col..end_col {
+                let cell = line.cell(col);
+                if !cell.is_continuation() {
+                    let c = cell.display_char();
+                    if c != '\0' {
+                        result.push(c);
+                    }
+                }
+            }
+
+            if row < end.row && !line.wrapped {
+                result.push('\n');
+            }
+        }
+
+        result
+    }
+
     /// Get window title
     pub fn title(&self) -> &str {
         &self.title
