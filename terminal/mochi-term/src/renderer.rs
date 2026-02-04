@@ -141,6 +141,7 @@ impl Renderer {
     }
 
     /// Update line height and recalculate cell dimensions
+    #[allow(dead_code)]
     pub fn set_line_height(&mut self, line_height: f32) {
         self.line_height = line_height;
 
@@ -154,6 +155,7 @@ impl Renderer {
     }
 
     /// Update cell padding and recalculate cell dimensions
+    #[allow(dead_code)]
     pub fn set_cell_padding(&mut self, padding: (f32, f32)) {
         self.cell_padding = padding;
 
@@ -167,11 +169,13 @@ impl Renderer {
     }
 
     /// Get current line height
+    #[allow(dead_code)]
     pub fn line_height(&self) -> f32 {
         self.line_height
     }
 
     /// Get current cell padding
+    #[allow(dead_code)]
     pub fn cell_padding(&self) -> (f32, f32) {
         self.cell_padding
     }
@@ -182,6 +186,7 @@ impl Renderer {
     }
 
     /// Get the current color scheme
+    #[allow(dead_code)]
     pub fn colors(&self) -> &ColorScheme {
         &self.colors
     }

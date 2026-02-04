@@ -111,6 +111,7 @@ impl ThemeName {
     }
 
     /// Get all available theme names
+    #[allow(dead_code)]
     pub fn all() -> &'static [ThemeName] {
         &[
             Self::MochiDark,
@@ -422,6 +423,7 @@ impl Config {
     }
 
     /// Load configuration from file only (legacy method)
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         let config_path = Self::default_config_path()?;
 
@@ -964,10 +966,7 @@ mod tests {
         );
 
         // Test no match
-        assert_eq!(
-            keybindings.find_action("x", true, true, false, false),
-            None
-        );
+        assert_eq!(keybindings.find_action("x", true, true, false, false), None);
     }
 
     #[test]
@@ -981,46 +980,63 @@ mod tests {
 
     #[test]
     fn test_effective_colors() {
-        let mut config = Config::default();
-
-        config.theme = ThemeName::MochiDark;
-        let colors = config.effective_colors();
+        let config_dark = Config {
+            theme: ThemeName::MochiDark,
+            ..Default::default()
+        };
+        let colors = config_dark.effective_colors();
         assert_eq!(colors.background, "#1e1e1e");
 
-        config.theme = ThemeName::MochiLight;
-        let colors = config.effective_colors();
+        let config_light = Config {
+            theme: ThemeName::MochiLight,
+            ..Default::default()
+        };
+        let colors = config_light.effective_colors();
         assert_eq!(colors.background, "#ffffff");
     }
 
     #[test]
     fn test_osc52_disabled_by_default() {
         let config = Config::default();
-        assert!(!config.osc52_clipboard, "OSC 52 should be disabled by default for security");
+        assert!(
+            !config.osc52_clipboard,
+            "OSC 52 should be disabled by default for security"
+        );
     }
 
     #[test]
     fn test_osc52_max_size_default() {
         let config = Config::default();
-        assert_eq!(config.osc52_max_size, 100_000, "Default OSC 52 max size should be 100KB");
+        assert_eq!(
+            config.osc52_max_size, 100_000,
+            "Default OSC 52 max size should be 100KB"
+        );
     }
 
     #[test]
     fn test_osc52_max_size_validation() {
-        let mut config = Config::default();
-        
         // Valid size
-        config.osc52_max_size = 1_000_000;
-        assert!(config.validate().is_ok());
-        
+        let config_valid = Config {
+            osc52_max_size: 1_000_000,
+            ..Default::default()
+        };
+        assert!(config_valid.validate().is_ok());
+
         // Too large
-        config.osc52_max_size = 100_000_000;
-        assert!(config.validate().is_err());
+        let config_too_large = Config {
+            osc52_max_size: 100_000_000,
+            ..Default::default()
+        };
+        assert!(config_too_large.validate().is_err());
     }
 
     #[test]
     fn test_title_update_rate_default() {
         let config = Config::default();
-        assert_eq!(config.title_update_rate, 10, "Default title update rate should be 10/sec");
+        assert_eq!(
+            config.title_update_rate, 10,
+            "Default title update rate should be 10/sec"
+        );
     }
 
     #[test]
@@ -1028,11 +1044,23 @@ mod tests {
         // Verify that security settings are included in the reload method
         // by checking the Config struct has the expected security fields
         let config = Config::default();
-        
+
         // These fields should exist and have secure defaults
-        assert!(!config.osc52_clipboard, "OSC 52 should be disabled by default");
-        assert!(config.osc52_max_size > 0, "OSC 52 max size should be positive");
-        assert!(config.osc52_max_size <= 10_000_000, "OSC 52 max size should be reasonable");
-        assert!(config.title_update_rate > 0, "Title update rate should be positive");
+        assert!(
+            !config.osc52_clipboard,
+            "OSC 52 should be disabled by default"
+        );
+        assert!(
+            config.osc52_max_size > 0,
+            "OSC 52 max size should be positive"
+        );
+        assert!(
+            config.osc52_max_size <= 10_000_000,
+            "OSC 52 max size should be reasonable"
+        );
+        assert!(
+            config.title_update_rate > 0,
+            "Title update rate should be positive"
+        );
     }
 }
