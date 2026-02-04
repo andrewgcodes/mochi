@@ -146,8 +146,8 @@ fn translate_dec_special_graphics(c: char) -> char {
         'c' => '␌', // FF symbol
         'd' => '␍', // CR symbol
         'e' => '␊', // LF symbol
-        'f' => '°',  // Degree symbol
-        'g' => '±',  // Plus/minus
+        'f' => '°', // Degree symbol
+        'g' => '±', // Plus/minus
         'h' => '␤', // NL symbol
         'i' => '␋', // VT symbol
         'j' => '┘', // Lower right corner
@@ -167,11 +167,11 @@ fn translate_dec_special_graphics(c: char) -> char {
         'x' => '│', // Vertical line
         'y' => '≤', // Less than or equal
         'z' => '≥', // Greater than or equal
-        '{' => 'π',  // Pi
+        '{' => 'π', // Pi
         '|' => '≠', // Not equal
-        '}' => '£',  // Pound sterling
-        '~' => '·',  // Centered dot / bullet
-        _ => c,      // Pass through unchanged
+        '}' => '£', // Pound sterling
+        '~' => '·', // Centered dot / bullet
+        _ => c,     // Pass through unchanged
     }
 }
 
@@ -186,10 +186,10 @@ fn translate_uk(c: char) -> char {
 /// Parse a charset designation character
 pub fn parse_charset_designation(c: char) -> Charset {
     match c {
-        'B' | '@' => Charset::Ascii,       // ASCII
+        'B' | '@' => Charset::Ascii,              // ASCII
         '0' | '2' => Charset::DecSpecialGraphics, // DEC Special Graphics
-        'A' => Charset::Uk,                // UK
-        _ => Charset::Ascii,               // Default to ASCII for unknown
+        'A' => Charset::Uk,                       // UK
+        _ => Charset::Ascii,                      // Default to ASCII for unknown
     }
 }
 
