@@ -26,7 +26,7 @@ pub use cursor::{Cursor, CursorStyle};
 pub use line::Line;
 pub use screen::Screen;
 pub use scrollback::Scrollback;
-pub use selection::Selection;
+pub use selection::{Selection, SelectionType};
 pub use snapshot::Snapshot;
 
 pub const DEFAULT_COLS: usize = 80;

@@ -633,6 +633,9 @@ pub struct TerminalApp {
     pub bracketed_paste_mode: bool,
     pub modifiers: winit::keyboard::ModifiersState,
     pub clipboard: Option<arboard::Clipboard>,
+    pub selection: mochi_core::Selection,
+    pub mouse_pressed: bool,
+    pub scroll_offset: i64,
 }
 
 impl ApplicationHandler for TerminalApp {
@@ -708,6 +711,62 @@ impl ApplicationHandler for TerminalApp {
             }
             WindowEvent::ModifiersChanged(new_modifiers) => {
                 self.modifiers = new_modifiers.state();
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                use winit::event::{ElementState, MouseButton};
+                if button == MouseButton::Left {
+                    match state {
+                        ElementState::Pressed => {
+                            self.mouse_pressed = true;
+                            // Selection will be started on CursorMoved
+                        }
+                        ElementState::Released => {
+                            self.mouse_pressed = false;
+                            self.selection.end_selection();
+                            // Copy selection to clipboard
+                            if !self.selection.is_empty() {
+                                let text = self.get_selection_text();
+                                if let Some(clipboard) = &mut self.clipboard {
+                                    let _ = clipboard.set_text(text);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                if let Some((cell_width, cell_height)) = self.renderer.cell_dimensions() {
+                    let col = (position.x / cell_width as f64) as usize;
+                    let row = (position.y / cell_height as f64) as i64 - self.scroll_offset;
+
+                    if self.mouse_pressed {
+                        if self.selection.is_empty() || !self.selection.active {
+                            // Start new selection
+                            self.selection.start_selection(
+                                row,
+                                col.min(self.renderer.cols.saturating_sub(1)),
+                                mochi_core::SelectionType::Normal,
+                            );
+                        } else {
+                            // Update existing selection
+                            self.selection.update_selection(
+                                row,
+                                col.min(self.renderer.cols.saturating_sub(1)),
+                            );
+                        }
+                    }
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                use winit::event::MouseScrollDelta;
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y as i64,
+                    MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as i64,
+                };
+                // Scroll up = positive offset (view older content)
+                // Scroll down = negative offset (view newer content)
+                let max_scroll = self.screen.scrollback().len() as i64;
+                self.scroll_offset = (self.scroll_offset + lines).clamp(0, max_scroll);
             }
             _ => {}
         }
@@ -822,6 +881,52 @@ impl TerminalApp {
             let _ = pty.write(&bytes);
         }
     }
+
+    /// Get the text content of the current selection
+    fn get_selection_text(&self) -> String {
+        if self.selection.is_empty() {
+            return String::new();
+        }
+
+        let (start, end) = self.selection.normalized();
+        let mut result = String::new();
+
+        for row in start.row..=end.row {
+            if row < 0 || row >= self.screen.rows() as i64 {
+                continue;
+            }
+
+            let Some(line) = self.screen.get_line(row as usize) else {
+                continue;
+            };
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col
+            } else {
+                self.screen.cols().saturating_sub(1)
+            };
+
+            for col in start_col..=end_col.min(self.screen.cols().saturating_sub(1)) {
+                if let Some(cell) = line.get(col) {
+                    if cell.character != '\0' && cell.character != ' ' || col > start_col {
+                        result.push(cell.character);
+                    }
+                }
+            }
+
+            // Add newline between lines (but not after the last line)
+            if row < end.row {
+                result.push('\n');
+            }
+        }
+
+        // Trim trailing whitespace from each line
+        result
+            .lines()
+            .map(|l| l.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 /// Get foreground and background colors for a cell
@@ -929,6 +1034,9 @@ pub fn run_terminal(cols: usize, rows: usize) -> Result<(), Box<dyn std::error::
         bracketed_paste_mode: false,
         modifiers: winit::keyboard::ModifiersState::empty(),
         clipboard,
+        selection: mochi_core::Selection::new(),
+        mouse_pressed: false,
+        scroll_offset: 0,
     };
 
     event_loop.run_app(&mut app)?;
