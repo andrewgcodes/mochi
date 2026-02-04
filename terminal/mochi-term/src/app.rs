@@ -257,6 +257,23 @@ impl App {
             }
         }
 
+        // macOS: Cmd+V for paste, Cmd+C for copy (standard macOS shortcuts)
+        #[cfg(target_os = "macos")]
+        if self.modifiers.super_key() && !self.modifiers.control_key() && !self.modifiers.alt_key()
+        {
+            match &event.logical_key {
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.handle_copy();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
