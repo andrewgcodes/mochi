@@ -80,7 +80,8 @@ impl Pty {
         let ws = size.to_winsize();
         let fd = self.master.as_raw_fd();
 
-        let result = unsafe { libc::ioctl(fd, libc::TIOCSWINSZ, &ws) };
+        // Note: On macOS, ioctl expects c_ulong for request parameter
+        let result = unsafe { libc::ioctl(fd, libc::TIOCSWINSZ as libc::c_ulong, &ws) };
 
         if result == -1 {
             Err(Error::WindowSize(io::Error::last_os_error().to_string()))
@@ -94,7 +95,8 @@ impl Pty {
         let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
         let fd = self.master.as_raw_fd();
 
-        let result = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) };
+        // Note: On macOS, ioctl expects c_ulong for request parameter
+        let result = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ as libc::c_ulong, &mut ws) };
 
         if result == -1 {
             Err(Error::WindowSize(io::Error::last_os_error().to_string()))
