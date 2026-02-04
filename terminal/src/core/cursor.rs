@@ -106,7 +106,6 @@ pub enum CursorStyle {
     Bar,
 }
 
-
 /// Current text attributes that will be applied to new characters
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CursorAttrs {

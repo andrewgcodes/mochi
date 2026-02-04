@@ -104,7 +104,6 @@ pub enum Color {
     Rgb(u8, u8, u8),
 }
 
-
 impl Color {
     /// Standard ANSI colors (0-7)
     pub const BLACK: Color = Color::Indexed(0);
