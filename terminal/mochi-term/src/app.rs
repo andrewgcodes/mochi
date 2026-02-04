@@ -4,9 +4,10 @@
 
 use std::io;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
+use terminal_core::{Point, SelectionType};
 use terminal_pty::{Child, WindowSize};
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent};
@@ -18,6 +19,9 @@ use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
+
+const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
+const TRIPLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
 /// Application state
 pub struct App {
@@ -48,6 +52,14 @@ pub struct App {
     focused: bool,
     /// Scroll offset (number of lines scrolled back into history)
     scroll_offset: usize,
+    /// Last click time for double/triple click detection
+    last_click_time: Option<Instant>,
+    /// Click count (1 = single, 2 = double, 3 = triple)
+    click_count: u8,
+    /// Last click position for multi-click detection
+    last_click_pos: (u16, u16),
+    /// Whether we're currently dragging a selection
+    selecting: bool,
 }
 
 impl App {
@@ -67,6 +79,10 @@ impl App {
             needs_redraw: true,
             focused: true,
             scroll_offset: 0,
+            last_click_time: None,
+            click_count: 0,
+            last_click_pos: (0, 0),
+            selecting: false,
         })
     }
 
@@ -358,31 +374,12 @@ impl App {
 
     /// Handle mouse input
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
-        let Some(terminal) = &self.terminal else {
+        let Some(terminal) = &mut self.terminal else {
             return;
         };
-        let Some(child) = &mut self.child else { return };
 
         let modes = terminal.screen().modes();
-        if !modes.mouse_tracking_enabled() {
-            return;
-        }
-
-        let event = if state == ElementState::Pressed {
-            MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
-        } else {
-            MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
-        };
-
-        if let Some(data) = encode_mouse(
-            event,
-            modes.mouse_sgr,
-            modes.mouse_button_event,
-            modes.mouse_any_event,
-        ) {
-            let _ = child.write_all(&data);
-        }
-
+        
         // Track button state
         let idx = match button {
             MouseButton::Left => 0,
@@ -391,6 +388,132 @@ impl App {
             _ => return,
         };
         self.mouse_buttons[idx] = state == ElementState::Pressed;
+
+        // If mouse tracking is enabled, send to PTY
+        if modes.mouse_tracking_enabled() {
+            let Some(child) = &mut self.child else { return };
+            let event = if state == ElementState::Pressed {
+                MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
+            } else {
+                MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
+            };
+
+            if let Some(data) = encode_mouse(
+                event,
+                modes.mouse_sgr,
+                modes.mouse_button_event,
+                modes.mouse_any_event,
+            ) {
+                let _ = child.write_all(&data);
+            }
+            return;
+        }
+
+        // Handle selection when mouse tracking is NOT enabled
+        if button == MouseButton::Left {
+            if state == ElementState::Pressed {
+                self.handle_selection_start();
+            } else {
+                self.selecting = false;
+            }
+        }
+    }
+
+    fn handle_selection_start(&mut self) {
+        let now = Instant::now();
+        let pos = self.mouse_cell;
+
+        let is_same_position = pos == self.last_click_pos;
+        let is_quick_click = self.last_click_time
+            .map(|t| now.duration_since(t) < DOUBLE_CLICK_THRESHOLD)
+            .unwrap_or(false);
+
+        if is_same_position && is_quick_click {
+            self.click_count = (self.click_count % 3) + 1;
+        } else {
+            self.click_count = 1;
+        }
+
+        self.last_click_time = Some(now);
+        self.last_click_pos = pos;
+        self.selecting = true;
+
+        let click_count = self.click_count;
+        let scroll_offset = self.scroll_offset;
+
+        let word_bounds = if click_count == 2 {
+            Some(self.find_word_boundaries(pos.0 as usize, pos.1 as usize))
+        } else {
+            None
+        };
+
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+
+        let point = Point::new(pos.0 as usize, pos.1 as isize - scroll_offset as isize);
+        let selection = terminal.screen_mut().selection_mut();
+
+        match click_count {
+            1 => {
+                selection.start(point, SelectionType::Normal);
+            }
+            2 => {
+                if let Some((word_start, word_end)) = word_bounds {
+                    selection.start(
+                        Point::new(word_start, pos.1 as isize - scroll_offset as isize),
+                        SelectionType::Word,
+                    );
+                    selection.update(Point::new(word_end, pos.1 as isize - scroll_offset as isize));
+                }
+            }
+            3 => {
+                selection.start(
+                    Point::new(0, pos.1 as isize - scroll_offset as isize),
+                    SelectionType::Line,
+                );
+            }
+            _ => {}
+        }
+
+        self.needs_redraw = true;
+    }
+
+    fn find_word_boundaries(&self, col: usize, row: usize) -> (usize, usize) {
+        let Some(terminal) = &self.terminal else {
+            return (col, col);
+        };
+
+        let screen = terminal.screen();
+        let cols = screen.cols();
+        
+        if row >= screen.rows() {
+            return (col, col);
+        }
+
+        let line = screen.line(row);
+        let mut start = col;
+        let mut end = col;
+
+        while start > 0 {
+            let cell = line.cell(start - 1);
+            let ch = cell.display_char();
+            if ch.is_whitespace() || is_word_separator(ch) {
+                break;
+            }
+            start -= 1;
+        }
+
+        while end < cols.saturating_sub(1) {
+            let cell = line.cell(end + 1);
+            let ch = cell.display_char();
+            if ch.is_whitespace() || is_word_separator(ch) {
+                break;
+            }
+            end += 1;
+        }
+
+        (start, end)
     }
 
     /// Handle mouse motion
@@ -398,10 +521,6 @@ impl App {
         let Some(renderer) = &self.renderer else {
             return;
         };
-        let Some(terminal) = &self.terminal else {
-            return;
-        };
-        let Some(child) = &mut self.child else { return };
 
         let cell_size = renderer.cell_size();
         let col = (position.x / cell_size.width as f64) as u16;
@@ -413,10 +532,16 @@ impl App {
 
         self.mouse_cell = (col, row);
 
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+
         let modes = terminal.screen().modes();
+        
         if modes.mouse_any_event
             || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
         {
+            let Some(child) = &mut self.child else { return };
             let event = MouseEvent::Move(col, row);
             if let Some(data) = encode_mouse(
                 event,
@@ -426,6 +551,10 @@ impl App {
             ) {
                 let _ = child.write_all(&data);
             }
+        } else if self.selecting {
+            let point = Point::new(col as usize, row as isize - self.scroll_offset as isize);
+            terminal.screen_mut().selection_mut().update(point);
+            self.needs_redraw = true;
         }
     }
 
@@ -637,4 +766,13 @@ impl App {
             false
         }
     }
+}
+
+fn is_word_separator(c: char) -> bool {
+    matches!(
+        c,
+        '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '"' | '\'' | '`' | ',' | ';' | ':' | '.'
+            | '!' | '?' | '/' | '\\' | '|' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '-' | '+'
+            | '=' | '~'
+    )
 }
