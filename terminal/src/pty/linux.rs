@@ -158,18 +158,22 @@ impl Pty {
 
     /// Setup the child process (runs in forked child)
     fn setup_child(slave_name: &str, shell: Option<&str>, env: &[(&str, &str)], size: WindowSize) {
+        use std::os::unix::io::IntoRawFd;
+
         // Create a new session
         if setsid().is_err() {
             process::exit(1);
         }
 
         // Open the slave PTY
+        // Note: We use into_raw_fd() to take ownership of the fd and prevent
+        // the File from closing it when it goes out of scope
         let slave_fd = match std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(slave_name)
         {
-            Ok(f) => f.as_raw_fd(),
+            Ok(f) => f.into_raw_fd(),
             Err(_) => process::exit(1),
         };
 

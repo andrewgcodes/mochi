@@ -49,6 +49,7 @@ env_logger = "0.10"
 
 # Error handling
 thiserror = "1.0"
+softbuffer = "0.3"
 
 [dev-dependencies]
 # Testing

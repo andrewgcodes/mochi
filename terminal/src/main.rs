@@ -3,18 +3,22 @@
 //! A real Linux terminal emulator built from scratch.
 
 use std::io::Read;
+use std::num::NonZeroU32;
+use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use softbuffer::{Context, Surface};
 use winit::dpi::LogicalSize;
 use winit::event::{
     ElementState, Event, ModifiersState, MouseScrollDelta, VirtualKeyCode, WindowEvent,
 };
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::WindowBuilder;
+use winit::window::{Window, WindowBuilder};
 
+use mochi_term::core::Color;
 use mochi_term::input::{self, MouseButton, MouseEventType};
 use mochi_term::pty::{Pty, PtyError, WindowSize};
 use mochi_term::renderer::{FontRenderer, WindowConfig};
@@ -233,6 +237,219 @@ fn encode_key(
     key.map(|k| input::encode_key(k, modifiers, app_cursor, app_keypad))
 }
 
+/// Color palette for terminal rendering
+struct ColorPalette {
+    colors: [[u8; 3]; 16],
+    foreground: [u8; 3],
+    background: [u8; 3],
+}
+
+impl Default for ColorPalette {
+    fn default() -> Self {
+        Self {
+            colors: [
+                [0, 0, 0],       // 0: Black
+                [205, 0, 0],     // 1: Red
+                [0, 205, 0],     // 2: Green
+                [205, 205, 0],   // 3: Yellow
+                [0, 0, 238],     // 4: Blue
+                [205, 0, 205],   // 5: Magenta
+                [0, 205, 205],   // 6: Cyan
+                [229, 229, 229], // 7: White
+                [127, 127, 127], // 8: Bright Black
+                [255, 0, 0],     // 9: Bright Red
+                [0, 255, 0],     // 10: Bright Green
+                [255, 255, 0],   // 11: Bright Yellow
+                [92, 92, 255],   // 12: Bright Blue
+                [255, 0, 255],   // 13: Bright Magenta
+                [0, 255, 255],   // 14: Bright Cyan
+                [255, 255, 255], // 15: Bright White
+            ],
+            foreground: [229, 229, 229],
+            background: [0, 0, 0],
+        }
+    }
+}
+
+impl ColorPalette {
+    fn resolve(&self, color: &Color, is_foreground: bool) -> [u8; 3] {
+        match color {
+            Color::Default => {
+                if is_foreground {
+                    self.foreground
+                } else {
+                    self.background
+                }
+            }
+            Color::Indexed(i) => {
+                if *i < 16 {
+                    self.colors[*i as usize]
+                } else if *i < 232 {
+                    // 216 color cube (16-231)
+                    let i = *i - 16;
+                    let r = (i / 36) % 6;
+                    let g = (i / 6) % 6;
+                    let b = i % 6;
+                    [
+                        if r == 0 { 0 } else { r * 40 + 55 },
+                        if g == 0 { 0 } else { g * 40 + 55 },
+                        if b == 0 { 0 } else { b * 40 + 55 },
+                    ]
+                } else {
+                    // Grayscale (232-255)
+                    let gray = (*i - 232) * 10 + 8;
+                    [gray, gray, gray]
+                }
+            }
+            Color::Rgb(r, g, b) => [*r, *g, *b],
+        }
+    }
+}
+
+/// Render the terminal to a pixel buffer
+fn render_terminal(
+    terminal: &mochi_term::Terminal,
+    font: &mut FontRenderer,
+    palette: &ColorPalette,
+    width: u32,
+    height: u32,
+) -> Vec<u32> {
+    let mut buffer = vec![0u32; (width * height) as usize];
+
+    // Fill background
+    let bg = palette.background;
+    let bg_pixel = ((bg[0] as u32) << 16) | ((bg[1] as u32) << 8) | (bg[2] as u32);
+    buffer.fill(bg_pixel);
+
+    let screen = terminal.screen();
+    let cell_width = font.cell_width() as u32;
+    let cell_height = font.cell_height() as u32;
+    let baseline = font.baseline();
+
+    let rows = screen.rows();
+    let cols = screen.cols();
+
+    // Render each cell
+    for row in 0..rows {
+        for col in 0..cols {
+            if let Some(cell) = screen.get_cell(col, row) {
+                let x = col as u32 * cell_width;
+                let y = row as u32 * cell_height;
+
+                // Get colors (handle inverse)
+                let (fg_color, bg_color) = if cell.style.inverse {
+                    (
+                        palette.resolve(&cell.bg, false),
+                        palette.resolve(&cell.fg, true),
+                    )
+                } else {
+                    (
+                        palette.resolve(&cell.fg, true),
+                        palette.resolve(&cell.bg, false),
+                    )
+                };
+
+                // Fill cell background if not default
+                if bg_color != palette.background || cell.style.inverse {
+                    let bg_pixel =
+                        ((bg_color[0] as u32) << 16) | ((bg_color[1] as u32) << 8) | (bg_color[2] as u32);
+                    for py in 0..cell_height {
+                        for px in 0..cell_width {
+                            let idx = ((y + py) * width + (x + px)) as usize;
+                            if idx < buffer.len() {
+                                buffer[idx] = bg_pixel;
+                            }
+                        }
+                    }
+                }
+
+                // Render character
+                let c = cell.display_char();
+                if c != ' ' && c != '\0' {
+                    let glyph = font.rasterize(c);
+                    let metrics = &glyph.metrics;
+                    let bitmap = &glyph.bitmap;
+
+                    let glyph_width = metrics.width as u32;
+                    let glyph_height = metrics.height as u32;
+
+                    // Calculate glyph position
+                    let gx = x as i32 + metrics.xmin;
+                    let gy = y as i32 + (baseline as i32 - metrics.ymin - metrics.height as i32);
+
+                    for py in 0..glyph_height {
+                        for px in 0..glyph_width {
+                            let screen_x = gx + px as i32;
+                            let screen_y = gy + py as i32;
+
+                            if screen_x >= 0
+                                && screen_x < width as i32
+                                && screen_y >= 0
+                                && screen_y < height as i32
+                            {
+                                let glyph_idx = (py * glyph_width + px) as usize;
+                                let alpha = bitmap.get(glyph_idx).copied().unwrap_or(0);
+                                if alpha > 0 {
+                                    let idx = (screen_y as u32 * width + screen_x as u32) as usize;
+                                    if idx < buffer.len() {
+                                        // Alpha blend
+                                        let a = alpha as f32 / 255.0;
+                                        let inv_a = 1.0 - a;
+
+                                        let existing = buffer[idx];
+                                        let ex_r = ((existing >> 16) & 0xFF) as f32;
+                                        let ex_g = ((existing >> 8) & 0xFF) as f32;
+                                        let ex_b = (existing & 0xFF) as f32;
+
+                                        let r = (fg_color[0] as f32 * a + ex_r * inv_a) as u32;
+                                        let g = (fg_color[1] as f32 * a + ex_g * inv_a) as u32;
+                                        let b = (fg_color[2] as f32 * a + ex_b * inv_a) as u32;
+
+                                        buffer[idx] = (r << 16) | (g << 8) | b;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Draw underline
+                if cell.style.underline {
+                    let underline_y = y + cell_height - 2;
+                    for px in 0..cell_width {
+                        let idx = (underline_y * width + x + px) as usize;
+                        if idx < buffer.len() {
+                            buffer[idx] =
+                                ((fg_color[0] as u32) << 16) | ((fg_color[1] as u32) << 8) | (fg_color[2] as u32);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Draw cursor
+    let cursor = screen.cursor();
+    if cursor.visible {
+        let cursor_x = cursor.col as u32 * cell_width;
+        let cursor_y = cursor.row as u32 * cell_height;
+
+        // Draw a block cursor
+        let cursor_color: u32 = 0x00FF00; // Green cursor
+        for py in 0..cell_height {
+            for px in 0..cell_width {
+                let idx = ((cursor_y + py) * width + (cursor_x + px)) as usize;
+                if idx < buffer.len() {
+                    // XOR blend for visibility
+                    buffer[idx] ^= cursor_color;
+                }
+            }
+        }
+    }
+
+    buffer
+}
+
 fn main() {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -256,6 +473,16 @@ fn main() {
         ))
         .build(&event_loop)
         .expect("Failed to create window");
+
+    let window = Rc::new(window);
+
+    // Create softbuffer context and surface
+    let context = unsafe { Context::new(&*window) }.expect("Failed to create softbuffer context");
+    let mut surface =
+        unsafe { Surface::new(&context, &*window) }.expect("Failed to create softbuffer surface");
+
+    // Color palette for rendering
+    let palette = ColorPalette::default();
 
     // Initialize font renderer
     match FontRenderer::with_default_font(app.config.font_size) {
@@ -281,6 +508,7 @@ fn main() {
     }
 
     // Run the event loop
+    let window_clone = Rc::clone(&window);
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -478,8 +706,27 @@ fn main() {
             }
 
             Event::RedrawRequested(_) => {
-                // Render would happen here
-                // For now, just mark as clean
+                let size = window_clone.inner_size();
+                if size.width > 0 && size.height > 0 {
+                    // Resize surface if needed
+                    surface
+                        .resize(
+                            NonZeroU32::new(size.width).unwrap(),
+                            NonZeroU32::new(size.height).unwrap(),
+                        )
+                        .expect("Failed to resize surface");
+
+                    // Render terminal to buffer
+                    if let (Ok(term), Some(font)) = (app.terminal.lock(), app.font.as_mut()) {
+                        let pixels = render_terminal(&term, font, &palette, size.width, size.height);
+
+                        // Copy to surface buffer
+                        let mut buffer = surface.buffer_mut().expect("Failed to get buffer");
+                        buffer.copy_from_slice(&pixels);
+                        buffer.present().expect("Failed to present buffer");
+                    }
+                }
+
                 app.dirty = false;
                 app.last_render = Instant::now();
             }
