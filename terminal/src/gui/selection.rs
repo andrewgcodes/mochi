@@ -7,10 +7,10 @@ use crate::core::Screen;
 /// Text selection state
 #[derive(Debug, Clone, Default)]
 pub struct Selection {
-    /// Start position (col, row, scroll_offset)
-    start: Option<(usize, usize, usize)>,
-    /// End position (col, row, scroll_offset)
-    end: Option<(usize, usize, usize)>,
+    /// Start position (col, row) - row is absolute (includes scroll offset)
+    start: Option<(usize, usize)>,
+    /// End position (col, row) - row is absolute (includes scroll offset)
+    end: Option<(usize, usize)>,
 }
 
 impl Selection {
@@ -18,15 +18,17 @@ impl Selection {
         Self::default()
     }
 
-    /// Start a new selection
-    pub fn start(&mut self, col: usize, row: usize, scroll_offset: usize) {
-        self.start = Some((col, row, scroll_offset));
-        self.end = Some((col, row, scroll_offset));
+    /// Start a new selection at the given position
+    /// Row should be absolute (screen row + scroll offset)
+    pub fn start(&mut self, col: usize, row: usize) {
+        self.start = Some((col, row));
+        self.end = Some((col, row));
     }
 
     /// Update the selection end point
-    pub fn update(&mut self, col: usize, row: usize, scroll_offset: usize) {
-        self.end = Some((col, row, scroll_offset));
+    /// Row should be absolute (screen row + scroll offset)
+    pub fn update(&mut self, col: usize, row: usize) {
+        self.end = Some((col, row));
     }
 
     /// Clear the selection
@@ -40,10 +42,46 @@ impl Selection {
         self.start.is_some() && self.end.is_some()
     }
 
+    /// Check if a cell is within the selection
+    /// Row should be absolute (screen row + scroll offset)
+    pub fn contains(&self, col: usize, row: usize) -> bool {
+        let Some((start_col, start_row)) = self.start else {
+            return false;
+        };
+        let Some((end_col, end_row)) = self.end else {
+            return false;
+        };
+
+        // Normalize start and end
+        let ((s_col, s_row), (e_col, e_row)) = if (start_row, start_col) <= (end_row, end_col) {
+            ((start_col, start_row), (end_col, end_row))
+        } else {
+            ((end_col, end_row), (start_col, start_row))
+        };
+
+        if row < s_row || row > e_row {
+            return false;
+        }
+
+        if row == s_row && row == e_row {
+            // Single line selection
+            col >= s_col && col <= e_col
+        } else if row == s_row {
+            // First line of multi-line selection
+            col >= s_col
+        } else if row == e_row {
+            // Last line of multi-line selection
+            col <= e_col
+        } else {
+            // Middle line - entire line is selected
+            true
+        }
+    }
+
     /// Get the selected text from the screen
-    pub fn get_text(&self, screen: &Screen) -> Option<String> {
-        let (start_col, start_row, _) = self.start?;
-        let (end_col, end_row, _) = self.end?;
+    pub fn get_text(&self, screen: &Screen, _scroll_offset: usize) -> Option<String> {
+        let (start_col, start_row) = self.start?;
+        let (end_col, end_row) = self.end?;
 
         // Normalize start and end
         let (start, end) = if (start_row, start_col) <= (end_row, end_col) {
@@ -65,7 +103,6 @@ impl Selection {
                 };
 
                 for col in col_start..=col_end.min(row.cells.len().saturating_sub(1)) {
-                    // Get the character from the cell content
                     let content = &row.cells[col].content;
                     if content.is_empty() {
                         text.push(' ');
