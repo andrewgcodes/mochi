@@ -14,10 +14,51 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::{Config, ThemeName};
+use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
+
+/// Check if a character is a word boundary (for double-click word selection)
+fn is_word_boundary(c: char) -> bool {
+    matches!(
+        c,
+        ' ' | '\t'
+            | '\n'
+            | '\r'
+            | '.'
+            | ','
+            | ';'
+            | ':'
+            | '!'
+            | '?'
+            | '"'
+            | '\''
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | '<'
+            | '>'
+            | '/'
+            | '\\'
+            | '|'
+            | '='
+            | '+'
+            | '-'
+            | '*'
+            | '&'
+            | '^'
+            | '%'
+            | '$'
+            | '#'
+            | '@'
+            | '`'
+            | '~'
+    )
+}
 
 /// Application state
 pub struct App {
@@ -48,6 +89,14 @@ pub struct App {
     focused: bool,
     /// Scroll offset (number of lines scrolled back into history)
     scroll_offset: usize,
+    /// Last click time for double/triple click detection
+    last_click_time: Instant,
+    /// Last click position for double/triple click detection
+    last_click_pos: (u16, u16),
+    /// Click count (1 = single, 2 = double, 3 = triple)
+    click_count: u8,
+    /// Whether we're currently dragging a selection
+    is_selecting: bool,
 }
 
 impl App {
@@ -67,6 +116,10 @@ impl App {
             needs_redraw: true,
             focused: true,
             scroll_offset: 0,
+            last_click_time: Instant::now(),
+            last_click_pos: (0, 0),
+            click_count: 0,
+            is_selecting: false,
         })
     }
 
@@ -535,29 +588,100 @@ impl App {
 
     /// Handle mouse input
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
-        let Some(terminal) = &self.terminal else {
+        use std::time::Duration;
+        use terminal_core::{Point, SelectionType};
+
+        // Double/triple click detection threshold (in milliseconds)
+        const CLICK_THRESHOLD_MS: u64 = 500;
+        // Maximum distance (in cells) for multi-click detection
+        const CLICK_DISTANCE_THRESHOLD: u16 = 1;
+
+        let Some(terminal) = &mut self.terminal else {
             return;
         };
-        let Some(child) = &mut self.child else { return };
 
         let modes = terminal.screen().modes();
-        if !modes.mouse_tracking_enabled() {
+
+        // If mouse tracking is enabled, send to PTY instead of handling selection
+        if modes.mouse_tracking_enabled() {
+            let Some(child) = &mut self.child else { return };
+
+            let event = if state == ElementState::Pressed {
+                MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
+            } else {
+                MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
+            };
+
+            if let Some(data) = encode_mouse(
+                event,
+                modes.mouse_sgr,
+                modes.mouse_button_event,
+                modes.mouse_any_event,
+            ) {
+                let _ = child.write_all(&data);
+            }
+
+            // Track button state
+            let idx = match button {
+                MouseButton::Left => 0,
+                MouseButton::Middle => 1,
+                MouseButton::Right => 2,
+                _ => return,
+            };
+            self.mouse_buttons[idx] = state == ElementState::Pressed;
             return;
         }
 
-        let event = if state == ElementState::Pressed {
-            MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
-        } else {
-            MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
-        };
+        // Handle selection (when mouse tracking is disabled)
+        if button == MouseButton::Left {
+            if state == ElementState::Pressed {
+                let now = Instant::now();
+                let elapsed = now.duration_since(self.last_click_time);
+                let same_position = (self.mouse_cell.0 as i32 - self.last_click_pos.0 as i32).abs()
+                    <= CLICK_DISTANCE_THRESHOLD as i32
+                    && (self.mouse_cell.1 as i32 - self.last_click_pos.1 as i32).abs()
+                        <= CLICK_DISTANCE_THRESHOLD as i32;
 
-        if let Some(data) = encode_mouse(
-            event,
-            modes.mouse_sgr,
-            modes.mouse_button_event,
-            modes.mouse_any_event,
-        ) {
-            let _ = child.write_all(&data);
+                // Determine click count based on timing and position
+                if elapsed < Duration::from_millis(CLICK_THRESHOLD_MS) && same_position {
+                    self.click_count = (self.click_count % 3) + 1;
+                } else {
+                    self.click_count = 1;
+                }
+
+                self.last_click_time = now;
+                self.last_click_pos = self.mouse_cell;
+
+                let col = self.mouse_cell.0 as usize;
+                let row = self.mouse_cell.1 as isize;
+                let point = Point::new(col, row);
+
+                let selection_type = match self.click_count {
+                    1 => SelectionType::Normal,
+                    2 => SelectionType::Word,
+                    3 => SelectionType::Line,
+                    _ => SelectionType::Normal,
+                };
+
+                // Start selection
+                let screen = terminal.screen_mut();
+                screen.selection_mut().start(point, selection_type);
+
+                // For word/line selection, expand the selection immediately
+                if self.click_count == 2 {
+                    // Word selection - expand to word boundaries
+                    self.expand_word_selection(col, row as usize);
+                } else if self.click_count == 3 {
+                    // Line selection - expand to full line
+                    self.expand_line_selection(row as usize);
+                }
+
+                self.is_selecting = true;
+                self.needs_redraw = true;
+            } else {
+                // Mouse released - finish selection
+                self.is_selecting = false;
+            }
         }
 
         // Track button state
@@ -570,15 +694,72 @@ impl App {
         self.mouse_buttons[idx] = state == ElementState::Pressed;
     }
 
+    /// Expand selection to word boundaries
+    fn expand_word_selection(&mut self, col: usize, row: usize) {
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        if row >= screen.rows() {
+            return;
+        }
+
+        let line = screen.line(row);
+        let cols = line.cols();
+
+        // Find word start
+        let mut start_col = col;
+        while start_col > 0 {
+            let cell = line.cell(start_col - 1);
+            let c = cell.display_char();
+            if c.is_whitespace() || is_word_boundary(c) {
+                break;
+            }
+            start_col -= 1;
+        }
+
+        // Find word end
+        let mut end_col = col;
+        while end_col < cols - 1 {
+            let cell = line.cell(end_col + 1);
+            let c = cell.display_char();
+            if c.is_whitespace() || is_word_boundary(c) {
+                break;
+            }
+            end_col += 1;
+        }
+
+        // Update selection
+        let screen = terminal.screen_mut();
+        let selection = screen.selection_mut();
+        selection.start.col = start_col;
+        selection.end.col = end_col;
+    }
+
+    /// Expand selection to full line
+    fn expand_line_selection(&mut self, row: usize) {
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let cols = screen.cols();
+
+        // Update selection to cover entire line
+        let screen = terminal.screen_mut();
+        let selection = screen.selection_mut();
+        selection.start.col = 0;
+        selection.end.col = cols.saturating_sub(1);
+    }
+
     /// Handle mouse motion
     fn handle_mouse_motion(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
+        use terminal_core::Point;
+
         let Some(renderer) = &self.renderer else {
             return;
         };
-        let Some(terminal) = &self.terminal else {
-            return;
-        };
-        let Some(child) = &mut self.child else { return };
 
         let cell_size = renderer.cell_size();
         let col = (position.x / cell_size.width as f64) as u16;
@@ -590,10 +771,17 @@ impl App {
 
         self.mouse_cell = (col, row);
 
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+
         let modes = terminal.screen().modes();
+
+        // If mouse tracking is enabled, send to PTY
         if modes.mouse_any_event
             || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
         {
+            let Some(child) = &mut self.child else { return };
             let event = MouseEvent::Move(col, row);
             if let Some(data) = encode_mouse(
                 event,
@@ -603,6 +791,13 @@ impl App {
             ) {
                 let _ = child.write_all(&data);
             }
+        }
+
+        // Handle drag selection (when not in mouse tracking mode)
+        if self.is_selecting && !modes.mouse_tracking_enabled() {
+            let point = Point::new(col as usize, row as isize);
+            terminal.screen_mut().selection_mut().update(point);
+            self.needs_redraw = true;
         }
     }
 
