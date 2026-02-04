@@ -223,6 +223,25 @@ impl App {
             return;
         }
 
+        // Check for Ctrl+Shift shortcuts (app-level shortcuts)
+        if self.modifiers.control_key() && self.modifiers.shift_key() {
+            match &event.logical_key {
+                Key::Character(c) if c.to_lowercase() == "t" => {
+                    self.toggle_theme();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.handle_copy();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
@@ -451,8 +470,92 @@ impl App {
         }
     }
 
+    /// Toggle theme (cycle through available themes)
+    fn toggle_theme(&mut self) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+
+        // Cycle to next theme
+        self.config.next_theme();
+        let new_colors = self.config.effective_colors();
+
+        log::info!("Switched to theme: {}", self.config.theme);
+
+        // Update renderer colors
+        renderer.set_colors(new_colors);
+        self.needs_redraw = true;
+    }
+
+    /// Handle copy (copy selection to clipboard)
+    fn handle_copy(&mut self) {
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        // Extract text from selection
+        if !selection.active || selection.is_empty() {
+            log::debug!("No active selection to copy");
+            return;
+        }
+
+        let (start, end) = selection.bounds();
+        let mut text = String::new();
+
+        // Extract text from the selected range
+        for row in start.row..=end.row {
+            if row < 0 {
+                // Scrollback - skip for now, will be implemented in M5
+                continue;
+            }
+            let row_idx = row as usize;
+            if row_idx >= screen.rows() {
+                continue;
+            }
+
+            let line = screen.line(row_idx);
+            let line_text = line.text();
+
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col.min(line_text.len().saturating_sub(1))
+            } else {
+                line_text.len().saturating_sub(1)
+            };
+
+            // Extract the relevant portion of the line
+            if start_col <= end_col && start_col < line_text.len() {
+                let chars: Vec<char> = line_text.chars().collect();
+                let extracted: String = chars
+                    .iter()
+                    .skip(start_col)
+                    .take(end_col - start_col + 1)
+                    .collect();
+                text.push_str(&extracted);
+            }
+
+            // Add newline between lines (except for the last line)
+            if row < end.row {
+                text.push('\n');
+            }
+        }
+
+        if !text.is_empty() {
+            if let Err(e) = clipboard.set_text(text.clone()) {
+                log::warn!("Failed to copy to clipboard: {}", e);
+            } else {
+                log::debug!("Copied {} characters to clipboard", text.len());
+            }
+        }
+    }
+
     /// Handle paste
-    #[allow(dead_code)]
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
             return;
