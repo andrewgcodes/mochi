@@ -266,15 +266,18 @@ impl Renderer {
 
                 // Determine colors
                 let is_selected = selection.contains(col, row as isize);
-                let is_cursor = !is_from_scrollback
+                // Check if this is the cursor position (regardless of visibility)
+                let is_cursor_position = !is_from_scrollback
                     && scroll_offset == 0
-                    && cursor.visible
                     && actual_screen_row == Some(cursor.row)
                     && cursor.col == col;
+                // Solid cursor when visible, outline when hidden
+                let is_solid_cursor = is_cursor_position && cursor.visible;
+                let is_outline_cursor = is_cursor_position && !cursor.visible;
 
                 let (fg, bg) = if is_selected {
                     (fg_color, sel_color)
-                } else if is_cursor {
+                } else if is_solid_cursor {
                     (bg_color, cursor_color)
                 } else {
                     let fg = Self::resolve_color_static(
@@ -314,6 +317,20 @@ impl Renderer {
                             height,
                         );
                     }
+                }
+
+                // Draw outline cursor when cursor is hidden (provides visual feedback)
+                if is_outline_cursor {
+                    Self::draw_rect_outline_static(
+                        &mut buffer,
+                        x,
+                        y,
+                        cell_w,
+                        cell_h,
+                        cursor_color,
+                        width,
+                        height,
+                    );
                 }
             }
         }
@@ -453,6 +470,83 @@ impl Renderer {
                 let idx = (py as u32 * buf_width + px as u32) as usize;
                 if idx < buffer.len() {
                     buffer[idx] = pixel;
+                }
+            }
+        }
+    }
+
+    /// Draw a rectangle outline (hollow rectangle) for cursor indication
+    #[allow(clippy::too_many_arguments)]
+    fn draw_rect_outline_static(
+        buffer: &mut [u32],
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        color: (u8, u8, u8),
+        buf_width: u32,
+        buf_height: u32,
+    ) {
+        let pixel = Self::rgb_to_pixel(color.0, color.1, color.2);
+        let thickness = 2; // 2-pixel thick outline for visibility
+
+        // Draw top and bottom edges
+        for dy in 0..thickness {
+            // Top edge
+            let py_top = y + dy;
+            // Bottom edge
+            let py_bottom = y + h - 1 - dy;
+
+            for dx in 0..w {
+                let px = x + dx;
+
+                // Top edge
+                if py_top >= 0 && py_top < buf_height as i32 && px >= 0 && px < buf_width as i32 {
+                    let idx = (py_top as u32 * buf_width + px as u32) as usize;
+                    if idx < buffer.len() {
+                        buffer[idx] = pixel;
+                    }
+                }
+
+                // Bottom edge
+                if py_bottom >= 0
+                    && py_bottom < buf_height as i32
+                    && px >= 0
+                    && px < buf_width as i32
+                {
+                    let idx = (py_bottom as u32 * buf_width + px as u32) as usize;
+                    if idx < buffer.len() {
+                        buffer[idx] = pixel;
+                    }
+                }
+            }
+        }
+
+        // Draw left and right edges (excluding corners already drawn)
+        for dy in thickness..(h - thickness) {
+            let py = y + dy;
+            if py < 0 || py >= buf_height as i32 {
+                continue;
+            }
+
+            for dx in 0..thickness {
+                // Left edge
+                let px_left = x + dx;
+                // Right edge
+                let px_right = x + w - 1 - dx;
+
+                if px_left >= 0 && px_left < buf_width as i32 {
+                    let idx = (py as u32 * buf_width + px_left as u32) as usize;
+                    if idx < buffer.len() {
+                        buffer[idx] = pixel;
+                    }
+                }
+
+                if px_right >= 0 && px_right < buf_width as i32 {
+                    let idx = (py as u32 * buf_width + px_right as u32) as usize;
+                    if idx < buffer.len() {
+                        buffer[idx] = pixel;
+                    }
                 }
             }
         }

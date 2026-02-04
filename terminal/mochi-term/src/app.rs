@@ -38,6 +38,8 @@ pub struct App {
     modifiers: ModifiersState,
     /// Mouse position (in cells)
     mouse_cell: (u16, u16),
+    /// Mouse position (in pixels)
+    mouse_pixel: (f64, f64),
     /// Mouse button state
     mouse_buttons: [bool; 3],
     /// Last render time
@@ -48,6 +50,12 @@ pub struct App {
     focused: bool,
     /// Scroll offset (number of lines scrolled back into history)
     scroll_offset: usize,
+    /// Whether we're currently dragging the scrollbar
+    scrollbar_dragging: bool,
+    /// Y position where scrollbar drag started (in pixels)
+    scrollbar_drag_start_y: f64,
+    /// Scroll offset when scrollbar drag started
+    scrollbar_drag_start_offset: usize,
 }
 
 impl App {
@@ -62,11 +70,15 @@ impl App {
             clipboard: Clipboard::new().ok(),
             modifiers: ModifiersState::empty(),
             mouse_cell: (0, 0),
+            mouse_pixel: (0.0, 0.0),
             mouse_buttons: [false; 3],
             last_render: Instant::now(),
             needs_redraw: true,
             focused: true,
             scroll_offset: 0,
+            scrollbar_dragging: false,
+            scrollbar_drag_start_y: 0.0,
+            scrollbar_drag_start_offset: 0,
         })
     }
 
@@ -384,6 +396,34 @@ impl App {
 
     /// Handle mouse input
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
+        // Handle scrollbar dragging first (left button only)
+        if button == MouseButton::Left {
+            if state == ElementState::Pressed {
+                // Check if click is on scrollbar (right 8 pixels of window)
+                if let (Some(window), Some(terminal)) = (&self.window, &self.terminal) {
+                    let window_width = window.inner_size().width as f64;
+                    let scrollbar_width = 8.0;
+
+                    if self.mouse_pixel.0 >= window_width - scrollbar_width {
+                        let scrollback_len = terminal.screen().scrollback().len();
+                        if scrollback_len > 0 {
+                            // Start scrollbar dragging
+                            self.scrollbar_dragging = true;
+                            self.scrollbar_drag_start_y = self.mouse_pixel.1;
+                            self.scrollbar_drag_start_offset = self.scroll_offset;
+                            return;
+                        }
+                    }
+                }
+            } else {
+                // Mouse released - stop dragging
+                if self.scrollbar_dragging {
+                    self.scrollbar_dragging = false;
+                    return;
+                }
+            }
+        }
+
         let Some(terminal) = &self.terminal else {
             return;
         };
@@ -421,6 +461,48 @@ impl App {
 
     /// Handle mouse motion
     fn handle_mouse_motion(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
+        // Update pixel position
+        self.mouse_pixel = (position.x, position.y);
+
+        // Handle scrollbar dragging
+        if self.scrollbar_dragging {
+            if let (Some(window), Some(terminal)) = (&self.window, &self.terminal) {
+                let window_height = window.inner_size().height as f64;
+                let scrollback_len = terminal.screen().scrollback().len();
+                let visible_rows = terminal.screen().rows();
+
+                if scrollback_len > 0 && window_height > 0.0 {
+                    // Calculate how much the mouse has moved
+                    let delta_y = position.y - self.scrollbar_drag_start_y;
+
+                    // Calculate the scroll range (total scrollable area)
+                    let total_lines = scrollback_len + visible_rows;
+                    let thumb_height =
+                        ((visible_rows as f64 / total_lines as f64) * window_height).max(20.0);
+                    let scroll_range = window_height - thumb_height;
+
+                    if scroll_range > 0.0 {
+                        // Convert pixel delta to scroll offset delta
+                        // Moving down (positive delta) should decrease scroll_offset (show newer content)
+                        // Moving up (negative delta) should increase scroll_offset (show older content)
+                        let scroll_delta =
+                            (-delta_y / scroll_range * scrollback_len as f64) as isize;
+
+                        let new_offset = (self.scrollbar_drag_start_offset as isize + scroll_delta)
+                            .max(0)
+                            .min(scrollback_len as isize)
+                            as usize;
+
+                        if new_offset != self.scroll_offset {
+                            self.scroll_offset = new_offset;
+                            self.needs_redraw = true;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         let Some(renderer) = &self.renderer else {
             return;
         };
