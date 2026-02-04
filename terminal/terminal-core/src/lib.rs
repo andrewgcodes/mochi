@@ -30,7 +30,7 @@ pub use line::Line;
 pub use modes::Modes;
 pub use screen::Screen;
 pub use scrollback::Scrollback;
-pub use selection::Selection;
+pub use selection::{Point, Selection, SelectionType};
 pub use snapshot::Snapshot;
 
 /// Terminal dimensions
