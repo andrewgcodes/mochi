@@ -42,8 +42,7 @@ fn main() -> io::Result<()> {
 
     // Output snapshot as JSON
     let snapshot = screen.snapshot();
-    let json = serde_json::to_string_pretty(&snapshot)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(&snapshot).map_err(io::Error::other)?;
 
     io::stdout().write_all(json.as_bytes())?;
     io::stdout().write_all(b"\n")?;
