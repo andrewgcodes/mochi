@@ -56,6 +56,8 @@ pub struct Renderer {
     width: u32,
     /// Current height
     height: u32,
+    /// Current font size (scaled for HiDPI)
+    font_size: f32,
 }
 
 impl Renderer {
@@ -76,12 +78,16 @@ impl Renderer {
         let bold_font_data = include_bytes!("../assets/DejaVuSansMono-Bold.ttf");
         let bold_font = Font::from_bytes(bold_font_data as &[u8], FontSettings::default()).ok();
 
+        // Scale font size for HiDPI displays
+        let scale_factor = window.scale_factor() as f32;
+        let scaled_font_size = font_size * scale_factor;
+
         // Calculate cell size
-        let metrics = font.metrics('M', font_size);
+        let metrics = font.metrics('M', scaled_font_size);
         let cell_size = CellSize {
             width: metrics.advance_width.ceil(),
-            height: (font_size * 1.4).ceil(),
-            baseline: font_size,
+            height: (scaled_font_size * 1.4).ceil(),
+            baseline: scaled_font_size,
         };
 
         let size = window.inner_size();
@@ -96,12 +102,34 @@ impl Renderer {
             colors,
             width: size.width,
             height: size.height,
+            font_size: scaled_font_size,
         })
     }
 
     /// Get cell size
     pub fn cell_size(&self) -> CellSize {
         self.cell_size
+    }
+
+    /// Get current font size
+    pub fn font_size(&self) -> f32 {
+        self.font_size
+    }
+
+    /// Change font size and recalculate cell dimensions
+    pub fn set_font_size(&mut self, font_size: f32) {
+        self.font_size = font_size;
+
+        // Recalculate cell size
+        let metrics = self.font.metrics('M', font_size);
+        self.cell_size = CellSize {
+            width: metrics.advance_width.ceil(),
+            height: (font_size * 1.4).ceil(),
+            baseline: font_size,
+        };
+
+        // Clear glyph cache since font size changed
+        self.glyph_cache.clear();
     }
 
     /// Resize the renderer

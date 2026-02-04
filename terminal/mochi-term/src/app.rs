@@ -11,7 +11,7 @@ use terminal_pty::{Child, WindowSize};
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::keyboard::ModifiersState;
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
 use crate::config::Config;
@@ -220,6 +220,38 @@ impl App {
             return;
         }
 
+        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
+        #[cfg(target_os = "macos")]
+        let zoom_modifier = self.modifiers.super_key();
+        #[cfg(not(target_os = "macos"))]
+        let zoom_modifier = self.modifiers.control_key();
+
+        if zoom_modifier {
+            match &event.logical_key {
+                Key::Character(c) if c == "=" || c == "+" => {
+                    self.change_font_size(2.0);
+                    return;
+                }
+                Key::Character(c) if c == "-" => {
+                    self.change_font_size(-2.0);
+                    return;
+                }
+                Key::Character(c) if c == "0" => {
+                    self.reset_font_size();
+                    return;
+                }
+                Key::Named(NamedKey::ArrowUp) => {
+                    self.change_font_size(2.0);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowDown) => {
+                    self.change_font_size(-2.0);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         let Some(terminal) = &self.terminal else {
             return;
         };
@@ -231,6 +263,70 @@ impl App {
         {
             let _ = child.write_all(&data);
         }
+    }
+
+    /// Change font size by delta
+    fn change_font_size(&mut self, delta: f32) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+        let Some(child) = &self.child else { return };
+        let Some(window) = &self.window else { return };
+
+        let current_size = renderer.font_size();
+        let new_size = (current_size + delta).clamp(8.0, 72.0);
+
+        if (new_size - current_size).abs() < 0.1 {
+            return;
+        }
+
+        renderer.set_font_size(new_size);
+
+        // Recalculate terminal dimensions
+        let size = window.inner_size();
+        let cell_size = renderer.cell_size();
+        let cols = (size.width as f32 / cell_size.width) as usize;
+        let rows = (size.height as f32 / cell_size.height) as usize;
+
+        if cols > 0 && rows > 0 {
+            terminal.resize(cols, rows);
+            let _ = child.resize(WindowSize::new(cols as u16, rows as u16));
+        }
+
+        self.needs_redraw = true;
+    }
+
+    /// Reset font size to default (scaled for HiDPI)
+    fn reset_font_size(&mut self) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+        let Some(child) = &self.child else { return };
+        let Some(window) = &self.window else { return };
+
+        let scale_factor = window.scale_factor() as f32;
+        let default_size = self.config.font_size * scale_factor;
+
+        renderer.set_font_size(default_size);
+
+        // Recalculate terminal dimensions
+        let size = window.inner_size();
+        let cell_size = renderer.cell_size();
+        let cols = (size.width as f32 / cell_size.width) as usize;
+        let rows = (size.height as f32 / cell_size.height) as usize;
+
+        if cols > 0 && rows > 0 {
+            terminal.resize(cols, rows);
+            let _ = child.resize(WindowSize::new(cols as u16, rows as u16));
+        }
+
+        self.needs_redraw = true;
     }
 
     /// Handle mouse input
