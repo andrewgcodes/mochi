@@ -109,6 +109,60 @@ cursor_blink = true
 # shell = "/bin/bash"
 
 # =============================================================================
+# Layout Settings
+# =============================================================================
+
+# Line height multiplier. Affects vertical spacing between lines.
+# Valid range: 1.0 to 3.0
+# Default: 1.4
+line_height = 1.4
+
+# Cell padding as [horizontal, vertical] in pixels.
+# Adds extra space around each character cell.
+# Default: [0.0, 0.0]
+cell_padding = [0.0, 0.0]
+
+# =============================================================================
+# Keybindings
+# =============================================================================
+# Format: "Modifier+Modifier+Key"
+# Available modifiers: Ctrl, Alt, Shift
+# Examples: "Ctrl+Shift+C", "Alt+T", "Ctrl+Plus"
+
+[keybindings]
+# Copy selection to clipboard
+# Default: "Ctrl+Shift+C"
+copy = "Ctrl+Shift+C"
+
+# Paste from clipboard
+# Default: "Ctrl+Shift+V"
+paste = "Ctrl+Shift+V"
+
+# Cycle through themes (dark -> light -> solarized-dark -> etc.)
+# Default: "Ctrl+Shift+T"
+toggle_theme = "Ctrl+Shift+T"
+
+# Reload configuration from file
+# Default: "Ctrl+Shift+R"
+reload_config = "Ctrl+Shift+R"
+
+# Open search bar (not yet implemented)
+# Default: "Ctrl+Shift+F"
+find = "Ctrl+Shift+F"
+
+# Increase font size
+# Default: "Ctrl+Plus"
+zoom_in = "Ctrl+Plus"
+
+# Decrease font size
+# Default: "Ctrl+Minus"
+zoom_out = "Ctrl+Minus"
+
+# Reset font size to default
+# Default: "Ctrl+0"
+zoom_reset = "Ctrl+0"
+
+# =============================================================================
 # Security Settings
 # =============================================================================
 

@@ -112,6 +112,36 @@ ANSI color indices:
 |-----|------|---------|-------------|
 | `shell` | string | (none) | Shell command (uses $SHELL if not set) |
 
+### Layout Settings
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `line_height` | float | `1.4` | Line height multiplier (1.0-3.0) |
+| `cell_padding` | [f32, f32] | `[0.0, 0.0]` | Cell padding [horizontal, vertical] in pixels |
+
+### Keybindings
+
+All keybindings can be customized in the `[keybindings]` section. Format: `"Modifier+Modifier+Key"` where modifiers can be `Ctrl`, `Alt`, `Shift`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `copy` | string | `"Ctrl+Shift+C"` | Copy selection to clipboard |
+| `paste` | string | `"Ctrl+Shift+V"` | Paste from clipboard |
+| `toggle_theme` | string | `"Ctrl+Shift+T"` | Cycle through themes |
+| `reload_config` | string | `"Ctrl+Shift+R"` | Reload configuration file |
+| `find` | string | `"Ctrl+Shift+F"` | Open search bar (not yet implemented) |
+| `zoom_in` | string | `"Ctrl+Plus"` | Increase font size |
+| `zoom_out` | string | `"Ctrl+Minus"` | Decrease font size |
+| `zoom_reset` | string | `"Ctrl+0"` | Reset font size to default |
+
+Example:
+```toml
+[keybindings]
+copy = "Ctrl+C"
+paste = "Ctrl+V"
+toggle_theme = "Alt+T"
+```
+
 ### Security Settings
 
 | Key | Type | Default | Description |
