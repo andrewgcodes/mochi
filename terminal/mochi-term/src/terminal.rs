@@ -2,8 +2,15 @@
 //!
 //! Integrates the parser and screen model to handle terminal emulation.
 
+use std::time::Instant;
 use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
+
+/// Maximum title length to prevent abuse
+const MAX_TITLE_LENGTH: usize = 256;
+
+/// Minimum interval between title updates (milliseconds)
+const TITLE_UPDATE_INTERVAL_MS: u64 = 100;
 
 /// Terminal emulator state
 pub struct Terminal {
@@ -17,6 +24,8 @@ pub struct Terminal {
     title_changed: bool,
     /// Bell triggered
     bell: bool,
+    /// Last title update time (for throttling)
+    last_title_update: Option<Instant>,
 }
 
 impl Terminal {
@@ -28,6 +37,7 @@ impl Terminal {
             title: String::new(),
             title_changed: false,
             bell: false,
+            last_title_update: None,
         }
     }
 
@@ -651,9 +661,7 @@ impl Terminal {
     fn handle_osc(&mut self, osc: OscAction) {
         match osc {
             OscAction::SetIconAndTitle(title) | OscAction::SetTitle(title) => {
-                self.title = title.clone();
-                self.screen.set_title(&title);
-                self.title_changed = true;
+                self.set_title_throttled(&title);
             }
             OscAction::SetIconName(_) => {
                 // Icon name is typically ignored in modern terminals
@@ -669,8 +677,9 @@ impl Terminal {
                 }
             }
             OscAction::Clipboard { clipboard: _, data } => {
-                // OSC 52 clipboard - handled by the application layer
-                log::debug!("OSC 52 clipboard: {} bytes", data.len());
+                // OSC 52 clipboard - disabled by default for security
+                // This should be handled by the application layer with proper security checks
+                log::debug!("OSC 52 clipboard blocked: {} bytes (disabled by default)", data.len());
             }
             OscAction::SetColor { index, color } => {
                 log::debug!("Set color {}: {}", index, color);
@@ -697,6 +706,32 @@ impl Terminal {
                 log::debug!("Unknown OSC {}: {}", command, data);
             }
         }
+    }
+
+    /// Set window title with throttling and sanitization for security
+    fn set_title_throttled(&mut self, title: &str) {
+        // Check throttling
+        let now = Instant::now();
+        if let Some(last_update) = self.last_title_update {
+            let elapsed = now.duration_since(last_update).as_millis() as u64;
+            if elapsed < TITLE_UPDATE_INTERVAL_MS {
+                log::debug!("Title update throttled ({}ms since last update)", elapsed);
+                return;
+            }
+        }
+
+        // Sanitize title: remove control characters and limit length
+        let sanitized: String = title
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(MAX_TITLE_LENGTH)
+            .collect();
+
+        // Update title
+        self.title = sanitized.clone();
+        self.screen.set_title(&sanitized);
+        self.title_changed = true;
+        self.last_title_update = Some(now);
     }
 
     /// Resize the terminal
