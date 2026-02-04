@@ -290,7 +290,7 @@ impl App {
             }
         }
 
-        // Check for Ctrl+Shift shortcuts (app-level keybindings)
+        // Check for Ctrl+Shift shortcuts (app-level keybindings) - works on all platforms
         let ctrl_shift = self.modifiers.control_key() && self.modifiers.shift_key();
         if ctrl_shift {
             match &event.logical_key {
@@ -317,6 +317,26 @@ impl App {
                 // Toggle theme: Ctrl+Shift+T
                 Key::Character(c) if c.eq_ignore_ascii_case("t") => {
                     self.toggle_theme();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // macOS-specific: Cmd+C/V for copy/paste (standard macOS shortcuts)
+        // This is in addition to Ctrl+Shift+C/V which also works
+        #[cfg(target_os = "macos")]
+        if self.modifiers.super_key() && !self.modifiers.shift_key() && !self.modifiers.control_key()
+        {
+            match &event.logical_key {
+                // Copy: Cmd+C
+                Key::Character(c) if c.eq_ignore_ascii_case("c") => {
+                    self.handle_copy();
+                    return;
+                }
+                // Paste: Cmd+V
+                Key::Character(c) if c.eq_ignore_ascii_case("v") => {
+                    self.handle_paste();
                     return;
                 }
                 _ => {}
