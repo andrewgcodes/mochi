@@ -223,13 +223,37 @@ impl App {
             return;
         }
 
-        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
+        let ctrl = self.modifiers.control_key();
+        let shift = self.modifiers.shift_key();
+
+        if ctrl && shift {
+            match &event.logical_key {
+                Key::Character(c) if c.to_uppercase() == "T" => {
+                    self.toggle_theme();
+                    return;
+                }
+                Key::Character(c) if c.to_uppercase() == "C" => {
+                    self.handle_copy();
+                    return;
+                }
+                Key::Character(c) if c.to_uppercase() == "V" => {
+                    self.handle_paste();
+                    return;
+                }
+                Key::Character(c) if c.to_uppercase() == "R" => {
+                    self.reload_config();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
-        let zoom_modifier = self.modifiers.control_key();
+        let zoom_modifier = ctrl;
 
-        if zoom_modifier {
+        if zoom_modifier && !shift {
             match &event.logical_key {
                 Key::Character(c) if c == "=" || c == "+" => {
                     self.change_font_size(2.0);
@@ -451,8 +475,47 @@ impl App {
         }
     }
 
-    /// Handle paste
-    #[allow(dead_code)]
+    /// Toggle to the next theme
+    fn toggle_theme(&mut self) {
+        let new_theme = self.config.theme.next();
+        self.config.theme = new_theme;
+
+        let colors = self.config.effective_colors();
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_colors(colors);
+        }
+
+        log::info!("Theme changed to: {}", new_theme.display_name());
+        self.needs_redraw = true;
+    }
+
+    /// Handle copy (Ctrl+Shift+C)
+    fn handle_copy(&mut self) {
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if selection.is_empty() {
+            return;
+        }
+
+        let text = screen.get_selected_text(selection);
+        if !text.is_empty() {
+            if let Err(e) = clipboard.set_text(&text) {
+                log::warn!("Failed to copy to clipboard: {}", e);
+            } else {
+                log::debug!("Copied {} characters to clipboard", text.len());
+            }
+        }
+    }
+
+    /// Handle paste (Ctrl+Shift+V)
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
             return;
@@ -469,6 +532,23 @@ impl App {
                 text.into_bytes()
             };
             let _ = child.write_all(&data);
+        }
+    }
+
+    /// Reload configuration from file
+    fn reload_config(&mut self) {
+        match self.config.reload() {
+            Ok(()) => {
+                let colors = self.config.effective_colors();
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.set_colors(colors);
+                }
+                log::info!("Configuration reloaded successfully");
+                self.needs_redraw = true;
+            }
+            Err(e) => {
+                log::warn!("Failed to reload config: {}", e);
+            }
         }
     }
 

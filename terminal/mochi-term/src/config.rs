@@ -99,6 +99,32 @@ impl ThemeName {
     pub fn all_names() -> &'static [&'static str] {
         &["dark", "light", "solarized-dark", "solarized-light", "dracula", "nord", "gruvbox", "custom"]
     }
+
+    pub fn next(self) -> Self {
+        match self {
+            ThemeName::Dark => ThemeName::Light,
+            ThemeName::Light => ThemeName::SolarizedDark,
+            ThemeName::SolarizedDark => ThemeName::SolarizedLight,
+            ThemeName::SolarizedLight => ThemeName::Dracula,
+            ThemeName::Dracula => ThemeName::Nord,
+            ThemeName::Nord => ThemeName::Gruvbox,
+            ThemeName::Gruvbox => ThemeName::Dark,
+            ThemeName::Custom => ThemeName::Dark,
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ThemeName::Dark => "Dark",
+            ThemeName::Light => "Light",
+            ThemeName::SolarizedDark => "Solarized Dark",
+            ThemeName::SolarizedLight => "Solarized Light",
+            ThemeName::Dracula => "Dracula",
+            ThemeName::Nord => "Nord",
+            ThemeName::Gruvbox => "Gruvbox",
+            ThemeName::Custom => "Custom",
+        }
+    }
 }
 
 /// Terminal configuration

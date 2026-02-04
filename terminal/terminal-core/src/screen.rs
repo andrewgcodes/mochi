@@ -10,7 +10,7 @@ use crate::grid::Grid;
 use crate::line::Line;
 use crate::modes::Modes;
 use crate::scrollback::Scrollback;
-use crate::selection::Selection;
+use crate::selection::{Selection, SelectionType};
 use crate::snapshot::Snapshot;
 use crate::Dimensions;
 
@@ -707,6 +707,75 @@ impl Screen {
     pub fn designate_charset(&mut self, slot: u8, designation: char) {
         let charset = parse_charset_designation(designation);
         self.charset.set_slot(slot, charset);
+    }
+
+    /// Extract selected text from the screen
+    pub fn get_selected_text(&self, selection: &Selection) -> String {
+        if selection.is_empty() {
+            return String::new();
+        }
+
+        let (start, end) = selection.bounds();
+        let mut result = String::new();
+        let cols = self.cols();
+        let rows = self.rows();
+
+        for row_idx in start.row..=end.row {
+            if row_idx < 0 {
+                continue;
+            }
+            let row_idx_usize = row_idx as usize;
+            if row_idx_usize >= rows {
+                continue;
+            }
+
+            let line = self.line(row_idx_usize);
+            let line_start = if row_idx == start.row {
+                start.col
+            } else {
+                0
+            };
+            let line_end = if row_idx == end.row {
+                end.col.min(cols.saturating_sub(1))
+            } else {
+                cols.saturating_sub(1)
+            };
+
+            match selection.selection_type {
+                SelectionType::Line => {
+                    result.push_str(&line.text().trim_end());
+                }
+                SelectionType::Block => {
+                    let min_col = start.col.min(end.col);
+                    let max_col = start.col.max(end.col).min(cols.saturating_sub(1));
+                    for col in min_col..=max_col {
+                        let cell = line.cell(col);
+                        if !cell.is_continuation() {
+                            result.push(cell.display_char());
+                        }
+                    }
+                }
+                _ => {
+                    for col in line_start..=line_end {
+                        if col >= cols {
+                            break;
+                        }
+                        let cell = line.cell(col);
+                        if !cell.is_continuation() {
+                            result.push(cell.display_char());
+                        }
+                    }
+                }
+            }
+
+            if row_idx < end.row {
+                if selection.selection_type == SelectionType::Block || !line.wrapped {
+                    result.push('\n');
+                }
+            }
+        }
+
+        result.trim_end().to_string()
     }
 }
 
