@@ -636,6 +636,8 @@ pub struct TerminalApp {
     pub selection: mochi_core::Selection,
     pub mouse_pressed: bool,
     pub scroll_offset: i64,
+    pub mouse_col: u16,
+    pub mouse_row: u16,
 }
 
 impl ApplicationHandler for TerminalApp {
@@ -713,8 +715,47 @@ impl ApplicationHandler for TerminalApp {
                 self.modifiers = new_modifiers.state();
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                use crate::input::{
+                    MouseButton as InputMouseButton, MouseEvent as InputMouseEvent,
+                };
+                use mochi_core::screen::{MouseEncoding, MouseMode};
                 use winit::event::{ElementState, MouseButton};
-                if button == MouseButton::Left {
+
+                let mouse_mode = self.screen.modes.mouse_tracking;
+                let sgr_mode = matches!(self.screen.modes.mouse_encoding, MouseEncoding::Sgr);
+
+                // Convert winit button to our input button
+                let input_button = match button {
+                    MouseButton::Left => Some(InputMouseButton::Left),
+                    MouseButton::Middle => Some(InputMouseButton::Middle),
+                    MouseButton::Right => Some(InputMouseButton::Right),
+                    _ => None,
+                };
+
+                // If mouse tracking is enabled, send mouse events to PTY
+                if !matches!(mouse_mode, MouseMode::None) {
+                    if let Some(btn) = input_button {
+                        let event = match state {
+                            ElementState::Pressed => InputMouseEvent::Press(btn),
+                            ElementState::Released => InputMouseEvent::Release(btn),
+                        };
+                        let bytes = self.input_encoder.encode_mouse(
+                            event,
+                            self.mouse_col,
+                            self.mouse_row,
+                            mouse_mode,
+                            sgr_mode,
+                        );
+                        if !bytes.is_empty() {
+                            if let Some(pty) = &self.pty {
+                                let _ = pty.write(&bytes);
+                            }
+                        }
+                    }
+                }
+
+                // Handle selection for left button when mouse tracking is disabled
+                if button == MouseButton::Left && matches!(mouse_mode, MouseMode::None) {
                     match state {
                         ElementState::Pressed => {
                             self.mouse_pressed = true;
@@ -739,20 +780,51 @@ impl ApplicationHandler for TerminalApp {
                     let col = (position.x / cell_width as f64) as usize;
                     let row = (position.y / cell_height as f64) as i64 - self.scroll_offset;
 
-                    if self.mouse_pressed {
-                        if self.selection.is_empty() || !self.selection.active {
-                            // Start new selection
-                            self.selection.start_selection(
-                                row,
-                                col.min(self.renderer.cols.saturating_sub(1)),
-                                mochi_core::SelectionType::Normal,
-                            );
-                        } else {
-                            // Update existing selection
-                            self.selection.update_selection(
-                                row,
-                                col.min(self.renderer.cols.saturating_sub(1)),
-                            );
+                    // Update tracked mouse position for mouse reporting
+                    self.mouse_col = col.min(self.renderer.cols.saturating_sub(1)) as u16;
+                    self.mouse_row =
+                        row.clamp(0, self.renderer.rows.saturating_sub(1) as i64) as u16;
+
+                    // Check if mouse tracking is enabled
+                    use mochi_core::screen::{MouseEncoding, MouseMode};
+                    let mouse_mode = self.screen.modes.mouse_tracking;
+
+                    if matches!(mouse_mode, MouseMode::None) {
+                        // Handle selection when mouse tracking is disabled
+                        if self.mouse_pressed {
+                            if self.selection.is_empty() || !self.selection.active {
+                                // Start new selection
+                                self.selection.start_selection(
+                                    row,
+                                    col.min(self.renderer.cols.saturating_sub(1)),
+                                    mochi_core::SelectionType::Normal,
+                                );
+                            } else {
+                                // Update existing selection
+                                self.selection.update_selection(
+                                    row,
+                                    col.min(self.renderer.cols.saturating_sub(1)),
+                                );
+                            }
+                        }
+                    } else if matches!(mouse_mode, MouseMode::ButtonEvent | MouseMode::AnyEvent)
+                        && self.mouse_pressed
+                    {
+                        // Send mouse motion events when tracking is enabled
+                        use crate::input::MouseEvent as InputMouseEvent;
+                        let sgr_mode =
+                            matches!(self.screen.modes.mouse_encoding, MouseEncoding::Sgr);
+                        let bytes = self.input_encoder.encode_mouse(
+                            InputMouseEvent::Move,
+                            self.mouse_col,
+                            self.mouse_row,
+                            mouse_mode,
+                            sgr_mode,
+                        );
+                        if !bytes.is_empty() {
+                            if let Some(pty) = &self.pty {
+                                let _ = pty.write(&bytes);
+                            }
                         }
                     }
                 }
@@ -1037,6 +1109,8 @@ pub fn run_terminal(cols: usize, rows: usize) -> Result<(), Box<dyn std::error::
         selection: mochi_core::Selection::new(),
         mouse_pressed: false,
         scroll_offset: 0,
+        mouse_col: 0,
+        mouse_row: 0,
     };
 
     event_loop.run_app(&mut app)?;
