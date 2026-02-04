@@ -29,6 +29,7 @@ libc = "0.2"
 winit = "0.30"
 wgpu = "22.0"
 pollster = "0.4"
+bytemuck = { version = "1.14", features = ["derive"] }
 
 # Font rendering
 fontdue = "0.9"
