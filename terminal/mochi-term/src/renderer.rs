@@ -132,12 +132,13 @@ impl Renderer {
         self.glyph_cache.clear();
     }
 
-    /// Update the color scheme (for theme switching)
+    /// Update the color scheme (for runtime theme switching)
     pub fn set_colors(&mut self, colors: ColorScheme) {
         self.colors = colors;
     }
 
-    /// Get current color scheme
+    /// Get the current color scheme
+    #[allow(dead_code)]
     pub fn colors(&self) -> &ColorScheme {
         &self.colors
     }

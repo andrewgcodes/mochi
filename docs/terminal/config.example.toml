@@ -1,123 +1,65 @@
-# Mochi Terminal Configuration
+# Mochi Terminal Configuration Example
 # 
-# This is an example configuration file for Mochi Terminal.
+# This file shows all available configuration options with their default values.
 # Copy this file to ~/.config/mochi/config.toml and customize as needed.
 #
 # Configuration precedence (highest to lowest):
-# 1. CLI flags (--config, --font-size, etc.)
-# 2. Environment variables (MOCHI_CONFIG, MOCHI_FONT_SIZE, etc.)
-# 3. Config file (~/.config/mochi/config.toml)
+# 1. CLI arguments (e.g., --theme dark)
+# 2. Environment variables (e.g., MOCHI_THEME=dark)
+# 3. This config file
 # 4. Built-in defaults
 
-# =============================================================================
-# Font Settings
-# =============================================================================
+# Font settings
+font_family = "monospace"  # Font family name
+font_size = 14.0           # Font size in points (4.0 - 128.0)
 
-# Font family name. Must be a monospace font installed on your system.
-# Default: "DejaVu Sans Mono"
-font_family = "DejaVu Sans Mono"
+# Terminal dimensions
+dimensions = [80, 24]      # [columns, rows] (10-1000 cols, 5-500 rows)
 
-# Font size in points. Valid range: 6.0 - 128.0
-# Default: 14.0
-font_size = 14.0
+# Scrollback buffer
+scrollback_lines = 10000   # Number of lines to keep in scrollback (max 1,000,000)
 
-# =============================================================================
-# Terminal Dimensions
-# =============================================================================
-
-# Initial terminal dimensions as [columns, rows]
-# Columns: 1-500, Rows: 1-200
-# Default: [80, 24]
-dimensions = [80, 24]
-
-# =============================================================================
-# Scrollback
-# =============================================================================
-
-# Number of lines to keep in scrollback history
-# Valid range: 0 - 1,000,000
-# Default: 10000
-scrollback_lines = 10000
-
-# =============================================================================
-# Theme
-# =============================================================================
-
-# Theme name. Built-in themes:
-#   - "dark"           (VS Code inspired dark theme)
-#   - "light"          (Clean light theme)
-#   - "solarized-dark" (Solarized dark variant)
-#   - "solarized-light"(Solarized light variant)
-#   - "dracula"        (Dracula theme)
-#   - "nord"           (Nord theme)
-#   - "custom"         (Use colors defined below)
-# Default: "dark"
+# Theme selection
+# Available themes: dark, light, solarized-dark, solarized-light, dracula, nord, custom
 theme = "dark"
 
-# =============================================================================
-# Cursor
-# =============================================================================
+# Shell command (optional - defaults to $SHELL environment variable)
+# shell = "/bin/bash"
 
-# Cursor style: "block", "underline", or "bar"
-# Default: "block"
-cursor_style = "block"
+# Cursor settings
+cursor_style = "block"     # Options: block, underline, bar
+cursor_blink = true        # Enable cursor blinking
 
-# Whether the cursor should blink
-# Default: true
-cursor_blink = true
+# Security settings
+osc52_clipboard = false    # Enable OSC 52 clipboard support (disabled by default for security)
+osc52_max_size = 100000    # Maximum OSC 52 payload size in bytes
 
-# =============================================================================
-# Shell
-# =============================================================================
-
-# Shell command to run. If not specified, uses $SHELL or /bin/sh
-# shell = "/bin/zsh"
-
-# =============================================================================
-# Security Settings
-# =============================================================================
-
-# Enable OSC 52 clipboard escape sequences
-# WARNING: This allows programs to read/write your clipboard via escape sequences.
-# Only enable if you trust all programs you run in the terminal.
-# Default: false
-osc52_clipboard = false
-
-# Maximum size in bytes for OSC 52 clipboard payloads
-# Default: 100000
-osc52_max_size = 100000
-
-# =============================================================================
-# Custom Colors (used when theme = "custom")
-# =============================================================================
-# All colors are in #RRGGBB hex format
-
+# Custom color scheme (only used when theme = "custom")
+# All colors are specified as hex strings (with or without # prefix)
 [colors]
-# Main colors
 foreground = "#d4d4d4"
 background = "#1e1e1e"
-cursor = "#d4d4d4"
+cursor = "#ffffff"
 selection = "#264f78"
 
-# ANSI 16-color palette
-# Order: black, red, green, yellow, blue, magenta, cyan, white,
-#        bright_black, bright_red, bright_green, bright_yellow,
-#        bright_blue, bright_magenta, bright_cyan, bright_white
+# ANSI colors 0-15 (standard 16-color palette)
+# 0-7: Normal colors (black, red, green, yellow, blue, magenta, cyan, white)
+# 8-15: Bright colors
 ansi = [
-    "#1e1e1e",  # black
-    "#f44747",  # red
-    "#6a9955",  # green
-    "#dcdcaa",  # yellow
-    "#569cd6",  # blue
-    "#c586c0",  # magenta
-    "#4ec9b0",  # cyan
-    "#d4d4d4",  # white
-    "#808080",  # bright black
-    "#f44747",  # bright red
-    "#6a9955",  # bright green
-    "#dcdcaa",  # bright yellow
-    "#569cd6",  # bright blue
-    "#c586c0",  # bright magenta
-    "#4ec9b0",  # bright cyan
-    "#ffffff",  # bright white
+    "#000000",  # 0: Black
+    "#cd3131",  # 1: Red
+    "#0dbc79",  # 2: Green
+    "#e5e510",  # 3: Yellow
+    "#2472c8",  # 4: Blue
+    "#bc3fbc",  # 5: Magenta
+    "#11a8cd",  # 6: Cyan
+    "#e5e5e5",  # 7: White
+    "#666666",  # 8: Bright Black
+    "#f14c4c",  # 9: Bright Red
+    "#23d18b",  # 10: Bright Green
+    "#f5f543",  # 11: Bright Yellow
+    "#3b8eea",  # 12: Bright Blue
+    "#d670d6",  # 13: Bright Magenta
+    "#29b8db",  # 14: Bright Cyan
+    "#ffffff",  # 15: Bright White
 ]
