@@ -157,11 +157,11 @@ impl App {
     fn init_graphics(&mut self, window: Rc<Window>) -> Result<(), Box<dyn std::error::Error>> {
         let size = window.inner_size();
 
-        // Create renderer
+        // Create renderer with effective colors based on theme
         let renderer = Renderer::new(
             window.clone(),
             self.config.font_size,
-            self.config.colors.clone(),
+            self.config.effective_colors(),
         )?;
 
         // Calculate terminal dimensions

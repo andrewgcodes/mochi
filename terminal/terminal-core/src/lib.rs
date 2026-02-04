@@ -10,6 +10,7 @@
 //! it will always produce the same screen state.
 
 mod cell;
+mod charset;
 mod color;
 mod cursor;
 mod grid;
@@ -21,6 +22,7 @@ mod selection;
 mod snapshot;
 
 pub use cell::{Cell, CellAttributes};
+pub use charset::{parse_charset_designation, Charset, CharsetState};
 pub use color::Color;
 pub use cursor::{Cursor, CursorStyle};
 pub use grid::Grid;

@@ -4,6 +4,27 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Available theme names
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeName {
+    /// Dark theme (default)
+    #[default]
+    Dark,
+    /// Light theme
+    Light,
+    /// Solarized Dark
+    SolarizedDark,
+    /// Solarized Light
+    SolarizedLight,
+    /// Dracula theme
+    Dracula,
+    /// Nord theme
+    Nord,
+    /// Custom theme (uses colors field)
+    Custom,
+}
+
 /// Terminal configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -15,7 +36,10 @@ pub struct Config {
     pub scrollback_lines: usize,
     /// Window dimensions (columns, rows)
     pub dimensions: (u16, u16),
-    /// Color scheme
+    /// Theme name (dark, light, solarized-dark, solarized-light, dracula, nord, custom)
+    #[serde(default)]
+    pub theme: ThemeName,
+    /// Color scheme (used when theme is "custom", otherwise ignored)
     pub colors: ColorScheme,
     /// Enable OSC 52 clipboard
     pub osc52_clipboard: bool,
@@ -51,12 +75,28 @@ impl Default for Config {
             font_size: 14.0,
             scrollback_lines: 10000,
             dimensions: (80, 24),
+            theme: ThemeName::Dark,
             colors: ColorScheme::default(),
             osc52_clipboard: false, // Disabled by default for security
             osc52_max_size: 100000,
             shell: None,
             cursor_style: "block".to_string(),
             cursor_blink: true,
+        }
+    }
+}
+
+impl Config {
+    /// Get the effective color scheme based on the theme setting
+    pub fn effective_colors(&self) -> ColorScheme {
+        match self.theme {
+            ThemeName::Custom => self.colors.clone(),
+            ThemeName::Dark => ColorScheme::dark(),
+            ThemeName::Light => ColorScheme::light(),
+            ThemeName::SolarizedDark => ColorScheme::solarized_dark(),
+            ThemeName::SolarizedLight => ColorScheme::solarized_light(),
+            ThemeName::Dracula => ColorScheme::dracula(),
+            ThemeName::Nord => ColorScheme::nord(),
         }
     }
 }
@@ -125,6 +165,151 @@ impl Config {
 }
 
 impl ColorScheme {
+    /// Dark theme (VS Code inspired)
+    pub fn dark() -> Self {
+        Self::default()
+    }
+
+    /// Light theme
+    pub fn light() -> Self {
+        Self {
+            foreground: "#333333".to_string(),
+            background: "#ffffff".to_string(),
+            cursor: "#000000".to_string(),
+            selection: "#add6ff".to_string(),
+            ansi: [
+                "#000000".to_string(), // Black
+                "#cd3131".to_string(), // Red
+                "#00bc00".to_string(), // Green
+                "#949800".to_string(), // Yellow
+                "#0451a5".to_string(), // Blue
+                "#bc05bc".to_string(), // Magenta
+                "#0598bc".to_string(), // Cyan
+                "#555555".to_string(), // White
+                "#666666".to_string(), // Bright Black
+                "#cd3131".to_string(), // Bright Red
+                "#14ce14".to_string(), // Bright Green
+                "#b5ba00".to_string(), // Bright Yellow
+                "#0451a5".to_string(), // Bright Blue
+                "#bc05bc".to_string(), // Bright Magenta
+                "#0598bc".to_string(), // Bright Cyan
+                "#a5a5a5".to_string(), // Bright White
+            ],
+        }
+    }
+
+    /// Solarized Dark theme
+    pub fn solarized_dark() -> Self {
+        Self {
+            foreground: "#839496".to_string(),
+            background: "#002b36".to_string(),
+            cursor: "#93a1a1".to_string(),
+            selection: "#073642".to_string(),
+            ansi: [
+                "#073642".to_string(), // Black
+                "#dc322f".to_string(), // Red
+                "#859900".to_string(), // Green
+                "#b58900".to_string(), // Yellow
+                "#268bd2".to_string(), // Blue
+                "#d33682".to_string(), // Magenta
+                "#2aa198".to_string(), // Cyan
+                "#eee8d5".to_string(), // White
+                "#002b36".to_string(), // Bright Black
+                "#cb4b16".to_string(), // Bright Red
+                "#586e75".to_string(), // Bright Green
+                "#657b83".to_string(), // Bright Yellow
+                "#839496".to_string(), // Bright Blue
+                "#6c71c4".to_string(), // Bright Magenta
+                "#93a1a1".to_string(), // Bright Cyan
+                "#fdf6e3".to_string(), // Bright White
+            ],
+        }
+    }
+
+    /// Solarized Light theme
+    pub fn solarized_light() -> Self {
+        Self {
+            foreground: "#657b83".to_string(),
+            background: "#fdf6e3".to_string(),
+            cursor: "#586e75".to_string(),
+            selection: "#eee8d5".to_string(),
+            ansi: [
+                "#073642".to_string(), // Black
+                "#dc322f".to_string(), // Red
+                "#859900".to_string(), // Green
+                "#b58900".to_string(), // Yellow
+                "#268bd2".to_string(), // Blue
+                "#d33682".to_string(), // Magenta
+                "#2aa198".to_string(), // Cyan
+                "#eee8d5".to_string(), // White
+                "#002b36".to_string(), // Bright Black
+                "#cb4b16".to_string(), // Bright Red
+                "#586e75".to_string(), // Bright Green
+                "#657b83".to_string(), // Bright Yellow
+                "#839496".to_string(), // Bright Blue
+                "#6c71c4".to_string(), // Bright Magenta
+                "#93a1a1".to_string(), // Bright Cyan
+                "#fdf6e3".to_string(), // Bright White
+            ],
+        }
+    }
+
+    /// Dracula theme
+    pub fn dracula() -> Self {
+        Self {
+            foreground: "#f8f8f2".to_string(),
+            background: "#282a36".to_string(),
+            cursor: "#f8f8f2".to_string(),
+            selection: "#44475a".to_string(),
+            ansi: [
+                "#21222c".to_string(), // Black
+                "#ff5555".to_string(), // Red
+                "#50fa7b".to_string(), // Green
+                "#f1fa8c".to_string(), // Yellow
+                "#bd93f9".to_string(), // Blue
+                "#ff79c6".to_string(), // Magenta
+                "#8be9fd".to_string(), // Cyan
+                "#f8f8f2".to_string(), // White
+                "#6272a4".to_string(), // Bright Black
+                "#ff6e6e".to_string(), // Bright Red
+                "#69ff94".to_string(), // Bright Green
+                "#ffffa5".to_string(), // Bright Yellow
+                "#d6acff".to_string(), // Bright Blue
+                "#ff92df".to_string(), // Bright Magenta
+                "#a4ffff".to_string(), // Bright Cyan
+                "#ffffff".to_string(), // Bright White
+            ],
+        }
+    }
+
+    /// Nord theme
+    pub fn nord() -> Self {
+        Self {
+            foreground: "#d8dee9".to_string(),
+            background: "#2e3440".to_string(),
+            cursor: "#d8dee9".to_string(),
+            selection: "#434c5e".to_string(),
+            ansi: [
+                "#3b4252".to_string(), // Black
+                "#bf616a".to_string(), // Red
+                "#a3be8c".to_string(), // Green
+                "#ebcb8b".to_string(), // Yellow
+                "#81a1c1".to_string(), // Blue
+                "#b48ead".to_string(), // Magenta
+                "#88c0d0".to_string(), // Cyan
+                "#e5e9f0".to_string(), // White
+                "#4c566a".to_string(), // Bright Black
+                "#bf616a".to_string(), // Bright Red
+                "#a3be8c".to_string(), // Bright Green
+                "#ebcb8b".to_string(), // Bright Yellow
+                "#81a1c1".to_string(), // Bright Blue
+                "#b48ead".to_string(), // Bright Magenta
+                "#8fbcbb".to_string(), // Bright Cyan
+                "#eceff4".to_string(), // Bright White
+            ],
+        }
+    }
+
     /// Parse a hex color string to RGB
     pub fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
         let hex = hex.trim_start_matches('#');

@@ -4,6 +4,7 @@
 //! to provide a complete terminal emulation state machine.
 
 use crate::cell::CellAttributes;
+use crate::charset::{parse_charset_designation, CharsetState};
 use crate::cursor::{Cursor, SavedCursor};
 use crate::grid::Grid;
 use crate::line::Line;
@@ -47,6 +48,8 @@ pub struct Screen {
     hyperlinks: Vec<String>,
     /// Next hyperlink ID
     next_hyperlink_id: u32,
+    /// Character set state
+    charset: CharsetState,
 }
 
 impl Screen {
@@ -72,6 +75,7 @@ impl Screen {
             title: String::new(),
             hyperlinks: Vec::new(),
             next_hyperlink_id: 1,
+            charset: CharsetState::new(),
         }
     }
 
@@ -188,6 +192,11 @@ impl Screen {
 
     /// Print a character at the current cursor position
     pub fn print(&mut self, c: char) {
+        // Translate character through current charset
+        let c = self.charset.translate(c);
+        // Clear single shift after use
+        self.charset.clear_single_shift();
+
         let cols = self.cols();
         let (_, scroll_bottom) = self.scroll_region();
 
@@ -672,6 +681,32 @@ impl Screen {
     /// Get a line from the grid
     pub fn line(&self, row: usize) -> &Line {
         self.grid().line(row)
+    }
+
+    /// Get charset state reference
+    pub fn charset(&self) -> &CharsetState {
+        &self.charset
+    }
+
+    /// Get charset state mutably
+    pub fn charset_mut(&mut self) -> &mut CharsetState {
+        &mut self.charset
+    }
+
+    /// Shift In (SI) - select G0 into GL
+    pub fn shift_in(&mut self) {
+        self.charset.shift_in();
+    }
+
+    /// Shift Out (SO) - select G1 into GL
+    pub fn shift_out(&mut self) {
+        self.charset.shift_out();
+    }
+
+    /// Designate a character set to a G-set slot
+    pub fn designate_charset(&mut self, slot: u8, designation: char) {
+        let charset = parse_charset_designation(designation);
+        self.charset.set_slot(slot, charset);
     }
 }
 

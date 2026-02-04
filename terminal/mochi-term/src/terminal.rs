@@ -133,6 +133,14 @@ impl Terminal {
                 // CR
                 self.screen.carriage_return();
             }
+            0x0E => {
+                // SO - Shift Out (select G1)
+                self.screen.shift_out();
+            }
+            0x0F => {
+                // SI - Shift In (select G0)
+                self.screen.shift_in();
+            }
             _ => {}
         }
     }
@@ -171,17 +179,20 @@ impl Terminal {
                 log::debug!("Normal keypad mode enabled");
             }
             EscAction::DesignateG0(c) => {
-                // Character set designation
-                log::debug!("Designate G0: {}", c);
+                // Character set designation for G0
+                self.screen.designate_charset(0, c);
             }
             EscAction::DesignateG1(c) => {
-                log::debug!("Designate G1: {}", c);
+                // Character set designation for G1
+                self.screen.designate_charset(1, c);
             }
             EscAction::DesignateG2(c) => {
-                log::debug!("Designate G2: {}", c);
+                // Character set designation for G2
+                self.screen.designate_charset(2, c);
             }
             EscAction::DesignateG3(c) => {
-                log::debug!("Designate G3: {}", c);
+                // Character set designation for G3
+                self.screen.designate_charset(3, c);
             }
             EscAction::DecAlignmentTest => {
                 // Fill screen with 'E' characters
@@ -481,12 +492,38 @@ impl Terminal {
                 // SGR mouse mode
                 self.screen.modes_mut().mouse_sgr = value;
             }
-            1049 => {
-                // Alternate screen buffer
+            47 => {
+                // Alternate screen buffer (without clearing)
                 if value {
                     self.screen.enter_alternate_screen();
                 } else {
                     self.screen.exit_alternate_screen();
+                }
+            }
+            1047 => {
+                // Alternate screen buffer (with clearing)
+                if value {
+                    self.screen.enter_alternate_screen();
+                } else {
+                    self.screen.exit_alternate_screen();
+                }
+            }
+            1048 => {
+                // Save/restore cursor (used with alternate screen)
+                if value {
+                    self.screen.save_cursor();
+                } else {
+                    self.screen.restore_cursor();
+                }
+            }
+            1049 => {
+                // Alternate screen buffer (combines 1047 + 1048)
+                if value {
+                    self.screen.save_cursor();
+                    self.screen.enter_alternate_screen();
+                } else {
+                    self.screen.exit_alternate_screen();
+                    self.screen.restore_cursor();
                 }
             }
             2004 => {
