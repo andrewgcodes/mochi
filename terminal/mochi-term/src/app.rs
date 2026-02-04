@@ -58,6 +58,21 @@ pub struct App {
     click_count: u8,
     /// Whether we're currently dragging a selection
     is_selecting: bool,
+    /// Search state
+    search_state: SearchState,
+}
+
+/// Search state for find bar
+#[derive(Default)]
+pub struct SearchState {
+    /// Whether the find bar is visible
+    pub active: bool,
+    /// Current search query
+    pub query: String,
+    /// Positions of matches (row, col) - row can be negative for scrollback
+    pub matches: Vec<(isize, usize)>,
+    /// Current match index
+    pub current_match: usize,
 }
 
 impl App {
@@ -83,6 +98,7 @@ impl App {
             last_click_pos: (0, 0),
             click_count: 0,
             is_selecting: false,
+            search_state: SearchState::default(),
         })
     }
 
@@ -285,13 +301,19 @@ impl App {
                 }
             }
 
-            // Find keybinding (placeholder for now - will be implemented in M5)
+            // Find keybinding
             if let Some(kb) = ParsedKeybinding::parse(&self.config.keybindings.find) {
                 if kb.matches(ctrl, shift, alt, super_key, key) {
-                    log::info!("Find triggered (not yet implemented)");
+                    self.toggle_find_bar();
                     return;
                 }
             }
+        }
+
+        // Handle find bar input when active
+        if self.search_state.active {
+            self.handle_find_bar_input(event);
+            return;
         }
 
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
@@ -924,6 +946,17 @@ impl App {
             log::warn!("Render error: {:?}", e);
         }
 
+        // Render find bar overlay if active
+        if self.search_state.active {
+            if let Err(e) = renderer.render_find_bar(
+                &self.search_state.query,
+                self.search_state.matches.len(),
+                self.search_state.current_match,
+            ) {
+                log::warn!("Find bar render error: {:?}", e);
+            }
+        }
+
         self.needs_redraw = false;
         self.last_render = Instant::now();
     }
@@ -935,5 +968,168 @@ impl App {
         } else {
             false
         }
+    }
+
+    /// Toggle the find bar
+    fn toggle_find_bar(&mut self) {
+        self.search_state.active = !self.search_state.active;
+        if !self.search_state.active {
+            // Clear search state when closing
+            self.search_state.query.clear();
+            self.search_state.matches.clear();
+            self.search_state.current_match = 0;
+        }
+        self.needs_redraw = true;
+        log::info!("Find bar: {}", if self.search_state.active { "opened" } else { "closed" });
+    }
+
+    /// Handle input when find bar is active
+    fn handle_find_bar_input(&mut self, event: &winit::event::KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                // Close find bar
+                self.search_state.active = false;
+                self.search_state.query.clear();
+                self.search_state.matches.clear();
+                self.needs_redraw = true;
+            }
+            Key::Named(NamedKey::Enter) => {
+                // Navigate to next/prev match
+                if self.modifiers.shift_key() {
+                    self.search_prev();
+                } else {
+                    self.search_next();
+                }
+            }
+            Key::Named(NamedKey::Backspace) => {
+                // Delete last character
+                self.search_state.query.pop();
+                self.perform_search();
+                self.needs_redraw = true;
+            }
+            Key::Character(c) => {
+                // Add character to search query
+                self.search_state.query.push_str(c);
+                self.perform_search();
+                self.needs_redraw = true;
+            }
+            _ => {}
+        }
+    }
+
+    /// Perform search in terminal content
+    fn perform_search(&mut self) {
+        self.search_state.matches.clear();
+        self.search_state.current_match = 0;
+
+        if self.search_state.query.is_empty() {
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let query = &self.search_state.query;
+
+        // Search in visible screen
+        for row in 0..screen.rows() {
+            let line = screen.line(row);
+            let line_text: String = (0..line.cols())
+                .map(|col| line.cell(col).display_char())
+                .collect();
+
+            // Find all occurrences in this line
+            let mut start = 0;
+            while let Some(pos) = line_text[start..].find(query) {
+                let col = start + pos;
+                self.search_state.matches.push((row as isize, col));
+                start = col + 1;
+            }
+        }
+
+        // Search in scrollback
+        let scrollback = screen.scrollback();
+        for i in 0..scrollback.len() {
+            if let Some(line) = scrollback.get_from_end(i) {
+                let line_text: String = (0..line.cols())
+                    .map(|col| line.cell(col).display_char())
+                    .collect();
+
+                let mut start = 0;
+                while let Some(pos) = line_text[start..].find(query) {
+                    let col = start + pos;
+                    // Scrollback rows are negative
+                    let row = -((i + 1) as isize);
+                    self.search_state.matches.push((row, col));
+                    start = col + 1;
+                }
+            }
+        }
+
+        log::info!("Search '{}': {} matches found", query, self.search_state.matches.len());
+    }
+
+    /// Navigate to next search match
+    fn search_next(&mut self) {
+        if self.search_state.matches.is_empty() {
+            return;
+        }
+
+        self.search_state.current_match = 
+            (self.search_state.current_match + 1) % self.search_state.matches.len();
+        self.scroll_to_current_match();
+    }
+
+    /// Navigate to previous search match
+    fn search_prev(&mut self) {
+        if self.search_state.matches.is_empty() {
+            return;
+        }
+
+        if self.search_state.current_match == 0 {
+            self.search_state.current_match = self.search_state.matches.len() - 1;
+        } else {
+            self.search_state.current_match -= 1;
+        }
+        self.scroll_to_current_match();
+    }
+
+    /// Scroll to show the current match
+    fn scroll_to_current_match(&mut self) {
+        if self.search_state.matches.is_empty() {
+            return;
+        }
+
+        let (row, _col) = self.search_state.matches[self.search_state.current_match];
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+
+        if row < 0 {
+            // Match is in scrollback
+            let scrollback_row = (-row) as usize;
+            self.scroll_offset = scrollback_row;
+        } else {
+            // Match is in visible area
+            let visible_rows = screen.rows();
+            if (row as usize) < visible_rows {
+                self.scroll_offset = 0;
+            }
+        }
+
+        self.needs_redraw = true;
+        log::info!("Scrolled to match {} of {}", 
+            self.search_state.current_match + 1, 
+            self.search_state.matches.len());
+    }
+
+    /// Get search state for rendering
+    pub fn search_state(&self) -> &SearchState {
+        &self.search_state
     }
 }
