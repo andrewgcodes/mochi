@@ -104,11 +104,10 @@ impl App {
                         return;
                     }
 
-                    // Request redraw if needed
+                    // Render directly if needed (more reliable than request_redraw on macOS)
+                    // This ensures TUI apps like Claude Code render immediately
                     if self.needs_redraw {
-                        if let Some(window) = &self.window {
-                            window.request_redraw();
-                        }
+                        self.render();
                     }
                 }
                 _ => {}
