@@ -72,7 +72,15 @@ impl FontRenderer {
     /// Create a font renderer with a built-in fallback font
     pub fn with_default_font(font_size: f32) -> Result<Self, FontError> {
         // Try to load system monospace fonts in order of preference
+        // Include paths for both Linux and macOS
         let font_paths = [
+            // macOS fonts
+            "/System/Library/Fonts/Menlo.ttc",
+            "/System/Library/Fonts/Monaco.ttf",
+            "/System/Library/Fonts/SFMono-Regular.otf",
+            "/Library/Fonts/SF-Mono-Regular.otf",
+            "/System/Library/Fonts/Courier.ttc",
+            // Linux fonts
             "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
             "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
