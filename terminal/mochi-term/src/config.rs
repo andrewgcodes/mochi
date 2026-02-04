@@ -137,11 +137,90 @@ pub struct Config {
     pub dimensions: (u16, u16),
     pub theme: ThemeName,
     pub colors: ColorScheme,
+    pub keybindings: Keybindings,
     pub osc52_clipboard: bool,
     pub osc52_max_size: usize,
     pub shell: Option<String>,
     pub cursor_style: String,
     pub cursor_blink: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Keybindings {
+    pub copy: String,
+    pub paste: String,
+    pub toggle_theme: String,
+    pub reload_config: String,
+    pub font_increase: String,
+    pub font_decrease: String,
+    pub font_reset: String,
+}
+
+impl Default for Keybindings {
+    fn default() -> Self {
+        Self {
+            copy: "ctrl+shift+c".to_string(),
+            paste: "ctrl+shift+v".to_string(),
+            toggle_theme: "ctrl+shift+t".to_string(),
+            reload_config: "ctrl+shift+r".to_string(),
+            font_increase: "ctrl+=".to_string(),
+            font_decrease: "ctrl+-".to_string(),
+            font_reset: "ctrl+0".to_string(),
+        }
+    }
+}
+
+impl Keybindings {
+    pub fn parse_keybinding(binding: &str) -> Option<(bool, bool, bool, bool, char)> {
+        let binding = binding.to_lowercase();
+        let parts: Vec<&str> = binding.split('+').collect();
+        
+        if parts.is_empty() {
+            return None;
+        }
+
+        let mut ctrl = false;
+        let mut alt = false;
+        let mut shift = false;
+        let mut super_key = false;
+        let mut key_char = None;
+
+        for part in parts {
+            match part.trim() {
+                "ctrl" | "control" => ctrl = true,
+                "alt" => alt = true,
+                "shift" => shift = true,
+                "super" | "cmd" | "meta" => super_key = true,
+                s if s.len() == 1 => key_char = s.chars().next(),
+                "=" => key_char = Some('='),
+                "-" => key_char = Some('-'),
+                "0" => key_char = Some('0'),
+                _ => {}
+            }
+        }
+
+        key_char.map(|c| (ctrl, alt, shift, super_key, c))
+    }
+
+    pub fn matches(&self, action: &str, ctrl: bool, alt: bool, shift: bool, super_key: bool, key: char) -> bool {
+        let binding = match action {
+            "copy" => &self.copy,
+            "paste" => &self.paste,
+            "toggle_theme" => &self.toggle_theme,
+            "reload_config" => &self.reload_config,
+            "font_increase" => &self.font_increase,
+            "font_decrease" => &self.font_decrease,
+            "font_reset" => &self.font_reset,
+            _ => return false,
+        };
+
+        if let Some((b_ctrl, b_alt, b_shift, b_super, b_key)) = Self::parse_keybinding(binding) {
+            ctrl == b_ctrl && alt == b_alt && shift == b_shift && super_key == b_super && key.to_ascii_lowercase() == b_key
+        } else {
+            false
+        }
+    }
 }
 
 /// Color scheme configuration
@@ -168,7 +247,8 @@ impl Default for Config {
             dimensions: (80, 24),
             theme: ThemeName::Dark,
             colors: ColorScheme::default(),
-            osc52_clipboard: false, // Disabled by default for security
+            keybindings: Keybindings::default(),
+            osc52_clipboard: false,
             osc52_max_size: 100000,
             shell: None,
             cursor_style: "block".to_string(),
@@ -850,5 +930,97 @@ ansi = [
         let path = path.unwrap();
         assert!(path.to_string_lossy().contains("mochi"));
         assert!(path.to_string_lossy().contains("config.toml"));
+    }
+
+    #[test]
+    fn test_theme_name_next() {
+        assert_eq!(ThemeName::Dark.next(), ThemeName::Light);
+        assert_eq!(ThemeName::Light.next(), ThemeName::SolarizedDark);
+        assert_eq!(ThemeName::SolarizedDark.next(), ThemeName::SolarizedLight);
+        assert_eq!(ThemeName::SolarizedLight.next(), ThemeName::Dracula);
+        assert_eq!(ThemeName::Dracula.next(), ThemeName::Nord);
+        assert_eq!(ThemeName::Nord.next(), ThemeName::Gruvbox);
+        assert_eq!(ThemeName::Gruvbox.next(), ThemeName::Dark);
+        assert_eq!(ThemeName::Custom.next(), ThemeName::Dark);
+    }
+
+    #[test]
+    fn test_theme_name_display_name() {
+        assert_eq!(ThemeName::Dark.display_name(), "Dark");
+        assert_eq!(ThemeName::Light.display_name(), "Light");
+        assert_eq!(ThemeName::SolarizedDark.display_name(), "Solarized Dark");
+        assert_eq!(ThemeName::SolarizedLight.display_name(), "Solarized Light");
+        assert_eq!(ThemeName::Dracula.display_name(), "Dracula");
+        assert_eq!(ThemeName::Nord.display_name(), "Nord");
+        assert_eq!(ThemeName::Gruvbox.display_name(), "Gruvbox");
+        assert_eq!(ThemeName::Custom.display_name(), "Custom");
+    }
+
+    #[test]
+    fn test_keybindings_default() {
+        let kb = Keybindings::default();
+        assert_eq!(kb.copy, "ctrl+shift+c");
+        assert_eq!(kb.paste, "ctrl+shift+v");
+        assert_eq!(kb.toggle_theme, "ctrl+shift+t");
+        assert_eq!(kb.reload_config, "ctrl+shift+r");
+        assert_eq!(kb.font_increase, "ctrl+=");
+        assert_eq!(kb.font_decrease, "ctrl+-");
+        assert_eq!(kb.font_reset, "ctrl+0");
+    }
+
+    #[test]
+    fn test_keybindings_parse() {
+        let result = Keybindings::parse_keybinding("ctrl+shift+c");
+        assert!(result.is_some());
+        let (ctrl, alt, shift, super_key, key) = result.unwrap();
+        assert!(ctrl);
+        assert!(!alt);
+        assert!(shift);
+        assert!(!super_key);
+        assert_eq!(key, 'c');
+
+        let result = Keybindings::parse_keybinding("ctrl+=");
+        assert!(result.is_some());
+        let (ctrl, alt, shift, super_key, key) = result.unwrap();
+        assert!(ctrl);
+        assert!(!alt);
+        assert!(!shift);
+        assert!(!super_key);
+        assert_eq!(key, '=');
+
+        let result = Keybindings::parse_keybinding("alt+t");
+        assert!(result.is_some());
+        let (ctrl, alt, shift, super_key, key) = result.unwrap();
+        assert!(!ctrl);
+        assert!(alt);
+        assert!(!shift);
+        assert!(!super_key);
+        assert_eq!(key, 't');
+    }
+
+    #[test]
+    fn test_keybindings_matches() {
+        let kb = Keybindings::default();
+        assert!(kb.matches("copy", true, false, true, false, 'c'));
+        assert!(kb.matches("copy", true, false, true, false, 'C'));
+        assert!(!kb.matches("copy", true, false, false, false, 'c'));
+        assert!(kb.matches("paste", true, false, true, false, 'v'));
+        assert!(kb.matches("toggle_theme", true, false, true, false, 't'));
+        assert!(kb.matches("font_increase", true, false, false, false, '='));
+    }
+
+    #[test]
+    fn test_keybindings_toml_parse() {
+        let toml_str = r##"
+[keybindings]
+copy = "ctrl+c"
+paste = "ctrl+v"
+toggle_theme = "alt+t"
+"##;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.keybindings.copy, "ctrl+c");
+        assert_eq!(config.keybindings.paste, "ctrl+v");
+        assert_eq!(config.keybindings.toggle_theme, "alt+t");
+        assert_eq!(config.keybindings.reload_config, "ctrl+shift+r");
     }
 }
