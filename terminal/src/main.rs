@@ -16,7 +16,7 @@ use winit::event::{
     ElementState, Event, ModifiersState, MouseScrollDelta, VirtualKeyCode, WindowEvent,
 };
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Window, WindowBuilder};
+use winit::window::WindowBuilder;
 
 use mochi_term::core::Color;
 use mochi_term::input::{self, MouseButton, MouseEventType};
