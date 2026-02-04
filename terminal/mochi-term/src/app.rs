@@ -285,7 +285,57 @@ impl App {
             }
         }
 
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+        let Some(child) = &mut self.child else { return };
+
+        // IMPORTANT: Handle control characters FIRST, before any other shortcut processing
+        // This fixes the modifier state synchronization issue where ModifiersChanged and
+        // KeyboardInput events can arrive out of sync.
+        //
+        // Strategy:
+        // 1. Check if the text field contains a control character (0x01-0x1A)
+        // 2. Check if the logical_key is a letter and we can infer Ctrl is pressed
+        // 3. Fall back to using self.modifiers with encode_key
+        
+        // Method 1: Check the text field for control characters
+        // On macOS, Ctrl+C might produce '\x03' directly in the text field
+        if let Some(text) = &event.text {
+            if !text.is_empty() {
+                let first_char = text.chars().next().unwrap();
+                // Check if it's a control character (0x01-0x1A)
+                if (first_char as u32) >= 1 && (first_char as u32) <= 26 {
+                    log::debug!(
+                        "Sending control character from text field: {:?} (0x{:02x})",
+                        first_char,
+                        first_char as u8
+                    );
+                    let _ = child.write_all(&[first_char as u8]);
+                    return;
+                }
+            }
+        }
+
+        // Method 2: Check if logical_key is a control character directly
+        // This handles the case where the key itself is reported as a control character
+        if let Key::Character(c) = &event.logical_key {
+            if let Some(ch) = c.chars().next() {
+                if (ch as u32) >= 1 && (ch as u32) <= 26 {
+                    log::debug!(
+                        "Sending control character from logical_key: {:?} (0x{:02x})",
+                        ch,
+                        ch as u8
+                    );
+                    let _ = child.write_all(&[ch as u8]);
+                    return;
+                }
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
+        // Note: On Linux, Ctrl+letter should send control characters to the terminal,
+        // so we only intercept specific zoom shortcuts (=, -, 0, arrows)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
@@ -317,30 +367,7 @@ impl App {
             }
         }
 
-        let Some(terminal) = &self.terminal else {
-            return;
-        };
-        let Some(child) = &mut self.child else { return };
-
         let application_cursor_keys = terminal.screen().modes().cursor_keys_application;
-
-        // First, try to use the text field from the KeyEvent
-        // On macOS, control characters like Ctrl+C might be in the text field directly
-        if let Some(text) = &event.text {
-            if !text.is_empty() {
-                let first_char = text.chars().next().unwrap();
-                // Check if it's a control character (0x01-0x1A)
-                if (first_char as u32) >= 1 && (first_char as u32) <= 26 {
-                    log::debug!(
-                        "Sending control character from text field: {:?} (0x{:02x})",
-                        first_char,
-                        first_char as u8
-                    );
-                    let _ = child.write_all(&[first_char as u8]);
-                    return;
-                }
-            }
-        }
 
         if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
         {
