@@ -2,6 +2,93 @@
 
 A real Linux terminal emulator built from scratch in Rust. This project implements VT/xterm-style terminal emulation without relying on any existing terminal emulator libraries.
 
+## Quick Start
+
+```bash
+# Build the terminal
+cd terminal
+cargo build --release
+
+# Run the terminal
+cargo run --release
+
+# Or run the binary directly
+./target/release/mochi
+```
+
+## Command Line Options
+
+```
+mochi [OPTIONS]
+
+OPTIONS:
+    -h, --help           Print help message
+    -v, --version        Print version information
+    -c, --config PATH    Use a custom config file
+    --print-config       Print the default configuration
+```
+
+## Configuration
+
+Mochi loads configuration from `~/.config/mochi/config.toml` (or `$XDG_CONFIG_HOME/mochi/config.toml`).
+
+Generate a default config file:
+```bash
+mochi --print-config > ~/.config/mochi/config.toml
+```
+
+Example configuration:
+```toml
+[font]
+path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+size = 16.0
+cell_padding = 2.0
+
+[colors]
+foreground = "#D4D4D4"
+background = "#1E1E1E"
+cursor = "#FFFFFF"
+selection = "#264F78"
+
+[terminal]
+scrollback_lines = 10000
+columns = 80
+rows = 24
+cursor_blink = false
+cursor_style = "block"
+
+[security]
+osc52_enabled = false
+osc52_max_size = 100000
+allow_title_change = true
+max_title_length = 256
+```
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+Shift+C | Copy selection to clipboard |
+| Ctrl+Shift+V | Paste from clipboard |
+| Shift+PageUp | Scroll up |
+| Shift+PageDown | Scroll down |
+| Mouse wheel | Scroll through scrollback |
+| Mouse drag | Select text |
+
+## Environment Variables
+
+Set `TERM=xterm-256color` for best compatibility:
+```bash
+export TERM=xterm-256color
+```
+
+Alternatively, install the custom terminfo entry:
+```bash
+cd terminal/assets/terminfo
+tic -x mochi.terminfo
+export TERM=mochi-256color
+```
+
 ## Project Goals
 
 1. **Real Terminal Emulation**: Run actual shells and applications via PTY, not a simulation

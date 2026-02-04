@@ -21,6 +21,7 @@ fontdue.workspace = true
 bytemuck.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml = "0.8"
 
 mochi-core = { path = "../mochi-core" }
 mochi-parser = { path = "../mochi-parser" }
