@@ -157,13 +157,13 @@ This document tracks the escape sequences supported by Mochi Terminal.
 | 7 | DECAWM | Yes | Yes | Auto-wrap Mode |
 | 25 | DECTCEM | Yes | Yes | Cursor Visible |
 | 47 | Alternate Screen | Yes | Yes | Switch to alternate buffer |
-| 1000 | Mouse Tracking | Yes | No | VT200 mouse tracking |
-| 1002 | Button Event | Yes | No | Button-event mouse tracking |
-| 1003 | Any Event | Yes | No | Any-event mouse tracking |
+| 1000 | Mouse Tracking | Yes | Yes | VT200 mouse tracking (X10 compatible) |
+| 1002 | Button Event | Yes | Yes | Button-event mouse tracking |
+| 1003 | Any Event | Yes | Yes | Any-event mouse tracking (motion events) |
 | 1004 | Focus Events | Yes | No | Focus in/out reporting |
-| 1005 | UTF-8 Mouse | Partial | No | UTF-8 mouse encoding |
-| 1006 | SGR Mouse | Yes | No | SGR mouse encoding |
-| 1015 | URXVT Mouse | Partial | No | URXVT mouse encoding |
+| 1005 | UTF-8 Mouse | Yes | Yes | UTF-8 mouse encoding |
+| 1006 | SGR Mouse | Yes | Yes | SGR mouse encoding (recommended) |
+| 1015 | URXVT Mouse | Yes | Yes | URXVT mouse encoding |
 | 1047 | Alternate Screen | Yes | Yes | Alternate buffer (no clear) |
 | 1048 | Save Cursor | Yes | Yes | Save cursor for alternate |
 | 1049 | Alternate Screen | Yes | Yes | Alternate buffer with save/restore |
@@ -187,7 +187,7 @@ This document tracks the escape sequences supported by Mochi Terminal.
 | OSC 8 | Hyperlink | Yes | No | Set hyperlink |
 | OSC 10 | Set FG | Partial | No | Set foreground color |
 | OSC 11 | Set BG | Partial | No | Set background color |
-| OSC 52 | Clipboard | No | No | Disabled by default (security) |
+| OSC 52 | Clipboard | Yes | No | Clipboard access (disabled by default for security) |
 | OSC 104 | Reset Color | Partial | No | Reset palette color |
 | OSC 110 | Reset FG | Partial | No | Reset foreground color |
 | OSC 111 | Reset BG | Partial | No | Reset background color |
