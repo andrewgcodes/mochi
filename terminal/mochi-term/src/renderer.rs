@@ -58,6 +58,8 @@ pub struct Renderer {
     height: u32,
     /// Current font size (scaled for HiDPI)
     font_size: f32,
+    /// Line height multiplier
+    line_height: f32,
 }
 
 impl Renderer {
@@ -65,6 +67,7 @@ impl Renderer {
     pub fn new(
         window: Rc<Window>,
         font_size: f32,
+        line_height: f32,
         colors: ColorScheme,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let context = Context::new(window.clone())?;
@@ -82,11 +85,11 @@ impl Renderer {
         let scale_factor = window.scale_factor() as f32;
         let scaled_font_size = font_size * scale_factor;
 
-        // Calculate cell size
+        // Calculate cell size using configurable line height
         let metrics = font.metrics('M', scaled_font_size);
         let cell_size = CellSize {
             width: metrics.advance_width.ceil(),
-            height: (scaled_font_size * 1.4).ceil(),
+            height: (scaled_font_size * line_height).ceil(),
             baseline: scaled_font_size,
         };
 
@@ -103,6 +106,7 @@ impl Renderer {
             width: size.width,
             height: size.height,
             font_size: scaled_font_size,
+            line_height,
         })
     }
 
@@ -120,16 +124,29 @@ impl Renderer {
     pub fn set_font_size(&mut self, font_size: f32) {
         self.font_size = font_size;
 
-        // Recalculate cell size
+        // Recalculate cell size using stored line height
         let metrics = self.font.metrics('M', font_size);
         self.cell_size = CellSize {
             width: metrics.advance_width.ceil(),
-            height: (font_size * 1.4).ceil(),
+            height: (font_size * self.line_height).ceil(),
             baseline: font_size,
         };
 
         // Clear glyph cache since font size changed
         self.glyph_cache.clear();
+    }
+
+    /// Set line height and recalculate cell dimensions
+    pub fn set_line_height(&mut self, line_height: f32) {
+        self.line_height = line_height;
+
+        // Recalculate cell size
+        let metrics = self.font.metrics('M', self.font_size);
+        self.cell_size = CellSize {
+            width: metrics.advance_width.ceil(),
+            height: (self.font_size * line_height).ceil(),
+            baseline: self.font_size,
+        };
     }
 
     /// Set the color scheme/theme

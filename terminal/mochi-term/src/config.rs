@@ -105,10 +105,13 @@ impl ThemeName {
 /// Terminal configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Font family name
+    /// Font family name (currently only "monospace" is supported, uses bundled DejaVu Sans Mono)
     pub font_family: String,
     /// Font size in points
     pub font_size: f32,
+    /// Line height multiplier (1.0 = normal, 1.2 = 20% extra spacing)
+    #[serde(default = "default_line_height")]
+    pub line_height: f32,
     /// Number of scrollback lines
     pub scrollback_lines: usize,
     /// Window dimensions (columns, rows)
@@ -128,6 +131,10 @@ pub struct Config {
     pub cursor_style: String,
     /// Cursor blink
     pub cursor_blink: bool,
+}
+
+fn default_line_height() -> f32 {
+    1.4
 }
 
 /// Color scheme configuration
@@ -150,6 +157,7 @@ impl Default for Config {
         Self {
             font_family: "monospace".to_string(),
             font_size: 14.0,
+            line_height: 1.4,
             scrollback_lines: 10000,
             dimensions: (80, 24),
             theme: ThemeName::Dark,
@@ -349,6 +357,14 @@ impl Config {
             return Err(ConfigError::ValidationError(format!(
                 "font_size must be between 6.0 and 128.0, got {}",
                 self.font_size
+            )));
+        }
+
+        // Validate line height
+        if self.line_height < 1.0 || self.line_height > 3.0 {
+            return Err(ConfigError::ValidationError(format!(
+                "line_height must be between 1.0 and 3.0, got {}",
+                self.line_height
             )));
         }
 
@@ -655,6 +671,22 @@ mod tests {
         let mut config = Config::default();
         config.scrollback_lines = 2_000_000; // Too large
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validation_invalid_line_height() {
+        let mut config = Config::default();
+        config.line_height = 0.5; // Too small
+        assert!(config.validate().is_err());
+
+        config.line_height = 4.0; // Too large
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_default_line_height() {
+        let config = Config::default();
+        assert_eq!(config.line_height, 1.4);
     }
 
     #[test]
