@@ -1,0 +1,28 @@
+[package]
+name = "mochi-term"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Mochi Terminal Emulator - GUI application"
+
+[[bin]]
+name = "mochi"
+path = "src/main.rs"
+
+[dependencies]
+log.workspace = true
+env_logger.workspace = true
+thiserror.workspace = true
+winit.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+fontdue.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+mochi-core = { path = "../mochi-core" }
+mochi-parser = { path = "../mochi-parser" }
+mochi-pty = { path = "../mochi-pty" }
+
+[dev-dependencies]

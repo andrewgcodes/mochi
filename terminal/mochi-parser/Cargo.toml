@@ -1,0 +1,15 @@
+[package]
+name = "mochi-parser"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Terminal escape sequence parser - VT/xterm compatible"
+
+[dependencies]
+log.workspace = true
+thiserror.workspace = true
+mochi-core = { path = "../mochi-core" }
+
+[dev-dependencies]
+proptest.workspace = true

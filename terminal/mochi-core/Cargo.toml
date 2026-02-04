@@ -1,0 +1,18 @@
+[package]
+name = "mochi-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Terminal emulator core - screen model, cells, cursor, scrollback"
+
+[dependencies]
+log.workspace = true
+thiserror.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
