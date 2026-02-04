@@ -29,7 +29,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    log::info!("Config loaded: theme={:?}, font_size={}", config.theme, config.font_size);
+    log::info!(
+        "Config loaded: theme={:?}, font_size={}",
+        config.theme,
+        config.font_size
+    );
 
     let app = App::new(config)?;
     app.run()?;

@@ -41,7 +41,11 @@ pub struct CliArgs {
     #[arg(long, value_name = "SIZE", help = "Font size in points")]
     pub font_size: Option<f32>,
 
-    #[arg(long, value_name = "THEME", help = "Theme name (dark, light, solarized-dark, solarized-light, dracula, nord, gruvbox)")]
+    #[arg(
+        long,
+        value_name = "THEME",
+        help = "Theme name (dark, light, solarized-dark, solarized-light, dracula, nord, gruvbox)"
+    )]
     pub theme: Option<String>,
 
     #[arg(long, value_name = "COLS", help = "Initial columns")]
@@ -97,7 +101,16 @@ impl ThemeName {
 
     #[allow(dead_code)]
     pub fn all_names() -> &'static [&'static str] {
-        &["dark", "light", "solarized-dark", "solarized-light", "dracula", "nord", "gruvbox", "custom"]
+        &[
+            "dark",
+            "light",
+            "solarized-dark",
+            "solarized-light",
+            "dracula",
+            "nord",
+            "gruvbox",
+            "custom",
+        ]
     }
 
     pub fn next(self) -> Self {
@@ -172,10 +185,11 @@ impl Default for Keybindings {
 }
 
 impl Keybindings {
+    #[allow(dead_code)]
     pub fn parse_keybinding(binding: &str) -> Option<(bool, bool, bool, bool, char)> {
         let binding = binding.to_lowercase();
         let parts: Vec<&str> = binding.split('+').collect();
-        
+
         if parts.is_empty() {
             return None;
         }
@@ -203,7 +217,16 @@ impl Keybindings {
         key_char.map(|c| (ctrl, alt, shift, super_key, c))
     }
 
-    pub fn matches(&self, action: &str, ctrl: bool, alt: bool, shift: bool, super_key: bool, key: char) -> bool {
+    #[allow(dead_code)]
+    pub fn matches(
+        &self,
+        action: &str,
+        ctrl: bool,
+        alt: bool,
+        shift: bool,
+        super_key: bool,
+        key: char,
+    ) -> bool {
         let binding = match action {
             "copy" => &self.copy,
             "paste" => &self.paste,
@@ -216,7 +239,11 @@ impl Keybindings {
         };
 
         if let Some((b_ctrl, b_alt, b_shift, b_super, b_key)) = Self::parse_keybinding(binding) {
-            ctrl == b_ctrl && alt == b_alt && shift == b_shift && super_key == b_super && key.to_ascii_lowercase() == b_key
+            ctrl == b_ctrl
+                && alt == b_alt
+                && shift == b_shift
+                && super_key == b_super
+                && key.to_ascii_lowercase() == b_key
         } else {
             false
         }
@@ -299,8 +326,8 @@ impl Config {
         let content = fs::read_to_string(path)
             .map_err(|e| ConfigError::ReadError(format!("{}: {}", path.display(), e)))?;
 
-        let config: Config = toml::from_str(&content)
-            .map_err(|e| ConfigError::ParseError(format!("{}", e)))?;
+        let config: Config =
+            toml::from_str(&content).map_err(|e| ConfigError::ParseError(format!("{}", e)))?;
 
         Ok(config)
     }
@@ -713,9 +740,18 @@ mod tests {
         assert_eq!(ThemeName::from_str("dark").unwrap(), ThemeName::Dark);
         assert_eq!(ThemeName::from_str("LIGHT").unwrap(), ThemeName::Light);
         assert_eq!(ThemeName::from_str("Dark").unwrap(), ThemeName::Dark);
-        assert_eq!(ThemeName::from_str("solarized-dark").unwrap(), ThemeName::SolarizedDark);
-        assert_eq!(ThemeName::from_str("solarizeddark").unwrap(), ThemeName::SolarizedDark);
-        assert_eq!(ThemeName::from_str("solarized-light").unwrap(), ThemeName::SolarizedLight);
+        assert_eq!(
+            ThemeName::from_str("solarized-dark").unwrap(),
+            ThemeName::SolarizedDark
+        );
+        assert_eq!(
+            ThemeName::from_str("solarizeddark").unwrap(),
+            ThemeName::SolarizedDark
+        );
+        assert_eq!(
+            ThemeName::from_str("solarized-light").unwrap(),
+            ThemeName::SolarizedLight
+        );
         assert_eq!(ThemeName::from_str("dracula").unwrap(), ThemeName::Dracula);
         assert_eq!(ThemeName::from_str("nord").unwrap(), ThemeName::Nord);
         assert_eq!(ThemeName::from_str("gruvbox").unwrap(), ThemeName::Gruvbox);
@@ -732,40 +768,50 @@ mod tests {
 
     #[test]
     fn test_config_validation_font_size_too_small() {
-        let mut config = Config::default();
-        config.font_size = 2.0;
+        let config = Config {
+            font_size: 2.0,
+            ..Config::default()
+        };
         let err = config.validate().unwrap_err();
         assert!(matches!(err, ConfigError::ValidationError(_)));
     }
 
     #[test]
     fn test_config_validation_font_size_too_large() {
-        let mut config = Config::default();
-        config.font_size = 200.0;
+        let config = Config {
+            font_size: 200.0,
+            ..Config::default()
+        };
         let err = config.validate().unwrap_err();
         assert!(matches!(err, ConfigError::ValidationError(_)));
     }
 
     #[test]
     fn test_config_validation_columns_too_small() {
-        let mut config = Config::default();
-        config.dimensions = (5, 24);
+        let config = Config {
+            dimensions: (5, 24),
+            ..Config::default()
+        };
         let err = config.validate().unwrap_err();
         assert!(matches!(err, ConfigError::ValidationError(_)));
     }
 
     #[test]
     fn test_config_validation_rows_too_small() {
-        let mut config = Config::default();
-        config.dimensions = (80, 2);
+        let config = Config {
+            dimensions: (80, 2),
+            ..Config::default()
+        };
         let err = config.validate().unwrap_err();
         assert!(matches!(err, ConfigError::ValidationError(_)));
     }
 
     #[test]
     fn test_config_validation_scrollback_too_large() {
-        let mut config = Config::default();
-        config.scrollback_lines = 2_000_000;
+        let config = Config {
+            scrollback_lines: 2_000_000,
+            ..Config::default()
+        };
         let err = config.validate().unwrap_err();
         assert!(matches!(err, ConfigError::ValidationError(_)));
     }
@@ -778,8 +824,10 @@ mod tests {
 
     #[test]
     fn test_color_scheme_validation_invalid_foreground() {
-        let mut scheme = ColorScheme::default();
-        scheme.foreground = "not-a-color".to_string();
+        let scheme = ColorScheme {
+            foreground: "not-a-color".to_string(),
+            ..ColorScheme::default()
+        };
         let err = scheme.validate().unwrap_err();
         assert!(matches!(err, ConfigError::InvalidColor(_)));
     }
@@ -805,24 +853,30 @@ mod tests {
 
     #[test]
     fn test_effective_colors_dark() {
-        let mut config = Config::default();
-        config.theme = ThemeName::Dark;
+        let config = Config {
+            theme: ThemeName::Dark,
+            ..Config::default()
+        };
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#1e1e1e");
     }
 
     #[test]
     fn test_effective_colors_light() {
-        let mut config = Config::default();
-        config.theme = ThemeName::Light;
+        let config = Config {
+            theme: ThemeName::Light,
+            ..Config::default()
+        };
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#ffffff");
     }
 
     #[test]
     fn test_effective_colors_gruvbox() {
-        let mut config = Config::default();
-        config.theme = ThemeName::Gruvbox;
+        let config = Config {
+            theme: ThemeName::Gruvbox,
+            ..Config::default()
+        };
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#282828");
         assert_eq!(colors.foreground, "#ebdbb2");
@@ -830,9 +884,15 @@ mod tests {
 
     #[test]
     fn test_effective_colors_custom() {
-        let mut config = Config::default();
-        config.theme = ThemeName::Custom;
-        config.colors.background = "#123456".to_string();
+        let colors_scheme = ColorScheme {
+            background: "#123456".to_string(),
+            ..ColorScheme::default()
+        };
+        let config = Config {
+            theme: ThemeName::Custom,
+            colors: colors_scheme,
+            ..Config::default()
+        };
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#123456");
     }

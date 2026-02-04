@@ -21,7 +21,6 @@ use crate::renderer::Renderer;
 use crate::terminal::Terminal;
 
 const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
-const TRIPLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
 /// Application state
 pub struct App {
@@ -379,7 +378,7 @@ impl App {
         };
 
         let modes = terminal.screen().modes();
-        
+
         // Track button state
         let idx = match button {
             MouseButton::Left => 0,
@@ -424,7 +423,8 @@ impl App {
         let pos = self.mouse_cell;
 
         let is_same_position = pos == self.last_click_pos;
-        let is_quick_click = self.last_click_time
+        let is_quick_click = self
+            .last_click_time
             .map(|t| now.duration_since(t) < DOUBLE_CLICK_THRESHOLD)
             .unwrap_or(false);
 
@@ -464,7 +464,10 @@ impl App {
                         Point::new(word_start, pos.1 as isize - scroll_offset as isize),
                         SelectionType::Word,
                     );
-                    selection.update(Point::new(word_end, pos.1 as isize - scroll_offset as isize));
+                    selection.update(Point::new(
+                        word_end,
+                        pos.1 as isize - scroll_offset as isize,
+                    ));
                 }
             }
             3 => {
@@ -486,7 +489,7 @@ impl App {
 
         let screen = terminal.screen();
         let cols = screen.cols();
-        
+
         if row >= screen.rows() {
             return (col, col);
         }
@@ -537,7 +540,7 @@ impl App {
         };
 
         let modes = terminal.screen().modes();
-        
+
         if modes.mouse_any_event
             || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
         {
@@ -771,8 +774,35 @@ impl App {
 fn is_word_separator(c: char) -> bool {
     matches!(
         c,
-        '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '"' | '\'' | '`' | ',' | ';' | ':' | '.'
-            | '!' | '?' | '/' | '\\' | '|' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '-' | '+'
-            | '=' | '~'
+        '(' | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | '<'
+            | '>'
+            | '"'
+            | '\''
+            | '`'
+            | ','
+            | ';'
+            | ':'
+            | '.'
+            | '!'
+            | '?'
+            | '/'
+            | '\\'
+            | '|'
+            | '@'
+            | '#'
+            | '$'
+            | '%'
+            | '^'
+            | '&'
+            | '*'
+            | '-'
+            | '+'
+            | '='
+            | '~'
     )
 }
