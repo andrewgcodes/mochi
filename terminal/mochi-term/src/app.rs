@@ -19,6 +19,14 @@ use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mous
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
 
+/// Check if a character is a word boundary
+fn is_word_boundary(c: char) -> bool {
+    matches!(
+        c,
+        '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '"' | '\'' | '`' | ',' | '.' | ';' | ':'
+    )
+}
+
 /// Application state
 pub struct App {
     /// Configuration
@@ -48,6 +56,22 @@ pub struct App {
     focused: bool,
     /// Scroll offset (number of lines scrolled back into history)
     scroll_offset: usize,
+    /// Last click time for double/triple click detection
+    last_click_time: Instant,
+    /// Last click position for double/triple click detection
+    last_click_pos: (u16, u16),
+    /// Click count (1 = single, 2 = double, 3 = triple)
+    click_count: u8,
+    /// Whether we're currently dragging a selection
+    is_selecting: bool,
+    /// Search bar state
+    search_active: bool,
+    /// Search query
+    search_query: String,
+    /// Search matches (row, col, length)
+    search_matches: Vec<(usize, usize, usize)>,
+    /// Current search match index
+    search_current: usize,
 }
 
 impl App {
@@ -67,6 +91,14 @@ impl App {
             needs_redraw: true,
             focused: true,
             scroll_offset: 0,
+            last_click_time: Instant::now(),
+            last_click_pos: (0, 0),
+            click_count: 0,
+            is_selecting: false,
+            search_active: false,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            search_current: 0,
         })
     }
 
@@ -225,6 +257,11 @@ impl App {
             return;
         }
 
+        // Handle search input first if search bar is active
+        if self.handle_search_input(event) {
+            return;
+        }
+
         // Extract key string for keybinding lookup
         let key_str = match &event.logical_key {
             Key::Character(c) => c.to_string(),
@@ -253,8 +290,7 @@ impl App {
                     return;
                 }
                 KeyAction::Find => {
-                    // TODO: Implement find bar (M5)
-                    log::info!("Find action triggered (not yet implemented)");
+                    self.toggle_search();
                     return;
                 }
                 KeyAction::ReloadConfig => {
@@ -478,6 +514,180 @@ impl App {
         self.needs_redraw = true;
     }
 
+    /// Toggle search bar visibility
+    fn toggle_search(&mut self) {
+        self.search_active = !self.search_active;
+        if !self.search_active {
+            // Clear search state when closing
+            self.search_query.clear();
+            self.search_matches.clear();
+            self.search_current = 0;
+        }
+        self.needs_redraw = true;
+        log::info!("Search bar toggled: {}", self.search_active);
+    }
+
+    /// Close search bar
+    fn close_search(&mut self) {
+        self.search_active = false;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.search_current = 0;
+        self.needs_redraw = true;
+    }
+
+    /// Update search query and find matches
+    fn update_search(&mut self, query: &str) {
+        self.search_query = query.to_string();
+        self.search_matches.clear();
+        self.search_current = 0;
+
+        if query.is_empty() {
+            self.needs_redraw = true;
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let query_lower = query.to_lowercase();
+
+        // Search in visible buffer
+        for row in 0..screen.rows() {
+            let line = screen.line(row);
+            let mut line_text = String::new();
+            for col in 0..line.cols() {
+                line_text.push(line.cell(col).display_char());
+            }
+
+            let line_lower = line_text.to_lowercase();
+            let mut start = 0;
+            while let Some(pos) = line_lower[start..].find(&query_lower) {
+                let col = start + pos;
+                self.search_matches.push((row, col, query.len()));
+                start = col + 1;
+            }
+        }
+
+        // Search in scrollback buffer
+        let scrollback = screen.scrollback();
+        for (sb_idx, line) in scrollback.iter().enumerate() {
+            let mut line_text = String::new();
+            for col in 0..line.cols() {
+                line_text.push(line.cell(col).display_char());
+            }
+
+            let line_lower = line_text.to_lowercase();
+            let mut start = 0;
+            while let Some(pos) = line_lower[start..].find(&query_lower) {
+                let col = start + pos;
+                // Store scrollback rows as negative indices (offset from visible area)
+                let row = -(sb_idx as isize + 1);
+                self.search_matches.push((row as usize, col, query.len()));
+                start = col + 1;
+            }
+        }
+
+        log::info!(
+            "Search for '{}': found {} matches",
+            query,
+            self.search_matches.len()
+        );
+        self.needs_redraw = true;
+    }
+
+    /// Navigate to next search match
+    fn search_next(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+
+        self.search_current = (self.search_current + 1) % self.search_matches.len();
+        self.scroll_to_match();
+        self.needs_redraw = true;
+    }
+
+    /// Navigate to previous search match
+    fn search_prev(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+
+        if self.search_current == 0 {
+            self.search_current = self.search_matches.len() - 1;
+        } else {
+            self.search_current -= 1;
+        }
+        self.scroll_to_match();
+        self.needs_redraw = true;
+    }
+
+    /// Scroll viewport to show current search match
+    fn scroll_to_match(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let (row, _, _) = self.search_matches[self.search_current];
+        let visible_rows = terminal.screen().rows();
+
+        // If the match is in scrollback (negative row stored as large usize)
+        if row > visible_rows {
+            // This is a scrollback row encoded as negative
+            let scrollback_idx = !(row as isize) as usize;
+            self.scroll_offset = scrollback_idx + 1;
+        } else {
+            // Match is in visible area, scroll to show it
+            self.scroll_offset = 0;
+        }
+    }
+
+    /// Handle search input (called when search bar is active)
+    fn handle_search_input(&mut self, event: &winit::event::KeyEvent) -> bool {
+        if !self.search_active {
+            return false;
+        }
+
+        use winit::keyboard::{Key, NamedKey};
+
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.close_search();
+                return true;
+            }
+            Key::Named(NamedKey::Enter) => {
+                if self.modifiers.shift_key() {
+                    self.search_prev();
+                } else {
+                    self.search_next();
+                }
+                return true;
+            }
+            Key::Named(NamedKey::Backspace) => {
+                if !self.search_query.is_empty() {
+                    self.search_query.pop();
+                    self.update_search(&self.search_query.clone());
+                }
+                return true;
+            }
+            Key::Character(c) => {
+                let mut query = self.search_query.clone();
+                query.push_str(c);
+                self.update_search(&query);
+                return true;
+            }
+            _ => {}
+        }
+
+        false
+    }
+
     /// Handle copy (copy selection to clipboard)
     fn handle_copy(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
@@ -539,29 +749,38 @@ impl App {
 
     /// Handle mouse input
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
+        // Handle left button for selection
+        if button == MouseButton::Left {
+            if state == ElementState::Pressed {
+                self.handle_left_click_press();
+            } else {
+                self.handle_left_click_release();
+            }
+        }
+
+        // Send mouse events to PTY if mouse tracking is enabled
         let Some(terminal) = &self.terminal else {
             return;
         };
-        let Some(child) = &mut self.child else { return };
-
         let modes = terminal.screen().modes();
-        if !modes.mouse_tracking_enabled() {
-            return;
-        }
 
-        let event = if state == ElementState::Pressed {
-            MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
-        } else {
-            MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
-        };
+        if modes.mouse_tracking_enabled() {
+            let Some(child) = &mut self.child else { return };
 
-        if let Some(data) = encode_mouse(
-            event,
-            modes.mouse_sgr,
-            modes.mouse_button_event,
-            modes.mouse_any_event,
-        ) {
-            let _ = child.write_all(&data);
+            let event = if state == ElementState::Pressed {
+                MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
+            } else {
+                MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
+            };
+
+            if let Some(data) = encode_mouse(
+                event,
+                modes.mouse_sgr,
+                modes.mouse_button_event,
+                modes.mouse_any_event,
+            ) {
+                let _ = child.write_all(&data);
+            }
         }
 
         // Track button state
@@ -574,15 +793,133 @@ impl App {
         self.mouse_buttons[idx] = state == ElementState::Pressed;
     }
 
+    /// Handle left mouse button press (selection start)
+    fn handle_left_click_press(&mut self) {
+        use terminal_core::{Point, SelectionType};
+
+        let now = Instant::now();
+        let double_click_threshold = std::time::Duration::from_millis(500);
+
+        // Check for double/triple click
+        let same_position =
+            self.last_click_pos.0 == self.mouse_cell.0 && self.last_click_pos.1 == self.mouse_cell.1;
+
+        if same_position && now.duration_since(self.last_click_time) < double_click_threshold {
+            self.click_count = (self.click_count % 3) + 1;
+        } else {
+            self.click_count = 1;
+        }
+
+        self.last_click_time = now;
+        self.last_click_pos = self.mouse_cell;
+
+        let col = self.mouse_cell.0 as usize;
+        let row = self.mouse_cell.1 as isize;
+        let point = Point::new(col, row);
+
+        let selection_type = match self.click_count {
+            1 => SelectionType::Normal,
+            2 => SelectionType::Word,
+            3 => SelectionType::Line,
+            _ => SelectionType::Normal,
+        };
+
+        // Start selection
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+        terminal.screen_mut().selection_mut().start(point, selection_type);
+
+        // For word/line selection, expand to word/line boundaries
+        let click_count = self.click_count;
+        if click_count == 2 {
+            Self::expand_selection_to_word(terminal);
+        } else if click_count == 3 {
+            Self::expand_selection_to_line(terminal);
+        }
+
+        self.is_selecting = true;
+        self.needs_redraw = true;
+    }
+
+    /// Handle left mouse button release (selection end)
+    fn handle_left_click_release(&mut self) {
+        self.is_selecting = false;
+    }
+
+    /// Expand selection to word boundaries
+    fn expand_selection_to_word(terminal: &mut Terminal) {
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if !selection.active {
+            return;
+        }
+
+        let row = selection.start.row;
+        if row < 0 || row as usize >= screen.rows() {
+            return;
+        }
+
+        let line = screen.line(row as usize);
+        let col = selection.start.col;
+
+        // Find word boundaries
+        let mut start_col = col;
+        let mut end_col = col;
+
+        // Expand left
+        while start_col > 0 {
+            let cell = line.cell(start_col - 1);
+            let c = cell.display_char();
+            if c.is_whitespace() || is_word_boundary(c) {
+                break;
+            }
+            start_col -= 1;
+        }
+
+        // Expand right
+        while end_col < line.cols().saturating_sub(1) {
+            let cell = line.cell(end_col + 1);
+            let c = cell.display_char();
+            if c.is_whitespace() || is_word_boundary(c) {
+                break;
+            }
+            end_col += 1;
+        }
+
+        // Update selection
+        let selection = terminal.screen_mut().selection_mut();
+        selection.start.col = start_col;
+        selection.end.col = end_col;
+    }
+
+    /// Expand selection to line boundaries
+    fn expand_selection_to_line(terminal: &mut Terminal) {
+        let screen = terminal.screen();
+        let row = screen.selection().start.row;
+
+        if row < 0 || row as usize >= screen.rows() {
+            return;
+        }
+
+        let line = screen.line(row as usize);
+        let cols = line.cols();
+
+        // Update selection to cover entire line
+        let selection = terminal.screen_mut().selection_mut();
+        selection.start.col = 0;
+        selection.end.col = cols.saturating_sub(1);
+    }
+
     /// Handle mouse motion
     fn handle_mouse_motion(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
         let Some(renderer) = &self.renderer else {
             return;
         };
-        let Some(terminal) = &self.terminal else {
+        let Some(terminal) = &mut self.terminal else {
             return;
         };
-        let Some(child) = &mut self.child else { return };
 
         let cell_size = renderer.cell_size();
         let col = (position.x / cell_size.width as f64) as u16;
@@ -594,10 +931,20 @@ impl App {
 
         self.mouse_cell = (col, row);
 
+        // Update selection while dragging
+        if self.is_selecting {
+            use terminal_core::Point;
+            let point = Point::new(col as usize, row as isize);
+            terminal.screen_mut().selection_mut().update(point);
+            self.needs_redraw = true;
+        }
+
+        // Send mouse events to PTY if mouse tracking is enabled
         let modes = terminal.screen().modes();
         if modes.mouse_any_event
             || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
         {
+            let Some(child) = &mut self.child else { return };
             let event = MouseEvent::Move(col, row);
             if let Some(data) = encode_mouse(
                 event,
@@ -746,7 +1093,20 @@ impl App {
         let screen = terminal.screen();
         let selection = screen.selection();
 
-        if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
+        let result = if self.search_active {
+            renderer.render_with_search(
+                screen,
+                selection,
+                self.scroll_offset,
+                Some(&self.search_query),
+                &self.search_matches,
+                self.search_current,
+            )
+        } else {
+            renderer.render(screen, selection, self.scroll_offset)
+        };
+
+        if let Err(e) = result {
             log::warn!("Render error: {:?}", e);
         }
 

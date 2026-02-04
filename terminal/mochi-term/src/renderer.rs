@@ -192,12 +192,25 @@ impl Renderer {
         self.height = height;
     }
 
-    /// Render the terminal screen
+    /// Render the terminal screen with optional search bar overlay
     pub fn render(
         &mut self,
         screen: &Screen,
         selection: &Selection,
         scroll_offset: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.render_with_search(screen, selection, scroll_offset, None, &[], 0)
+    }
+
+    /// Render the terminal screen with search bar and match highlighting
+    pub fn render_with_search(
+        &mut self,
+        screen: &Screen,
+        selection: &Selection,
+        scroll_offset: usize,
+        search_query: Option<&str>,
+        search_matches: &[(usize, usize, usize)],
+        current_match: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let width = self.width;
         let height = self.height;
@@ -266,6 +279,26 @@ impl Renderer {
                         self.ensure_glyph_cached(c, cell.attrs.bold);
                     }
                 }
+            }
+        }
+
+        // Pre-cache glyphs for search bar if active (must be done before borrowing buffer)
+        if let Some(query) = search_query {
+            for c in "Find: ".chars() {
+                self.ensure_glyph_cached(c, false);
+            }
+            for c in query.chars() {
+                self.ensure_glyph_cached(c, false);
+            }
+            let match_text = if !search_matches.is_empty() {
+                format!("{}/{}", current_match + 1, search_matches.len())
+            } else if !query.is_empty() {
+                "No matches".to_string()
+            } else {
+                String::new()
+            };
+            for c in match_text.chars() {
+                self.ensure_glyph_cached(c, false);
             }
         }
 
@@ -379,10 +412,156 @@ impl Renderer {
             );
         }
 
+        // Draw search bar if active
+        if let Some(query) = search_query {
+            Self::draw_search_bar_static(
+                &mut buffer,
+                query,
+                search_matches.len(),
+                current_match,
+                width,
+                height,
+                &self.glyph_cache,
+                &self.cell_size,
+            );
+        }
+
         // Present
         buffer.present()?;
 
         Ok(())
+    }
+
+    /// Draw the search bar overlay at the top of the screen (static version)
+    #[allow(clippy::too_many_arguments)]
+    fn draw_search_bar_static(
+        buffer: &mut [u32],
+        query: &str,
+        match_count: usize,
+        current_match: usize,
+        buf_width: u32,
+        buf_height: u32,
+        glyph_cache: &HashMap<(char, bool), GlyphEntry>,
+        cell_size: &CellSize,
+    ) {
+        let bar_height = 30;
+        let bar_y = 0;
+        let padding = 8;
+
+        // Draw search bar background (dark semi-transparent)
+        let bar_bg = (50, 50, 60);
+        Self::fill_rect_static(
+            buffer,
+            0,
+            bar_y,
+            buf_width as i32,
+            bar_height,
+            bar_bg,
+            buf_width,
+            buf_height,
+        );
+
+        // Draw border at bottom of search bar
+        let border_color = (80, 80, 100);
+        Self::fill_rect_static(
+            buffer,
+            0,
+            bar_height - 1,
+            buf_width as i32,
+            1,
+            border_color,
+            buf_width,
+            buf_height,
+        );
+
+        // Draw "Find: " label
+        let label = "Find: ";
+        let mut x = padding;
+        let text_y = (bar_height - cell_size.baseline as i32) / 2;
+        let label_color = (180, 180, 180);
+
+        for c in label.chars() {
+            if let Some(glyph) = glyph_cache.get(&(c, false)) {
+                Self::draw_glyph_static(
+                    buffer,
+                    x,
+                    text_y,
+                    glyph,
+                    label_color,
+                    cell_size.baseline,
+                    buf_width,
+                    buf_height,
+                );
+            }
+            x += cell_size.width as i32;
+        }
+
+        // Draw query text
+        let query_color = (255, 255, 255);
+        for c in query.chars() {
+            if let Some(glyph) = glyph_cache.get(&(c, false)) {
+                Self::draw_glyph_static(
+                    buffer,
+                    x,
+                    text_y,
+                    glyph,
+                    query_color,
+                    cell_size.baseline,
+                    buf_width,
+                    buf_height,
+                );
+            }
+            x += cell_size.width as i32;
+        }
+
+        // Draw cursor after query
+        let cursor_color = (255, 255, 255);
+        Self::fill_rect_static(
+            buffer,
+            x,
+            text_y,
+            2,
+            cell_size.baseline as i32,
+            cursor_color,
+            buf_width,
+            buf_height,
+        );
+
+        // Draw match count on the right side
+        let match_text = if match_count > 0 {
+            format!("{}/{}", current_match + 1, match_count)
+        } else if !query.is_empty() {
+            "No matches".to_string()
+        } else {
+            String::new()
+        };
+
+        if !match_text.is_empty() {
+            let match_text_width = match_text.len() as i32 * cell_size.width as i32;
+            let match_x = buf_width as i32 - match_text_width - padding;
+            let match_color = if match_count > 0 {
+                (150, 200, 150)
+            } else {
+                (200, 150, 150)
+            };
+
+            let mut mx = match_x;
+            for c in match_text.chars() {
+                if let Some(glyph) = glyph_cache.get(&(c, false)) {
+                    Self::draw_glyph_static(
+                        buffer,
+                        mx,
+                        text_y,
+                        glyph,
+                        match_color,
+                        cell_size.baseline,
+                        buf_width,
+                        buf_height,
+                    );
+                }
+                mx += cell_size.width as i32;
+            }
+        }
     }
 
     /// Draw a scrollbar on the right side of the terminal (static version)
