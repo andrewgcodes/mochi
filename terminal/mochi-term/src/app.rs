@@ -14,10 +14,22 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::Config;
+use crate::config::{Config, ThemeName};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
+
+/// Actions that can be triggered by keybindings
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyAction {
+    Copy,
+    Paste,
+    ToggleTheme,
+    ReloadConfig,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+}
 
 /// Application state
 pub struct App {
@@ -223,36 +235,9 @@ impl App {
             return;
         }
 
-        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
-        #[cfg(target_os = "macos")]
-        let zoom_modifier = self.modifiers.super_key();
-        #[cfg(not(target_os = "macos"))]
-        let zoom_modifier = self.modifiers.control_key();
-
-        if zoom_modifier {
-            match &event.logical_key {
-                Key::Character(c) if c == "=" || c == "+" => {
-                    self.change_font_size(2.0);
-                    return;
-                }
-                Key::Character(c) if c == "-" => {
-                    self.change_font_size(-2.0);
-                    return;
-                }
-                Key::Character(c) if c == "0" => {
-                    self.reset_font_size();
-                    return;
-                }
-                Key::Named(NamedKey::ArrowUp) => {
-                    self.change_font_size(2.0);
-                    return;
-                }
-                Key::Named(NamedKey::ArrowDown) => {
-                    self.change_font_size(-2.0);
-                    return;
-                }
-                _ => {}
-            }
+        if let Some(action) = self.check_keybinding(event) {
+            self.execute_action(action);
+            return;
         }
 
         let Some(terminal) = &self.terminal else {
@@ -265,6 +250,147 @@ impl App {
         if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
         {
             let _ = child.write_all(&data);
+        }
+    }
+
+    /// Check if a key event matches a keybinding
+    fn check_keybinding(&self, event: &winit::event::KeyEvent) -> Option<KeyAction> {
+        let ctrl = self.modifiers.control_key();
+        let shift = self.modifiers.shift_key();
+        #[cfg(target_os = "macos")]
+        let cmd = self.modifiers.super_key();
+        #[cfg(not(target_os = "macos"))]
+        let cmd = false;
+
+        match &event.logical_key {
+            Key::Character(c) => {
+                let c = c.to_lowercase();
+                if ctrl && shift {
+                    match c.as_str() {
+                        "c" => return Some(KeyAction::Copy),
+                        "v" => return Some(KeyAction::Paste),
+                        "t" => return Some(KeyAction::ToggleTheme),
+                        "r" => return Some(KeyAction::ReloadConfig),
+                        _ => {}
+                    }
+                }
+                #[cfg(target_os = "macos")]
+                if cmd {
+                    match c.as_str() {
+                        "c" => return Some(KeyAction::Copy),
+                        "v" => return Some(KeyAction::Paste),
+                        "=" | "+" => return Some(KeyAction::ZoomIn),
+                        "-" => return Some(KeyAction::ZoomOut),
+                        "0" => return Some(KeyAction::ZoomReset),
+                        _ => {}
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                if ctrl && !shift {
+                    match c.as_str() {
+                        "=" | "+" => return Some(KeyAction::ZoomIn),
+                        "-" => return Some(KeyAction::ZoomOut),
+                        "0" => return Some(KeyAction::ZoomReset),
+                        _ => {}
+                    }
+                }
+                if cmd || (ctrl && !shift) {
+                    match c.as_str() {
+                        "=" | "+" => return Some(KeyAction::ZoomIn),
+                        "-" => return Some(KeyAction::ZoomOut),
+                        "0" => return Some(KeyAction::ZoomReset),
+                        _ => {}
+                    }
+                }
+            }
+            Key::Named(NamedKey::ArrowUp) if ctrl => {
+                return Some(KeyAction::ZoomIn);
+            }
+            Key::Named(NamedKey::ArrowDown) if ctrl => {
+                return Some(KeyAction::ZoomOut);
+            }
+            _ => {}
+        }
+
+        None
+    }
+
+    /// Execute a keybinding action
+    fn execute_action(&mut self, action: KeyAction) {
+        match action {
+            KeyAction::Copy => self.handle_copy(),
+            KeyAction::Paste => self.handle_paste(),
+            KeyAction::ToggleTheme => self.toggle_theme(),
+            KeyAction::ReloadConfig => self.reload_config(),
+            KeyAction::ZoomIn => self.change_font_size(2.0),
+            KeyAction::ZoomOut => self.change_font_size(-2.0),
+            KeyAction::ZoomReset => self.reset_font_size(),
+        }
+    }
+
+    /// Handle copy (Ctrl+Shift+C)
+    fn handle_copy(&mut self) {
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if selection.is_empty() {
+            return;
+        }
+
+        let text = screen.get_selected_text(selection);
+        if !text.is_empty() {
+            if let Err(e) = clipboard.set_text(&text) {
+                log::warn!("Failed to copy to clipboard: {}", e);
+            } else {
+                log::debug!("Copied {} chars to clipboard", text.len());
+            }
+        }
+    }
+
+    /// Toggle between themes
+    fn toggle_theme(&mut self) {
+        let next_theme = match self.config.theme {
+            ThemeName::Dark => ThemeName::Light,
+            ThemeName::Light => ThemeName::SolarizedDark,
+            ThemeName::SolarizedDark => ThemeName::SolarizedLight,
+            ThemeName::SolarizedLight => ThemeName::Dracula,
+            ThemeName::Dracula => ThemeName::Nord,
+            ThemeName::Nord => ThemeName::Dark,
+            ThemeName::Custom => ThemeName::Dark,
+        };
+
+        self.config.theme = next_theme;
+        let new_colors = self.config.effective_colors();
+
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_colors(new_colors);
+        }
+
+        log::info!("Switched to theme: {:?}", next_theme);
+        self.needs_redraw = true;
+    }
+
+    /// Reload configuration from file
+    fn reload_config(&mut self) {
+        match self.config.reload() {
+            Ok(()) => {
+                let new_colors = self.config.effective_colors();
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.set_colors(new_colors);
+                }
+                log::info!("Configuration reloaded successfully");
+                self.needs_redraw = true;
+            }
+            Err(e) => {
+                log::error!("Failed to reload configuration: {}", e);
+            }
         }
     }
 
@@ -451,8 +577,7 @@ impl App {
         }
     }
 
-    /// Handle paste
-    #[allow(dead_code)]
+    /// Handle paste (Ctrl+Shift+V)
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
             return;
