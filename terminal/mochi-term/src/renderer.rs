@@ -423,8 +423,7 @@ impl Renderer {
         let atlas_width = glyph_cache.atlas_width as f32;
         let atlas_height = glyph_cache.atlas_height as f32;
 
-        // Default colors for empty cells
-        let default_fg = [0.9, 0.9, 0.9, 1.0];
+        // Default background color for empty cells
         let default_bg = [0.0, 0.0, 0.0, 1.0];
 
         // PASS 1: Draw background quads for ALL cells to ensure full coverage
