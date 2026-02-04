@@ -324,8 +324,27 @@ impl App {
 
         let application_cursor_keys = terminal.screen().modes().cursor_keys_application;
 
+        // First, try to use the text field from the KeyEvent
+        // On macOS, control characters like Ctrl+C might be in the text field directly
+        if let Some(text) = &event.text {
+            if !text.is_empty() {
+                let first_char = text.chars().next().unwrap();
+                // Check if it's a control character (0x01-0x1A)
+                if (first_char as u32) >= 1 && (first_char as u32) <= 26 {
+                    log::debug!(
+                        "Sending control character from text field: {:?} (0x{:02x})",
+                        first_char,
+                        first_char as u8
+                    );
+                    let _ = child.write_all(&[first_char as u8]);
+                    return;
+                }
+            }
+        }
+
         if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
         {
+            log::debug!("Sending key data: {:?}", data);
             let _ = child.write_all(&data);
         }
     }
