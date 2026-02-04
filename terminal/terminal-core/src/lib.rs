@@ -18,7 +18,7 @@ mod line;
 mod modes;
 mod screen;
 mod scrollback;
-mod selection;
+pub mod selection;
 mod snapshot;
 
 pub use cell::{Cell, CellAttributes};
