@@ -181,8 +181,9 @@ pub fn configure_slave(fd: RawFd) -> Result<()> {
         | termios::InputFlags::ICRNL
         | termios::InputFlags::IXON);
 
-    // Output flags: disable output processing
-    termios.output_flags &= !termios::OutputFlags::OPOST;
+    // Output flags: enable OPOST and ONLCR for proper newline handling
+    // ONLCR converts LF to CR+LF on output, which is standard terminal behavior
+    termios.output_flags |= termios::OutputFlags::OPOST | termios::OutputFlags::ONLCR;
 
     // Local flags: disable echo and canonical mode
     termios.local_flags &= !(termios::LocalFlags::ECHO
