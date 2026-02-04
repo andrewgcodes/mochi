@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::{Config, ThemeName};
+use crate::config::{Config, ParsedKeybinding, ThemeName};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -227,22 +227,58 @@ impl App {
             return;
         }
 
-        // Check for Ctrl+Shift shortcuts (theme toggle, copy, paste, etc.)
-        if self.modifiers.control_key() && self.modifiers.shift_key() {
-            match &event.logical_key {
-                Key::Character(c) if c.to_lowercase() == "t" => {
+        // Get the key character for matching
+        let key_char = match &event.logical_key {
+            Key::Character(c) => Some(c.to_lowercase()),
+            Key::Named(named) => Some(format!("{:?}", named).to_lowercase()),
+            _ => None,
+        };
+
+        // Check for configured keybindings
+        if let Some(ref key) = key_char {
+            let ctrl = self.modifiers.control_key();
+            let shift = self.modifiers.shift_key();
+            let alt = self.modifiers.alt_key();
+            let super_key = self.modifiers.super_key();
+
+            // Toggle theme keybinding
+            if let Some(kb) = ParsedKeybinding::parse(&self.config.keybindings.toggle_theme) {
+                if kb.matches(ctrl, shift, alt, super_key, key) {
                     self.toggle_theme();
                     return;
                 }
-                Key::Character(c) if c.to_lowercase() == "c" => {
+            }
+
+            // Copy keybinding
+            if let Some(kb) = ParsedKeybinding::parse(&self.config.keybindings.copy) {
+                if kb.matches(ctrl, shift, alt, super_key, key) {
                     self.copy_selection();
                     return;
                 }
-                Key::Character(c) if c.to_lowercase() == "v" => {
+            }
+
+            // Paste keybinding
+            if let Some(kb) = ParsedKeybinding::parse(&self.config.keybindings.paste) {
+                if kb.matches(ctrl, shift, alt, super_key, key) {
                     self.handle_paste();
                     return;
                 }
-                _ => {}
+            }
+
+            // Reload config keybinding
+            if let Some(kb) = ParsedKeybinding::parse(&self.config.keybindings.reload_config) {
+                if kb.matches(ctrl, shift, alt, super_key, key) {
+                    self.reload_config();
+                    return;
+                }
+            }
+
+            // Find keybinding (placeholder for now - will be implemented in M5)
+            if let Some(kb) = ParsedKeybinding::parse(&self.config.keybindings.find) {
+                if kb.matches(ctrl, shift, alt, super_key, key) {
+                    log::info!("Find triggered (not yet implemented)");
+                    return;
+                }
             }
         }
 
@@ -353,6 +389,50 @@ impl App {
         }
 
         self.needs_redraw = true;
+    }
+
+    /// Reload configuration from file
+    fn reload_config(&mut self) {
+        let config_path = Config::default_config_path();
+        match Config::load_with_overrides(config_path, crate::config::CliOverrides::default()) {
+            Ok(new_config) => {
+                // Apply theme change if different
+                if new_config.theme != self.config.theme {
+                    self.current_theme = new_config.theme.clone();
+                    if let Some(renderer) = &mut self.renderer {
+                        let colors = self.current_theme.to_color_scheme();
+                        renderer.set_colors(colors);
+                    }
+                }
+
+                // Apply font size change if different
+                if (new_config.font.size - self.config.font.size).abs() > 0.1 {
+                    if let Some(renderer) = &mut self.renderer {
+                        renderer.set_font_size(new_config.font.size);
+                        // Recalculate terminal dimensions
+                        if let (Some(window), Some(terminal), Some(child)) = 
+                            (&self.window, &mut self.terminal, &self.child) {
+                            let size = window.inner_size();
+                            let cell_size = renderer.cell_size();
+                            let cols = (size.width as f32 / cell_size.width) as usize;
+                            let rows = (size.height as f32 / cell_size.height) as usize;
+                            if cols > 0 && rows > 0 {
+                                terminal.resize(cols, rows);
+                                let _ = child.resize(WindowSize::new(cols as u16, rows as u16));
+                            }
+                        }
+                    }
+                }
+
+                self.config = new_config;
+                log::info!("Configuration reloaded successfully");
+                self.needs_redraw = true;
+            }
+            Err(e) => {
+                log::error!("Failed to reload configuration: {}", e);
+                // Keep the old config active
+            }
+        }
     }
 
     /// Toggle to the next theme
