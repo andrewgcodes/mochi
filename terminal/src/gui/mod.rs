@@ -314,12 +314,26 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             },
 
             Event::MainEventsCleared => {
-                // Read from PTY
+                // Check if child process has exited first
+                match pty.try_wait() {
+                    Ok(Some(code)) => {
+                        info!("Child process exited with code: {}", code);
+                        *control_flow = ControlFlow::Exit;
+                        return;
+                    }
+                    Ok(None) => {
+                        // Still running, continue
+                    }
+                    Err(e) => {
+                        error!("Error checking child process: {}", e);
+                    }
+                }
+
+                // Read from PTY (non-blocking)
                 match pty.read(&mut read_buf) {
                     Ok(0) => {
-                        // PTY closed
-                        info!("PTY closed");
-                        *control_flow = ControlFlow::Exit;
+                        // No data available (non-blocking read returns 0)
+                        // This is normal, not an error
                     }
                     Ok(n) => {
                         // Parse and apply actions
@@ -338,12 +352,6 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                         error!("PTY read error: {}", e);
                         *control_flow = ControlFlow::Exit;
                     }
-                }
-
-                // Check if child process has exited
-                if let Ok(Some(_)) = pty.try_wait() {
-                    info!("Child process exited");
-                    *control_flow = ControlFlow::Exit;
                 }
 
                 // Render at fixed interval
