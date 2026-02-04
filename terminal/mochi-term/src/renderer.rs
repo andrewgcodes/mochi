@@ -629,6 +629,9 @@ pub struct TerminalApp {
     pub parser: mochi_parser::Parser,
     pub performer: crate::performer::Performer,
     pub pty: Option<mochi_pty::Pty>,
+    pub input_encoder: crate::input::InputEncoder,
+    pub bracketed_paste_mode: bool,
+    pub modifiers: winit::keyboard::ModifiersState,
 }
 
 impl ApplicationHandler for TerminalApp {
@@ -702,6 +705,9 @@ impl ApplicationHandler for TerminalApp {
             WindowEvent::KeyboardInput { event, .. } => {
                 self.handle_keyboard_input(&event);
             }
+            WindowEvent::ModifiersChanged(new_modifiers) => {
+                self.modifiers = new_modifiers.state();
+            }
             _ => {}
         }
     }
@@ -724,50 +730,80 @@ impl TerminalApp {
                 }
             }
         }
+
+        // Sync bracketed paste mode from screen
+        self.bracketed_paste_mode = self.screen.modes.bracketed_paste;
+
+        // Sync application cursor keys mode
+        self.input_encoder
+            .set_application_cursor_keys(self.screen.modes.application_cursor_keys);
     }
 
     fn handle_keyboard_input(&mut self, event: &winit::event::KeyEvent) {
+        use crate::input::{Key as InputKey, Modifiers};
         use winit::event::ElementState;
-        use winit::keyboard::{Key, NamedKey};
+        use winit::keyboard::{Key, ModifiersState, NamedKey};
 
         if event.state != ElementState::Pressed {
             return;
         }
 
-        let bytes: Vec<u8> = match &event.logical_key {
-            Key::Character(c) => c.as_bytes().to_vec(),
-            Key::Named(named) => match named {
-                NamedKey::Enter => vec![b'\r'],
-                NamedKey::Backspace => vec![0x7f],
-                NamedKey::Tab => vec![b'\t'],
-                NamedKey::Escape => vec![0x1b],
-                NamedKey::ArrowUp => b"\x1b[A".to_vec(),
-                NamedKey::ArrowDown => b"\x1b[B".to_vec(),
-                NamedKey::ArrowRight => b"\x1b[C".to_vec(),
-                NamedKey::ArrowLeft => b"\x1b[D".to_vec(),
-                NamedKey::Home => b"\x1b[H".to_vec(),
-                NamedKey::End => b"\x1b[F".to_vec(),
-                NamedKey::PageUp => b"\x1b[5~".to_vec(),
-                NamedKey::PageDown => b"\x1b[6~".to_vec(),
-                NamedKey::Insert => b"\x1b[2~".to_vec(),
-                NamedKey::Delete => b"\x1b[3~".to_vec(),
-                NamedKey::F1 => b"\x1bOP".to_vec(),
-                NamedKey::F2 => b"\x1bOQ".to_vec(),
-                NamedKey::F3 => b"\x1bOR".to_vec(),
-                NamedKey::F4 => b"\x1bOS".to_vec(),
-                NamedKey::F5 => b"\x1b[15~".to_vec(),
-                NamedKey::F6 => b"\x1b[17~".to_vec(),
-                NamedKey::F7 => b"\x1b[18~".to_vec(),
-                NamedKey::F8 => b"\x1b[19~".to_vec(),
-                NamedKey::F9 => b"\x1b[20~".to_vec(),
-                NamedKey::F10 => b"\x1b[21~".to_vec(),
-                NamedKey::F11 => b"\x1b[23~".to_vec(),
-                NamedKey::F12 => b"\x1b[24~".to_vec(),
-                _ => return,
-            },
-            _ => return,
+        // Extract modifier state from the tracked modifiers
+        let mods = Modifiers {
+            shift: self.modifiers.contains(ModifiersState::SHIFT),
+            ctrl: self.modifiers.contains(ModifiersState::CONTROL),
+            alt: self.modifiers.contains(ModifiersState::ALT),
         };
 
+        // Convert winit key to our InputKey
+        let input_key = match &event.logical_key {
+            Key::Character(c) => c.chars().next().map(InputKey::Char),
+            Key::Named(named) => match named {
+                NamedKey::Enter => Some(InputKey::Enter),
+                NamedKey::Backspace => Some(InputKey::Backspace),
+                NamedKey::Tab => Some(InputKey::Tab),
+                NamedKey::Escape => Some(InputKey::Escape),
+                NamedKey::ArrowUp => Some(InputKey::Up),
+                NamedKey::ArrowDown => Some(InputKey::Down),
+                NamedKey::ArrowRight => Some(InputKey::Right),
+                NamedKey::ArrowLeft => Some(InputKey::Left),
+                NamedKey::Home => Some(InputKey::Home),
+                NamedKey::End => Some(InputKey::End),
+                NamedKey::PageUp => Some(InputKey::PageUp),
+                NamedKey::PageDown => Some(InputKey::PageDown),
+                NamedKey::Insert => Some(InputKey::Insert),
+                NamedKey::Delete => Some(InputKey::Delete),
+                NamedKey::F1 => Some(InputKey::F(1)),
+                NamedKey::F2 => Some(InputKey::F(2)),
+                NamedKey::F3 => Some(InputKey::F(3)),
+                NamedKey::F4 => Some(InputKey::F(4)),
+                NamedKey::F5 => Some(InputKey::F(5)),
+                NamedKey::F6 => Some(InputKey::F(6)),
+                NamedKey::F7 => Some(InputKey::F(7)),
+                NamedKey::F8 => Some(InputKey::F(8)),
+                NamedKey::F9 => Some(InputKey::F(9)),
+                NamedKey::F10 => Some(InputKey::F(10)),
+                NamedKey::F11 => Some(InputKey::F(11)),
+                NamedKey::F12 => Some(InputKey::F(12)),
+                _ => None,
+            },
+            _ => None,
+        };
+
+        if let Some(key) = input_key {
+            let bytes = self.input_encoder.encode_key(key, mods);
+            if let Some(pty) = &self.pty {
+                let _ = pty.write(&bytes);
+            }
+        }
+    }
+
+    /// Handle clipboard paste
+    #[allow(dead_code)]
+    fn handle_paste(&mut self, text: &str) {
+        let bytes = self
+            .input_encoder
+            .encode_paste(text, self.bracketed_paste_mode);
         if let Some(pty) = &self.pty {
             let _ = pty.write(&bytes);
         }
@@ -869,6 +905,9 @@ pub fn run_terminal(cols: usize, rows: usize) -> Result<(), Box<dyn std::error::
         parser: mochi_parser::Parser::new(),
         performer: crate::performer::Performer::new(),
         pty: Some(pty),
+        input_encoder: crate::input::InputEncoder::new(),
+        bracketed_paste_mode: false,
+        modifiers: winit::keyboard::ModifiersState::empty(),
     };
 
     event_loop.run_app(&mut app)?;

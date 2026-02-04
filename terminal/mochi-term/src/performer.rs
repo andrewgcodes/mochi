@@ -253,6 +253,7 @@ impl Performer {
             if let Some(mode) = params.get(i) {
                 match mode {
                     1 => {
+                        screen.modes.application_cursor_keys = enable;
                         debug!("DECCKM (cursor keys mode): {}", enable);
                     }
                     3 => {

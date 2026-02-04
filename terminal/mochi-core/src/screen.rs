@@ -53,6 +53,8 @@ pub struct TerminalModes {
     pub focus_events: bool,
     pub mouse_tracking: MouseMode,
     pub mouse_encoding: MouseEncoding,
+    pub application_cursor_keys: bool,
+    pub application_keypad: bool,
 }
 
 impl Default for TerminalModes {
@@ -67,6 +69,8 @@ impl Default for TerminalModes {
             focus_events: false,
             mouse_tracking: MouseMode::None,
             mouse_encoding: MouseEncoding::Default,
+            application_cursor_keys: false,
+            application_keypad: false,
         }
     }
 }
