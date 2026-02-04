@@ -119,7 +119,16 @@ impl InputEncoder {
                 } else {
                     b'M'
                 };
-                Some(format!("\x1b[<{};{};{}{}", code, col + 1, row + 1, final_char as char).into_bytes())
+                Some(
+                    format!(
+                        "\x1b[<{};{};{}{}",
+                        code,
+                        col + 1,
+                        row + 1,
+                        final_char as char
+                    )
+                    .into_bytes(),
+                )
             }
             MouseEncoding::Urxvt => {
                 // URXVT encoding: ESC [ Cb ; Cx ; Cy M
