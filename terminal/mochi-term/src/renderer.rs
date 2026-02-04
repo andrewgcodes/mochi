@@ -138,6 +138,7 @@ impl Renderer {
     }
 
     /// Get a reference to the current color scheme
+    #[allow(dead_code)]
     pub fn colors(&self) -> &ColorScheme {
         &self.colors
     }
@@ -146,16 +147,6 @@ impl Renderer {
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-    }
-
-    /// Update the color scheme (for runtime theme switching)
-    pub fn set_colors(&mut self, colors: ColorScheme) {
-        self.colors = colors;
-    }
-
-    /// Get the current color scheme
-    pub fn colors(&self) -> &ColorScheme {
-        &self.colors
     }
 
     /// Render the terminal screen

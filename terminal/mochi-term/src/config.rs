@@ -356,6 +356,7 @@ impl Config {
     }
 
     /// Get all available theme names
+    #[allow(dead_code)]
     pub fn available_themes() -> &'static [&'static str] {
         &[
             "dark",
@@ -416,6 +417,7 @@ impl Default for ColorScheme {
 
 impl Config {
     /// Load configuration from file (legacy method for compatibility)
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         let config_path = Self::default_config_path()?;
         if !config_path.exists() {
@@ -805,8 +807,10 @@ mod tests {
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#1e1e1e");
 
-        let mut config = Config::default();
-        config.theme = ThemeName::Light;
+        let config = Config {
+            theme: ThemeName::Light,
+            ..Config::default()
+        };
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#ffffff");
     }
@@ -825,8 +829,10 @@ mod tests {
         ];
 
         for theme in themes {
-            let mut config = Config::default();
-            config.theme = theme;
+            let config = Config {
+                theme,
+                ..Config::default()
+            };
             let colors = config.effective_colors();
             assert!(
                 colors.validate().is_ok(),
