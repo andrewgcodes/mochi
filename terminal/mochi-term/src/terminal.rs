@@ -2,8 +2,12 @@
 //!
 //! Integrates the parser and screen model to handle terminal emulation.
 
+use std::time::Instant;
 use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
+
+/// Minimum interval between title updates (milliseconds)
+const TITLE_THROTTLE_MS: u64 = 100;
 
 /// Terminal emulator state
 pub struct Terminal {
@@ -17,6 +21,10 @@ pub struct Terminal {
     title_changed: bool,
     /// Bell triggered
     bell: bool,
+    /// Last title update time (for throttling)
+    last_title_update: Option<Instant>,
+    /// Pending OSC 52 clipboard data (base64 encoded)
+    pending_clipboard: Option<String>,
 }
 
 impl Terminal {
@@ -28,6 +36,8 @@ impl Terminal {
             title: String::new(),
             title_changed: false,
             bell: false,
+            last_title_update: None,
+            pending_clipboard: None,
         }
     }
 
@@ -63,6 +73,12 @@ impl Terminal {
         let bell = self.bell;
         self.bell = false;
         bell
+    }
+
+    /// Check and take pending clipboard data (from OSC 52)
+    /// Returns the base64-encoded clipboard data if available
+    pub fn take_pending_clipboard(&mut self) -> Option<String> {
+        self.pending_clipboard.take()
     }
 
     /// Process input bytes from the PTY
@@ -651,9 +667,23 @@ impl Terminal {
     fn handle_osc(&mut self, osc: OscAction) {
         match osc {
             OscAction::SetIconAndTitle(title) | OscAction::SetTitle(title) => {
-                self.title = title.clone();
-                self.screen.set_title(&title);
-                self.title_changed = true;
+                // Title update throttling to prevent DoS
+                let now = Instant::now();
+                let should_update = match self.last_title_update {
+                    Some(last) => {
+                        now.duration_since(last).as_millis() >= TITLE_THROTTLE_MS as u128
+                    }
+                    None => true,
+                };
+
+                if should_update {
+                    self.title = title.clone();
+                    self.screen.set_title(&title);
+                    self.title_changed = true;
+                    self.last_title_update = Some(now);
+                } else {
+                    log::debug!("Title update throttled");
+                }
             }
             OscAction::SetIconName(_) => {
                 // Icon name is typically ignored in modern terminals
@@ -669,8 +699,12 @@ impl Terminal {
                 }
             }
             OscAction::Clipboard { clipboard: _, data } => {
-                // OSC 52 clipboard - handled by the application layer
-                log::debug!("OSC 52 clipboard: {} bytes", data.len());
+                // OSC 52 clipboard - store for application layer to handle
+                // The application layer will check config settings before using
+                if !data.is_empty() {
+                    log::debug!("OSC 52 clipboard request: {} bytes", data.len());
+                    self.pending_clipboard = Some(data);
+                }
             }
             OscAction::SetColor { index, color } => {
                 log::debug!("Set color {}: {}", index, color);
@@ -801,5 +835,50 @@ mod tests {
         assert_eq!(term.title(), "My Title");
         assert!(term.take_title_changed());
         assert!(!term.take_title_changed()); // Should be cleared
+    }
+
+    #[test]
+    fn test_terminal_title_throttling() {
+        let mut term = Terminal::new(80, 24);
+
+        // First title update should work
+        term.process(b"\x1b]0;Title 1\x07");
+        assert_eq!(term.title(), "Title 1");
+        assert!(term.take_title_changed());
+
+        // Immediate second update should be throttled
+        term.process(b"\x1b]0;Title 2\x07");
+        // Title should still be "Title 1" due to throttling
+        assert_eq!(term.title(), "Title 1");
+        // No title change should be flagged
+        assert!(!term.take_title_changed());
+    }
+
+    #[test]
+    fn test_terminal_osc52_clipboard() {
+        let mut term = Terminal::new(80, 24);
+
+        // OSC 52 clipboard sequence: ESC ] 52 ; c ; <base64-data> BEL
+        // "Hello" in base64 is "SGVsbG8="
+        term.process(b"\x1b]52;c;SGVsbG8=\x07");
+
+        // Check that clipboard data is pending
+        let clipboard_data = term.take_pending_clipboard();
+        assert!(clipboard_data.is_some());
+        assert_eq!(clipboard_data.unwrap(), "SGVsbG8=");
+
+        // Should be cleared after taking
+        assert!(term.take_pending_clipboard().is_none());
+    }
+
+    #[test]
+    fn test_terminal_osc52_empty_data() {
+        let mut term = Terminal::new(80, 24);
+
+        // Empty clipboard data should not be stored
+        term.process(b"\x1b]52;c;\x07");
+
+        // No clipboard data should be pending
+        assert!(term.take_pending_clipboard().is_none());
     }
 }
