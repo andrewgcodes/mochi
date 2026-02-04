@@ -40,6 +40,7 @@ pub enum ConfigError {
 #[command(author = "Mochi Terminal Contributors")]
 #[command(version)]
 #[command(about = "A modern, customizable terminal emulator", long_about = None)]
+#[derive(Default)]
 pub struct CliArgs {
     /// Path to configuration file (overrides XDG default)
     #[arg(short, long, value_name = "FILE")]
@@ -72,21 +73,6 @@ pub struct CliArgs {
     /// Enable debug logging
     #[arg(short, long)]
     pub debug: bool,
-}
-
-impl Default for CliArgs {
-    fn default() -> Self {
-        Self {
-            config: None,
-            theme: None,
-            font_size: None,
-            font_family: None,
-            shell: None,
-            columns: None,
-            rows: None,
-            debug: false,
-        }
-    }
 }
 
 /// Available theme names
@@ -126,6 +112,7 @@ impl ThemeName {
     }
 
     /// Get all available theme names
+    #[allow(dead_code)]
     pub fn all() -> &'static [&'static str] {
         &[
             "dark",
@@ -345,6 +332,7 @@ impl KeybindingConfig {
     }
 
     /// Build a map from keybindings to actions for quick lookup
+    #[allow(dead_code)]
     pub fn to_action_map(&self) -> HashMap<Keybinding, KeyAction> {
         let mut map = HashMap::new();
         map.insert(self.copy.clone(), KeyAction::Copy);
@@ -579,6 +567,7 @@ impl Config {
     }
 
     /// Load configuration from default location (for backwards compatibility)
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         let args = CliArgs::default();
         Self::load_with_args(&args).ok()
@@ -596,6 +585,7 @@ impl Config {
     }
 
     /// Get the config directory path
+    #[allow(dead_code)]
     pub fn config_dir() -> Option<PathBuf> {
         if let Ok(xdg_config) = env::var("XDG_CONFIG_HOME") {
             return Some(PathBuf::from(xdg_config).join("mochi"));
@@ -744,18 +734,22 @@ impl Config {
     }
 
     // Legacy accessors for backwards compatibility
+    #[allow(dead_code)]
     pub fn font_family(&self) -> &str {
         &self.font.family
     }
 
+    #[allow(dead_code)]
     pub fn font_size(&self) -> f32 {
         self.font.size
     }
 
+    #[allow(dead_code)]
     pub fn osc52_clipboard(&self) -> bool {
         self.security.osc52_clipboard
     }
 
+    #[allow(dead_code)]
     pub fn osc52_max_size(&self) -> usize {
         self.security.osc52_max_size
     }
@@ -1149,14 +1143,16 @@ mod tests {
     #[test]
     fn test_keybinding_serialization() {
         let kb = Keybinding::parse("ctrl+shift+c").unwrap();
-        
+
         // Test that the keybinding can be serialized as part of a struct
         #[derive(Serialize, Deserialize)]
         struct TestWrapper {
             binding: Keybinding,
         }
-        
-        let wrapper = TestWrapper { binding: kb.clone() };
+
+        let wrapper = TestWrapper {
+            binding: kb.clone(),
+        };
         let serialized = toml::to_string(&wrapper).unwrap();
         assert!(serialized.contains("ctrl+shift+c"));
 
@@ -1178,8 +1174,10 @@ mod tests {
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#1e1e1e");
 
-        let mut light_config = Config::default();
-        light_config.theme = ThemeName::Light;
+        let light_config = Config {
+            theme: ThemeName::Light,
+            ..Default::default()
+        };
         let light_colors = light_config.effective_colors();
         assert_eq!(light_colors.background, "#ffffff");
     }

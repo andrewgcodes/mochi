@@ -296,7 +296,11 @@ impl App {
         let shift = self.modifiers.shift_key();
         let super_key = self.modifiers.super_key();
 
-        if let Some(action) = self.config.keybindings.get_action(ctrl, alt, shift, super_key, &key_name) {
+        if let Some(action) = self
+            .config
+            .keybindings
+            .get_action(ctrl, alt, shift, super_key, &key_name)
+        {
             match action {
                 KeyAction::Copy => {
                     self.handle_copy();
@@ -497,7 +501,11 @@ impl App {
             }
         }
 
-        log::debug!("Found {} matches for '{}'", self.search_state.matches.len(), query);
+        log::debug!(
+            "Found {} matches for '{}'",
+            self.search_state.matches.len(),
+            query
+        );
     }
 
     /// Navigate to next search match
@@ -506,7 +514,7 @@ impl App {
             return;
         }
 
-        self.search_state.current_match = 
+        self.search_state.current_match =
             (self.search_state.current_match + 1) % self.search_state.matches.len();
         self.scroll_to_current_match();
         self.needs_redraw = true;
@@ -578,7 +586,7 @@ impl App {
         let new_theme = self.config.theme.next();
         log::info!("Switching theme to {:?}", new_theme);
         self.config.theme = new_theme;
-        
+
         // Apply new theme colors to renderer
         if let Some(renderer) = &mut self.renderer {
             renderer.set_colors(self.config.effective_colors());
@@ -657,11 +665,11 @@ impl App {
         };
 
         let modes = terminal.screen().modes();
-        
+
         // If mouse tracking is enabled, send events to PTY
         if modes.mouse_tracking_enabled() {
             let Some(child) = &mut self.child else { return };
-            
+
             let event = if state == ElementState::Pressed {
                 MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
             } else {
@@ -683,40 +691,40 @@ impl App {
                     let now = Instant::now();
                     let same_pos = self.last_click_pos == self.mouse_cell;
                     let time_diff = now.duration_since(self.last_click_time).as_millis();
-                    
+
                     // Detect double/triple click
                     if same_pos && time_diff < CLICK_THRESHOLD_MS {
                         self.click_count = (self.click_count % 3) + 1;
                     } else {
                         self.click_count = 1;
                     }
-                    
+
                     self.last_click_time = now;
                     self.last_click_pos = self.mouse_cell;
-                    
+
                     let point = Point::new(
                         self.mouse_cell.0 as usize,
                         self.mouse_cell.1 as isize - self.scroll_offset as isize,
                     );
-                    
+
                     let selection_type = match self.click_count {
                         1 => SelectionType::Normal,
                         2 => SelectionType::Word,
                         3 => SelectionType::Line,
                         _ => SelectionType::Normal,
                     };
-                    
+
                     // Start selection
                     let screen = terminal.screen_mut();
                     screen.selection_mut().start(point, selection_type);
-                    
+
                     // For word/line selection, expand to word/line boundaries
                     if selection_type == SelectionType::Word {
                         self.expand_word_selection();
                     } else if selection_type == SelectionType::Line {
                         self.expand_line_selection();
                     }
-                    
+
                     self.selecting = true;
                     self.needs_redraw = true;
                 } else {
@@ -736,35 +744,37 @@ impl App {
         };
         self.mouse_buttons[idx] = state == ElementState::Pressed;
     }
-    
+
     /// Expand selection to word boundaries
     fn expand_word_selection(&mut self) {
-        let Some(terminal) = &mut self.terminal else { return };
-        
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+
         let screen = terminal.screen_mut();
         let selection = screen.selection();
         if !selection.active {
             return;
         }
-        
+
         let row = selection.start.row;
         let col = selection.start.col;
-        
+
         // Get the line content
         if row < 0 || row as usize >= screen.rows() {
             return;
         }
-        
+
         let line = screen.line(row as usize);
         let line_cols = line.cols();
-        
+
         // Get the character at the click position
         let start_char = if col < line_cols {
             line.cell(col).display_char()
         } else {
             ' '
         };
-        
+
         // Determine character type for word boundary detection
         #[derive(PartialEq)]
         enum CharType {
@@ -772,7 +782,7 @@ impl App {
             Word,
             Other,
         }
-        
+
         fn classify_char(c: char) -> CharType {
             if c.is_whitespace() {
                 CharType::Whitespace
@@ -782,9 +792,9 @@ impl App {
                 CharType::Other
             }
         }
-        
+
         let target_type = classify_char(start_char);
-        
+
         // Find start of word
         let mut word_start = col;
         while word_start > 0 {
@@ -794,7 +804,7 @@ impl App {
             }
             word_start -= 1;
         }
-        
+
         // Find end of word
         let mut word_end = col;
         while word_end < line_cols.saturating_sub(1) {
@@ -804,24 +814,26 @@ impl App {
             }
             word_end += 1;
         }
-        
+
         // Update selection
         let selection = screen.selection_mut();
         selection.start.col = word_start;
         selection.end.col = word_end;
     }
-    
+
     /// Expand selection to line boundaries
     fn expand_line_selection(&mut self) {
-        let Some(terminal) = &mut self.terminal else { return };
-        
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+
         let screen = terminal.screen_mut();
         let cols = screen.cols();
         let selection = screen.selection_mut();
         if !selection.active {
             return;
         }
-        
+
         // For line selection, set columns to cover entire line
         selection.start.col = 0;
         selection.end.col = cols.saturating_sub(1);
@@ -847,7 +859,7 @@ impl App {
         self.mouse_cell = (col, row);
 
         let modes = terminal.screen().modes();
-        
+
         // If mouse tracking is enabled, send motion events to PTY
         if modes.mouse_any_event
             || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
@@ -864,10 +876,7 @@ impl App {
             }
         } else if self.selecting {
             // Update selection while dragging
-            let point = Point::new(
-                col as usize,
-                row as isize - self.scroll_offset as isize,
-            );
+            let point = Point::new(col as usize, row as isize - self.scroll_offset as isize);
             terminal.screen_mut().selection_mut().update(point);
             self.needs_redraw = true;
         }
@@ -1048,17 +1057,11 @@ impl App {
             if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
                 log::warn!("Render error: {:?}", e);
             }
-            if let Err(e) = renderer.draw_search_bar(
-                &self.search_state.query,
-                0,
-                0,
-            ) {
+            if let Err(e) = renderer.draw_search_bar(&self.search_state.query, 0, 0) {
                 log::warn!("Search bar render error: {:?}", e);
             }
-        } else {
-            if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
-                log::warn!("Render error: {:?}", e);
-            }
+        } else if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
+            log::warn!("Render error: {:?}", e);
         }
 
         self.needs_redraw = false;
