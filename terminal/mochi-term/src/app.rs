@@ -164,6 +164,8 @@ impl App {
         let renderer = Renderer::new(
             window.clone(),
             self.config.font_size,
+            self.config.line_height,
+            self.config.cell_padding,
             self.config.effective_colors(),
         )?;
 
