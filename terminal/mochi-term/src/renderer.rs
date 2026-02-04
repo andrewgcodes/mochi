@@ -138,6 +138,7 @@ impl Renderer {
     }
 
     /// Get the current color scheme
+    #[allow(dead_code)]
     pub fn colors(&self) -> &ColorScheme {
         &self.colors
     }
@@ -654,6 +655,7 @@ impl Renderer {
 
     /// Calculate terminal dimensions (cols, rows) from pixel size and cell size
     /// This is a pure function useful for testing and external calculations
+    #[allow(dead_code)]
     pub fn calculate_dimensions(
         pixel_width: u32,
         pixel_height: u32,
