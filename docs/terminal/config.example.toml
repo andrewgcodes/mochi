@@ -1,56 +1,41 @@
-# Mochi Terminal Configuration
+# Mochi Terminal Configuration Example
 # 
-# This is an example configuration file for Mochi Terminal.
+# This file shows all available configuration options with their default values.
 # Copy this file to ~/.config/mochi/config.toml and customize as needed.
 #
 # Configuration precedence (highest to lowest):
-# 1. CLI flags (e.g., --theme dark)
+# 1. CLI arguments (e.g., --theme dark)
 # 2. Environment variables (e.g., MOCHI_THEME=dark)
-# 3. Config file (~/.config/mochi/config.toml)
+# 3. This config file
 # 4. Built-in defaults
 
 # Font settings
-font_family = "monospace"
-font_size = 14.0
+font_family = "monospace"  # Font family name
+font_size = 14.0           # Font size in points (4.0 - 128.0)
 
-# Terminal dimensions (columns x rows)
-dimensions = [80, 24]
+# Terminal dimensions
+dimensions = [80, 24]      # [columns, rows] (10-1000 cols, 5-500 rows)
 
-# Scrollback buffer size (number of lines to keep in history)
-scrollback_lines = 10000
+# Scrollback buffer
+scrollback_lines = 10000   # Number of lines to keep in scrollback (max 1,000,000)
 
 # Theme selection
-# Available built-in themes: dark, light, solarized-dark, solarized-light, dracula, nord, gruvbox
-# Use "custom" to define your own colors below
+# Available themes: dark, light, solarized-dark, solarized-light, dracula, nord, custom
 theme = "dark"
 
 # Shell command (optional - defaults to $SHELL environment variable)
 # shell = "/bin/bash"
 
 # Cursor settings
-cursor_style = "block"  # Options: block, underline, bar
-cursor_blink = true
+cursor_style = "block"     # Options: block, underline, bar
+cursor_blink = true        # Enable cursor blinking
 
 # Security settings
-# OSC 52 clipboard support allows programs to read/write the system clipboard
-# This is DISABLED by default for security reasons
-osc52_clipboard = false
-osc52_max_size = 100000  # Maximum payload size in bytes
-
-# Keybindings
-# Format: "modifier+modifier+key" (e.g., "ctrl+shift+c")
-# Available modifiers: ctrl, alt, shift, super (or cmd/meta)
-[keybindings]
-copy = "ctrl+shift+c"
-paste = "ctrl+shift+v"
-toggle_theme = "ctrl+shift+t"
-reload_config = "ctrl+shift+r"
-font_increase = "ctrl+="
-font_decrease = "ctrl+-"
-font_reset = "ctrl+0"
+osc52_clipboard = false    # Enable OSC 52 clipboard support (disabled by default for security)
+osc52_max_size = 100000    # Maximum OSC 52 payload size in bytes
 
 # Custom color scheme (only used when theme = "custom")
-# All colors are specified as hex values with # prefix
+# All colors are specified as hex strings (with or without # prefix)
 [colors]
 foreground = "#d4d4d4"
 background = "#1e1e1e"
@@ -58,9 +43,8 @@ cursor = "#ffffff"
 selection = "#264f78"
 
 # ANSI colors 0-15 (standard 16-color palette)
-# Order: black, red, green, yellow, blue, magenta, cyan, white,
-#        bright black, bright red, bright green, bright yellow,
-#        bright blue, bright magenta, bright cyan, bright white
+# 0-7: Normal colors (black, red, green, yellow, blue, magenta, cyan, white)
+# 8-15: Bright colors
 ansi = [
     "#000000",  # 0: Black
     "#cd3131",  # 1: Red

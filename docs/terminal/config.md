@@ -4,7 +4,7 @@ This document describes the configuration system for Mochi Terminal.
 
 ## Configuration File Location
 
-Mochi Terminal follows XDG Base Directory conventions. The default configuration file location is:
+Mochi follows the XDG Base Directory Specification. The default configuration file location is:
 
 ```
 ~/.config/mochi/config.toml
@@ -18,42 +18,45 @@ mochi --config /path/to/custom/config.toml
 
 ## Configuration Precedence
 
-Configuration values are resolved in the following order (highest priority first):
+Configuration values are loaded with the following precedence (highest to lowest):
 
-1. **CLI flags** - Command-line arguments override all other settings
+1. **CLI arguments** - Command-line flags override all other settings
 2. **Environment variables** - `MOCHI_*` environment variables
-3. **Config file** - Values from the TOML configuration file
-4. **Built-in defaults** - Hardcoded default values
+3. **Configuration file** - Values from `config.toml`
+4. **Built-in defaults** - Sensible defaults for all settings
 
 ## CLI Arguments
 
 ```
-mochi [OPTIONS]
+USAGE:
+    mochi [OPTIONS]
 
-Options:
-  -c, --config <FILE>       Path to config file
-      --font-family <FAMILY> Font family name
-      --font-size <SIZE>    Font size in points
-      --theme <THEME>       Theme name (dark, light, solarized-dark, solarized-light, dracula, nord, gruvbox)
-      --cols <COLS>         Initial columns
-      --rows <ROWS>         Initial rows
-      --shell <SHELL>       Shell command to run
-      --enable-osc52        Enable OSC 52 clipboard support (security risk)
-  -h, --help                Print help
-  -V, --version             Print version
+OPTIONS:
+    -c, --config <FILE>       Path to configuration file
+        --font-family <FONT>  Font family name
+        --font-size <SIZE>    Font size in points
+    -t, --theme <THEME>       Theme name (dark, light, solarized-dark, solarized-light, dracula, nord)
+    -s, --shell <SHELL>       Shell command to run
+        --columns <COLS>      Initial columns
+        --rows <ROWS>         Initial rows
+        --scrollback <LINES>  Number of scrollback lines
+        --osc52-clipboard     Enable OSC 52 clipboard support
+    -h, --help                Print help
+    -V, --version             Print version
 ```
 
 ## Environment Variables
 
-The following environment variables are supported:
-
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `MOCHI_FONT_FAMILY` | Font family name | `MOCHI_FONT_FAMILY="JetBrains Mono"` |
-| `MOCHI_FONT_SIZE` | Font size in points | `MOCHI_FONT_SIZE=16` |
-| `MOCHI_THEME` | Theme name | `MOCHI_THEME=nord` |
-| `MOCHI_SHELL` | Shell command | `MOCHI_SHELL=/bin/zsh` |
-| `MOCHI_OSC52_CLIPBOARD` | Enable OSC 52 clipboard | `MOCHI_OSC52_CLIPBOARD=true` |
+| `MOCHI_FONT_FAMILY` | Font family name | `"JetBrains Mono"` |
+| `MOCHI_FONT_SIZE` | Font size in points | `16` |
+| `MOCHI_THEME` | Theme name | `dark`, `light`, `dracula` |
+| `MOCHI_SHELL` | Shell command | `/bin/zsh` |
+| `MOCHI_SCROLLBACK` | Scrollback lines | `50000` |
+| `MOCHI_COLUMNS` | Initial columns | `120` |
+| `MOCHI_ROWS` | Initial rows | `40` |
+| `MOCHI_OSC52_CLIPBOARD` | Enable OSC 52 | `true` or `1` |
 
 ## Configuration Options
 
@@ -62,59 +65,60 @@ The following environment variables are supported:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `font_family` | string | `"monospace"` | Font family name |
-| `font_size` | float | `14.0` | Font size in points (4.0 - 144.0) |
+| `font_size` | float | `14.0` | Font size in points (4.0 - 128.0) |
 
-### Terminal Settings
+### Terminal Dimensions
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `dimensions` | [u16, u16] | `[80, 24]` | Initial terminal size (columns, rows) |
-| `scrollback_lines` | integer | `10000` | Number of lines to keep in scrollback (max 1,000,000) |
-| `shell` | string | `null` | Shell command (defaults to `$SHELL`) |
+| `dimensions` | [u16, u16] | `[80, 24]` | Initial [columns, rows] |
+| `scrollback_lines` | usize | `10000` | Lines in scrollback buffer (max 1,000,000) |
 
-### Appearance
+### Theme
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `theme` | string | `"dark"` | Theme name (see below) |
+
+Available themes:
+- `dark` - VS Code inspired dark theme
+- `light` - Light theme with dark text
+- `solarized-dark` - Solarized Dark color scheme
+- `solarized-light` - Solarized Light color scheme
+- `dracula` - Dracula color scheme
+- `nord` - Nord color scheme
+- `custom` - Use colors from `[colors]` section
+
+### Shell
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `shell` | string | `$SHELL` | Shell command to run |
+
+### Cursor
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
 | `cursor_style` | string | `"block"` | Cursor style: `block`, `underline`, `bar` |
-| `cursor_blink` | boolean | `true` | Enable cursor blinking |
+| `cursor_blink` | bool | `true` | Enable cursor blinking |
 
 ### Security
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `osc52_clipboard` | boolean | `false` | Enable OSC 52 clipboard sequences |
-| `osc52_max_size` | integer | `100000` | Maximum OSC 52 payload size in bytes |
+| `osc52_clipboard` | bool | `false` | Enable OSC 52 clipboard (disabled for security) |
+| `osc52_max_size` | usize | `100000` | Maximum OSC 52 payload size in bytes |
 
-## Built-in Themes
+### Custom Colors
 
-Mochi Terminal includes the following built-in themes:
-
-| Theme | Description |
-|-------|-------------|
-| `dark` | VS Code-inspired dark theme (default) |
-| `light` | Light theme with high contrast |
-| `solarized-dark` | Solarized dark color scheme |
-| `solarized-light` | Solarized light color scheme |
-| `dracula` | Dracula color scheme |
-| `nord` | Nord color scheme |
-| `gruvbox` | Gruvbox dark color scheme |
-
-## Custom Colors
-
-To use custom colors, set `theme = "custom"` and define your colors in the `[colors]` section:
+When `theme = "custom"`, the `[colors]` section defines the color scheme:
 
 ```toml
-theme = "custom"
-
 [colors]
 foreground = "#d4d4d4"
 background = "#1e1e1e"
 cursor = "#ffffff"
 selection = "#264f78"
-
-# ANSI 16-color palette
 ansi = [
     "#000000",  # 0: Black
     "#cd3131",  # 1: Red
@@ -135,18 +139,41 @@ ansi = [
 ]
 ```
 
-All colors must be specified as 6-digit hex values with a `#` prefix.
-
 ## Validation
 
-The configuration is validated on load. Invalid configurations will cause the terminal to exit with an error message. Validation rules:
+The configuration system validates all values and provides clear error messages:
 
-- `font_size` must be between 4.0 and 144.0
-- `dimensions[0]` (columns) must be between 10 and 1000
-- `dimensions[1]` (rows) must be between 5 and 500
-- `scrollback_lines` must be at most 1,000,000
-- All color values must be valid 6-digit hex colors
+- Font size must be between 4.0 and 128.0
+- Columns must be between 10 and 1000
+- Rows must be between 5 and 500
+- Scrollback lines must not exceed 1,000,000
+- Theme name must be valid
+- Color values must be valid hex strings
+
+If validation fails, Mochi will display an error message and exit.
 
 ## Example Configuration
 
-See [config.example.toml](config.example.toml) for a complete example configuration file.
+See [config.example.toml](config.example.toml) for a complete example with all options documented.
+
+## Quick Start
+
+1. Create the config directory:
+   ```bash
+   mkdir -p ~/.config/mochi
+   ```
+
+2. Copy the example config:
+   ```bash
+   cp docs/terminal/config.example.toml ~/.config/mochi/config.toml
+   ```
+
+3. Edit to your preferences:
+   ```bash
+   $EDITOR ~/.config/mochi/config.toml
+   ```
+
+4. Run Mochi:
+   ```bash
+   mochi
+   ```

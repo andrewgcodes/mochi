@@ -1,177 +1,220 @@
-# Mochi Terminal Phase 2 Plan: Modern Config + Theming + UX
+# Mochi Terminal Phase 2 - Implementation Plan
 
 ## Scope
 
-Transform the Mochi terminal from "basic but working" to "modern and customizable" by implementing:
-- Robust configuration system with CLI overrides
-- Theme engine with light/dark mode and custom themes
-- Font customization with runtime reload
-- Keybinding customization
-- UX polish: improved selection, scrollback search, hyperlink UX
-- Security hardening for dangerous escape sequences
+Transform the Mochi terminal emulator from "basic but working" to "modern and customizable" by implementing:
 
-## Branch
+1. Robust configuration system with XDG support and CLI overrides
+2. Theme engine with light/dark mode and runtime switching
+3. Font customization with family, size, fallback, and runtime reload
+4. Keybinding customization for common actions
+5. UX polish: improved selection, scrollback search, hyperlink UX
+6. Security hardening for escape sequences
+7. Comprehensive test coverage with no regressions
 
-`phase2-modern-config-theming`
+## Branch and Commit Strategy
 
-## Commit Message Format
-
-`phase2(Mx.y): short description`
-
-Example: `phase2(M1.1): add CLI argument parsing with clap`
+- **Branch name:** `phase2-modern-config-theming`
+- **Commit format:** `phase2(Mx.y): short description`
+- **Each commit must:** compile, pass tests, update relevant docs
 
 ## Milestones
 
 ### M1: Config System Foundation
 
-**M1.1** Add CLI argument parsing
-- Add `clap` dependency for argument parsing
-- Support `--config <path>` to override config location
-- Support `--version` and `--help`
+**Goal:** Implement a robust configuration system with clear precedence rules.
 
-**M1.2** Implement config precedence
-- CLI flags > environment variables > config file > built-in defaults
-- Document precedence in config.md
+**Deliverables:**
+- CLI argument parsing with `--config` flag
+- Environment variable support for key settings
+- Config precedence: CLI > env > file > defaults
+- Clear error messages for invalid config
+- Example config file and documentation
 
-**M1.3** Add config validation
-- Validate all config values on load
-- Return clear error messages for invalid config
-- Never silently ignore errors
+**Commits:**
+- `phase2(M1.1): add clap dependency and CLI argument parsing`
+- `phase2(M1.2): implement environment variable config support`
+- `phase2(M1.3): implement config precedence and validation`
+- `phase2(M1.4): add example config and documentation`
 
-**M1.4** Create example config and documentation
-- docs/terminal/config.example.toml
-- docs/terminal/config.md with schema
+**Tests:**
+- Parse valid config (multiple variants)
+- Reject invalid config with useful error
+- Precedence tests (CLI overrides config, etc.)
+- Snapshot tests: config -> computed effective settings
 
-**M1.5** Add config tests
-- Parse valid config variants
-- Reject invalid config with useful errors
-- Precedence tests
+**Files to modify:**
+- `mochi-term/Cargo.toml` - add clap
+- `mochi-term/src/main.rs` - CLI parsing
+- `mochi-term/src/config.rs` - env vars, validation, precedence
+- `docs/terminal/config.md` - schema documentation
+- `docs/terminal/config.example.toml` - example config
 
 ### M2: Themes + Light/Dark Mode
 
-**M2.1** Refactor theme system
-- Ensure mochi-dark and mochi-light are complete
-- Add 2 additional curated themes (Solarized, Dracula already exist, add Nord, Gruvbox)
-- Document theme format
+**Goal:** Implement a theme engine with built-in themes and runtime switching.
 
-**M2.2** Implement runtime theme switching
-- Add keybinding for theme toggle (Ctrl+Shift+T)
-- Update renderer colors without restart
+**Deliverables:**
+- Built-in themes: mochi-dark, mochi-light (already exist as Dark, Light)
+- 2 additional curated themes (already have Solarized, Dracula, Nord)
+- Runtime theme switching via keybinding
+- Theme file loading from external paths
+- Theme documentation
 
-**M2.3** Support custom theme files
-- Load theme from file path
-- Validate theme format
+**Commits:**
+- `phase2(M2.1): add runtime theme switching keybinding (Ctrl+Shift+T)`
+- `phase2(M2.2): add theme file loading from custom paths`
+- `phase2(M2.3): add theme documentation and screenshots`
 
-**M2.4** Add theme tests and screenshots
-- Unit tests for theme parsing
-- Golden tests for ANSI palette
-- Screenshots: theme_dark.png, theme_light.png, theme_palette_grid.png
+**Tests:**
+- Unit tests: theme parsing, applying to renderer state
+- Golden tests: ANSI color mapping verification
+- Manual screenshots: theme_dark.png, theme_light.png, theme_palette_grid.png
+
+**Files to modify:**
+- `mochi-term/src/app.rs` - theme toggle keybinding
+- `mochi-term/src/config.rs` - theme file loading
+- `docs/terminal/themes.md` - theme documentation
 
 ### M3: Font Customization + Layout
 
-**M3.1** Implement font discovery
-- Use fontconfig or system fonts
-- Support font family string in config
-- Fallback to bundled font if not found
+**Goal:** Allow users to customize fonts with runtime reload support.
 
-**M3.2** Add font configuration options
-- font_family, font_size, font_weight
-- fallback_fonts list
-- cell_padding_x, cell_padding_y, line_height
+**Deliverables:**
+- Configurable font family (with system font discovery)
+- Font size configuration
+- Font fallback list
+- Cell padding/line height configuration
+- Runtime font reload without restart
 
-**M3.3** Implement runtime font reload
-- Recalculate cell size on font change
-- Resize PTY with new dimensions
-- Clear glyph cache
+**Commits:**
+- `phase2(M3.1): implement system font discovery and loading`
+- `phase2(M3.2): add font fallback list support`
+- `phase2(M3.3): add cell padding and line height configuration`
+- `phase2(M3.4): implement runtime font reload with PTY resize`
 
-**M3.4** Add font tests and screenshots
-- Config parsing tests
-- Pixel size to rows/cols mapping tests
-- Screenshots: font_small.png, font_medium.png, font_large.png
+**Tests:**
+- Config parsing tests for font settings
+- Unit test for pixel size -> rows/cols mapping
+- Integration test: font size change -> PTY resize
+- Manual screenshots: font_small.png, font_medium.png, font_large.png
+
+**Files to modify:**
+- `mochi-term/src/renderer.rs` - font loading, fallback, cell size
+- `mochi-term/src/app.rs` - font reload, PTY resize
+- `mochi-term/src/config.rs` - font configuration options
 
 ### M4: Keybinding Customization
 
-**M4.1** Define keybinding config format
-- Support modifiers: Ctrl, Alt, Shift, Super
-- Support key names and characters
+**Goal:** Allow users to customize keybindings for common actions.
 
-**M4.2** Implement default keybindings
-- Copy: Ctrl+Shift+C
-- Paste: Ctrl+Shift+V
-- Find: Ctrl+Shift+F
-- Reload config: Ctrl+Shift+R
-- Toggle theme: Ctrl+Shift+T
+**Deliverables:**
+- Keybinding configuration in config file
+- Default keybindings:
+  - Copy: Ctrl+Shift+C
+  - Paste: Ctrl+Shift+V
+  - Find: Ctrl+Shift+F
+  - Reload config: Ctrl+Shift+R
+  - Toggle theme: Ctrl+Shift+T
+- Keybinding documentation
 
-**M4.3** Add keybinding config parsing
-- Parse keybindings from config file
-- Validate keybinding format
+**Commits:**
+- `phase2(M4.1): add keybinding configuration types`
+- `phase2(M4.2): implement keybinding parser and event mapping`
+- `phase2(M4.3): add default keybindings for all actions`
+- `phase2(M4.4): add keybinding documentation`
 
-**M4.4** Implement action dispatch
-- Map key events to actions
-- Execute actions (copy, paste, find, reload, toggle_theme)
-
-**M4.5** Add keybinding tests
+**Tests:**
 - Parse keybinding config
-- Key event to action mapping tests
+- Unit tests: key event -> action mapping
+- Manual test checklist for all default shortcuts
+
+**Files to modify:**
+- `mochi-term/src/config.rs` - keybinding configuration
+- `mochi-term/src/app.rs` - keybinding handling
+- New: `mochi-term/src/keybindings.rs` - keybinding system
+- `docs/terminal/keybindings.md` - documentation
 
 ### M5: UX Polish
 
-**M5.1** Improve selection
-- Double-click selects word
-- Triple-click selects line
-- Document wrapped line behavior
+**Goal:** Improve selection, add scrollback search, and enhance hyperlink UX.
 
-**M5.2** Implement scrollback search UI
-- Find bar overlay
-- Highlight matches
-- Enter/Shift+Enter navigate next/prev
-- Esc closes find bar
+**Deliverables:**
+- Word selection (double-click)
+- Line selection (triple-click)
+- Scrollback search UI (find bar overlay)
+- Hyperlink hover indication
+- Ctrl+click to open hyperlinks
 
-**M5.3** Improve hyperlink UX
-- Render OSC 8 hyperlinks as underlined
-- Ctrl+click to open (never auto-open)
-- Optional URL detection in text
+**Commits:**
+- `phase2(M5.1): implement word selection on double-click`
+- `phase2(M5.2): implement line selection on triple-click`
+- `phase2(M5.3): add scrollback search UI with find bar`
+- `phase2(M5.4): implement search highlighting and navigation`
+- `phase2(M5.5): improve hyperlink UX with hover and ctrl+click`
 
-**M5.4** Add UX tests and screenshots
-- Selection range logic tests
-- Word boundary tests
-- Search indexing tests
-- Screenshots: selection_word.png, search_bar.png, hyperlink_hover.png
+**Tests:**
+- Unit tests: selection range logic, word boundary detection
+- Unit tests: search indexing and navigation
+- Manual screenshots: selection_word.png, search_bar.png, hyperlink_hover.png
 
-### M6: Config Reload + Safety
+**Files to modify:**
+- `mochi-term/src/app.rs` - click handling, search UI
+- `terminal-core/src/selection.rs` - word/line selection logic
+- `mochi-term/src/renderer.rs` - search highlight rendering
+- New: `mochi-term/src/search.rs` - search functionality
 
-**M6.1** Implement config reload keybinding
-- Ctrl+Shift+R reloads config
-- Show success/error feedback
+### M6: Config Reload + Security
 
-**M6.2** Handle reload failures gracefully
-- Keep previous config on failure
-- Show error message to user
-- Never crash
+**Goal:** Enable runtime config reload and harden security for escape sequences.
 
-**M6.3** Security hardening
-- OSC 52 clipboard disabled by default
-- Max payload size for clipboard
-- User-visible indication when clipboard modified
+**Deliverables:**
+- Config reload via keybinding (Ctrl+Shift+R)
+- Graceful error handling for reload failures
+- OSC 52 clipboard security (disabled by default, size limits)
 - Title update throttling
+- Security documentation
 
-**M6.4** Update security documentation
-- docs/terminal/security.md
+**Commits:**
+- `phase2(M6.1): implement config reload via keybinding`
+- `phase2(M6.2): add graceful error handling for reload failures`
+- `phase2(M6.3): add title update throttling`
+- `phase2(M6.4): update security documentation`
 
-**M6.5** Add reload and security tests
-- Reload success updates settings
-- Reload failure keeps old settings
-- Clipboard payload size limit tests
+**Tests:**
+- Unit test: reload success updates effective settings
+- Unit test: reload failure keeps old settings
+- Unit test: clipboard OSC payload size limit
+- Unit test: title update throttling
 
-### M7: Compatibility Testing
+**Files to modify:**
+- `mochi-term/src/app.rs` - reload handling
+- `mochi-term/src/config.rs` - reload logic
+- `mochi-term/src/terminal.rs` - title throttling
+- `docs/terminal/security.md` - security documentation
 
-**M7.1** Run vttest
-- Document results
-- Fix any regressions
+### M7: No Regressions
 
-**M7.2** Document compatibility
-- docs/terminal/phase2/compatibility.md
-- Known limitations
+**Goal:** Ensure all changes maintain compatibility and pass tests.
+
+**Deliverables:**
+- vttest run notes documented
+- All automated tests pass
+- No TODOs or placeholders
+- Documentation complete
+
+**Commits:**
+- `phase2(M7.1): run vttest and document results`
+- `phase2(M7.2): fix any regressions found`
+- `phase2(M7.3): final documentation review`
+
+**Tests:**
+- Run full test suite
+- Run vttest manually
+- Visual inspection of all features
+
+**Files to modify:**
+- `docs/terminal/phase2/compatibility.md` - vttest results
 
 ## Acceptance Criteria Checklist
 
@@ -219,6 +262,31 @@ Example: `phase2(M1.1): add CLI argument parsing with clap`
 - [ ] No TODOs/placeholders left
 - [ ] Documentation updated everywhere it should be
 
-## Timeline
+## Timeline Estimate
 
-This plan will be updated as implementation progresses and constraints are discovered.
+Based on complexity and dependencies:
+
+1. M1 (Config): ~2-3 hours
+2. M2 (Themes): ~1-2 hours
+3. M3 (Fonts): ~2-3 hours
+4. M4 (Keybindings): ~2-3 hours
+5. M5 (UX Polish): ~3-4 hours
+6. M6 (Security): ~1-2 hours
+7. M7 (Regressions): ~1-2 hours
+
+Total: ~12-19 hours of implementation work
+
+## Dependencies
+
+New crates to add:
+- `clap` - CLI argument parsing (for M1)
+- `fontconfig` or similar - System font discovery (for M3, optional)
+
+## Risk Mitigation
+
+1. **Font loading failures:** Implement robust fallback to bundled font
+2. **Config parsing errors:** Provide clear error messages, never crash
+3. **Theme application bugs:** Test all color contexts (fg, bg, cursor, selection, ANSI)
+4. **Keybinding conflicts:** Document reserved combinations, allow user override
+5. **Search performance:** Limit search scope, use efficient algorithms
+6. **Security vulnerabilities:** Default to safe settings, require explicit opt-in for risky features
