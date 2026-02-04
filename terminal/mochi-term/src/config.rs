@@ -207,7 +207,10 @@ impl ParsedKeybinding {
 
     /// Check if this keybinding matches the given modifiers and key
     pub fn matches(&self, ctrl: bool, alt: bool, shift: bool, key: &str) -> bool {
-        self.ctrl == ctrl && self.alt == alt && self.shift == shift && self.key == key.to_uppercase()
+        self.ctrl == ctrl
+            && self.alt == alt
+            && self.shift == shift
+            && self.key == key.to_uppercase()
     }
 }
 
@@ -632,7 +635,7 @@ impl ColorScheme {
     /// Load a color scheme from a TOML file
     pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
         let path = PathBuf::from(path);
-        
+
         // Handle relative paths - look in themes directory
         let full_path = if path.is_absolute() {
             path

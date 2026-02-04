@@ -730,11 +730,7 @@ impl Screen {
             }
 
             let line = self.line(row_idx_usize);
-            let line_start = if row_idx == start.row {
-                start.col
-            } else {
-                0
-            };
+            let line_start = if row_idx == start.row { start.col } else { 0 };
             let line_end = if row_idx == end.row {
                 end.col.min(cols.saturating_sub(1))
             } else {

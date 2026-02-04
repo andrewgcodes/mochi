@@ -263,7 +263,11 @@ impl App {
         let shift = self.modifiers.shift_key();
 
         if !key_name.is_empty() {
-            if let Some(action) = self.config.keybindings.match_key(ctrl, alt, shift, &key_name) {
+            if let Some(action) = self
+                .config
+                .keybindings
+                .match_key(ctrl, alt, shift, &key_name)
+            {
                 match action {
                     KeyAction::Copy => {
                         self.copy_selection();
