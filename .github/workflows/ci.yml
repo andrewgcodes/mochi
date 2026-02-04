@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            terminal/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Check formatting
+        working-directory: terminal
+        run: cargo fmt --all -- --check
+      
+      - name: Run clippy
+        working-directory: terminal
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      
+      - name: Build (no default features)
+        working-directory: terminal
+        run: cargo build --no-default-features
+      
+      - name: Build (all features)
+        working-directory: terminal
+        run: cargo build --all-features
+      
+      - name: Run tests
+        working-directory: terminal
+        run: cargo test --all-features
+      
+      - name: Build release
+        working-directory: terminal
+        run: cargo build --release
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Check formatting
+        working-directory: terminal
+        run: cargo fmt --all -- --check
+      
+      - name: Run clippy (strict)
+        working-directory: terminal
+        run: cargo clippy --all-targets --all-features -- -D warnings -D clippy::all
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+      
+      - name: Build documentation
+        working-directory: terminal
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
