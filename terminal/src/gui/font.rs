@@ -51,7 +51,21 @@ impl FontRenderer {
 
     /// Load font data from system fonts
     fn load_font_data() -> Result<&'static [u8], Box<dyn std::error::Error>> {
-        let font_paths = [
+        // Platform-specific font paths
+        #[cfg(target_os = "macos")]
+        let font_paths: &[&str] = &[
+            // macOS system fonts
+            "/System/Library/Fonts/Menlo.ttc",
+            "/System/Library/Fonts/Monaco.ttf",
+            "/System/Library/Fonts/SFMono-Regular.otf",
+            "/Library/Fonts/SF-Mono-Regular.otf",
+            // User-installed fonts
+            "~/Library/Fonts/DejaVuSansMono.ttf",
+            "/Library/Fonts/DejaVuSansMono.ttf",
+        ];
+
+        #[cfg(target_os = "linux")]
+        let font_paths: &[&str] = &[
             "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
             "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
             "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
@@ -62,14 +76,39 @@ impl FontRenderer {
             "/usr/share/fonts/opentype/fira/FiraMono-Regular.otf",
         ];
 
-        for path in &font_paths {
-            if let Ok(data) = std::fs::read(path) {
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        let font_paths: &[&str] = &[];
+
+        for path in font_paths {
+            // Expand ~ to home directory on macOS
+            let expanded_path = if path.starts_with("~/") {
+                if let Some(home) = std::env::var_os("HOME") {
+                    let home_str = home.to_string_lossy();
+                    path.replacen("~", &home_str, 1)
+                } else {
+                    path.to_string()
+                }
+            } else {
+                path.to_string()
+            };
+
+            if let Ok(data) = std::fs::read(&expanded_path) {
                 let leaked: &'static [u8] = Box::leak(data.into_boxed_slice());
                 return Ok(leaked);
             }
         }
 
-        Err("No suitable monospace font found. Please install dejavu-fonts, liberation-fonts, or ubuntu-fonts.".into())
+        #[cfg(target_os = "macos")]
+        return Err(
+            "No suitable monospace font found. Menlo and Monaco should be available on macOS."
+                .into(),
+        );
+
+        #[cfg(target_os = "linux")]
+        return Err("No suitable monospace font found. Please install dejavu-fonts, liberation-fonts, or ubuntu-fonts.".into());
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        return Err("Unsupported platform for font loading.".into());
     }
 
     /// Get the cell dimensions

@@ -1,6 +1,6 @@
 //! PTY (Pseudo-Terminal) Module
 //!
-//! Handles creating and managing pseudo-terminals on Linux.
+//! Handles creating and managing pseudo-terminals on Unix systems (Linux and macOS).
 //! This module provides:
 //! - PTY creation (master/slave pair)
 //! - Child process spawning with PTY as controlling terminal
@@ -10,6 +10,7 @@
 //! References:
 //! - POSIX PTY: https://man7.org/linux/man-pages/man3/posix_openpt.3.html
 //! - tty_ioctl: https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
+//! - macOS PTY: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/openpty.3.html
 
 use std::ffi::CString;
 use std::io;
@@ -59,10 +60,21 @@ impl Pty {
         .map_err(io::Error::other)?;
 
         // Determine shell to use
+        // On macOS, the default shell is often zsh at /bin/zsh
+        // On Linux, it's typically bash at /bin/bash
         let shell_path = shell
             .map(String::from)
             .or_else(|| std::env::var("SHELL").ok())
-            .unwrap_or_else(|| "/bin/bash".to_string());
+            .unwrap_or_else(|| {
+                #[cfg(target_os = "macos")]
+                {
+                    "/bin/zsh".to_string()
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    "/bin/bash".to_string()
+                }
+            });
 
         // Fork child process
         match unsafe { fork() } {

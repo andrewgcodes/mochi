@@ -9,7 +9,9 @@ readme = "README.md"
 
 [dependencies]
 # Window creation and event handling
-winit = { version = "0.28", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
+# On Linux: x11 and wayland support
+# On macOS: uses default Cocoa backend
+winit = "0.28"
 # Software rendering (no GPU required)
 softbuffer = "0.2"
 # Font loading and rasterization
