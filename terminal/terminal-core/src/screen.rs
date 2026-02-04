@@ -708,6 +708,64 @@ impl Screen {
         let charset = parse_charset_designation(designation);
         self.charset.set_slot(slot, charset);
     }
+
+    /// Get the text content of the current selection
+    pub fn get_selected_text(&self, selection: &Selection) -> String {
+        if selection.is_empty() {
+            return String::new();
+        }
+
+        let (start, end) = selection.bounds();
+
+        let mut result = String::new();
+        let cols = self.cols();
+        let rows = self.rows() as isize;
+
+        // Iterate through the selection range
+        for row in start.row..=end.row {
+            // Skip negative rows (scrollback - not yet supported in this method)
+            if row < 0 {
+                continue;
+            }
+            if row >= rows {
+                break;
+            }
+
+            let row_usize = row as usize;
+            let line = self.line(row_usize);
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col.min(cols.saturating_sub(1))
+            } else {
+                cols.saturating_sub(1)
+            };
+
+            // Extract text from this line
+            for col in start_col..=end_col {
+                if col < cols {
+                    let cell = line.cell(col);
+                    let ch = cell.display_char();
+                    if ch != '\0' && ch != ' ' || !cell.is_empty() {
+                        result.push(if ch == '\0' { ' ' } else { ch });
+                    } else if col < end_col {
+                        result.push(' ');
+                    }
+                }
+            }
+
+            // Add newline between rows (but not after the last row)
+            if row < end.row {
+                // Trim trailing spaces from the line
+                while result.ends_with(' ') {
+                    result.pop();
+                }
+                result.push('\n');
+            }
+        }
+
+        // Trim trailing whitespace
+        result.trim_end().to_string()
+    }
 }
 
 #[cfg(test)]

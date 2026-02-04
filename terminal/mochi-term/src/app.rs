@@ -223,6 +223,39 @@ impl App {
             return;
         }
 
+        // Check for Ctrl+Shift shortcuts (terminal app shortcuts)
+        if self.modifiers.control_key() && self.modifiers.shift_key() {
+            match &event.logical_key {
+                Key::Character(c) => {
+                    let c_lower = c.to_lowercase();
+                    match c_lower.as_str() {
+                        "v" => {
+                            self.handle_paste();
+                            return;
+                        }
+                        "c" => {
+                            self.handle_copy();
+                            return;
+                        }
+                        "t" => {
+                            self.handle_toggle_theme();
+                            return;
+                        }
+                        "r" => {
+                            self.handle_reload_config();
+                            return;
+                        }
+                        "f" => {
+                            self.handle_find();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
@@ -451,10 +484,10 @@ impl App {
         }
     }
 
-    /// Handle paste
-    #[allow(dead_code)]
+    /// Handle paste (Ctrl+Shift+V)
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
+            log::warn!("Clipboard not available");
             return;
         };
         let Some(terminal) = &self.terminal else {
@@ -462,14 +495,103 @@ impl App {
         };
         let Some(child) = &mut self.child else { return };
 
-        if let Ok(text) = clipboard.get_text() {
-            let data = if terminal.screen().modes().bracketed_paste {
-                encode_bracketed_paste(&text)
-            } else {
-                text.into_bytes()
-            };
-            let _ = child.write_all(&data);
+        match clipboard.get_text() {
+            Ok(text) => {
+                if text.is_empty() {
+                    log::debug!("Clipboard is empty");
+                    return;
+                }
+                log::debug!("Pasting {} bytes", text.len());
+                let data = if terminal.screen().modes().bracketed_paste {
+                    encode_bracketed_paste(&text)
+                } else {
+                    text.into_bytes()
+                };
+                let _ = child.write_all(&data);
+            }
+            Err(e) => {
+                log::warn!("Failed to get clipboard text: {:?}", e);
+            }
         }
+    }
+
+    /// Handle copy (Ctrl+Shift+C)
+    fn handle_copy(&mut self) {
+        let Some(clipboard) = &mut self.clipboard else {
+            log::warn!("Clipboard not available");
+            return;
+        };
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if selection.is_empty() {
+            log::debug!("No selection to copy");
+            return;
+        }
+
+        let text = screen.get_selected_text(selection);
+        if text.is_empty() {
+            log::debug!("Selected text is empty");
+            return;
+        }
+
+        match clipboard.set_text(&text) {
+            Ok(()) => {
+                log::debug!("Copied {} bytes to clipboard", text.len());
+            }
+            Err(e) => {
+                log::warn!("Failed to copy to clipboard: {:?}", e);
+            }
+        }
+    }
+
+    /// Handle toggle theme (Ctrl+Shift+T)
+    fn handle_toggle_theme(&mut self) {
+        let old_theme = self.config.theme;
+        self.config.next_theme();
+        log::info!("Theme changed: {} -> {}", old_theme, self.config.theme);
+
+        // Update renderer with new colors
+        if let Some(renderer) = &mut self.renderer {
+            let colors = self.config.effective_colors();
+            renderer.set_color_scheme(colors);
+        }
+
+        self.needs_redraw = true;
+    }
+
+    /// Handle reload config (Ctrl+Shift+R)
+    fn handle_reload_config(&mut self) {
+        log::info!("Reloading configuration...");
+
+        match self.config.reload() {
+            Ok(()) => {
+                log::info!("Configuration reloaded successfully");
+                log::info!("Theme: {}", self.config.theme);
+                log::info!("Font: {} @ {}pt", self.config.font_family, self.config.font_size);
+
+                // Apply new configuration
+                if let Some(renderer) = &mut self.renderer {
+                    let colors = self.config.effective_colors();
+                    renderer.set_color_scheme(colors);
+                }
+
+                self.needs_redraw = true;
+            }
+            Err(e) => {
+                log::warn!("Failed to reload configuration: {}", e);
+            }
+        }
+    }
+
+    /// Handle find (Ctrl+Shift+F) - placeholder for search UI
+    fn handle_find(&mut self) {
+        log::info!("Find triggered (search UI not yet implemented)");
+        // TODO: Implement search UI overlay
     }
 
     /// Handle focus change
