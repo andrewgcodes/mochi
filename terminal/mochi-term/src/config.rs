@@ -71,7 +71,17 @@ impl ThemeName {
 
     #[allow(dead_code)]
     pub fn all_names() -> &'static [&'static str] {
-        &["dark", "light", "solarized-dark", "solarized-light", "dracula", "nord", "gruvbox", "onedark", "custom"]
+        &[
+            "dark",
+            "light",
+            "solarized-dark",
+            "solarized-light",
+            "dracula",
+            "nord",
+            "gruvbox",
+            "onedark",
+            "custom",
+        ]
     }
 
     pub fn next(self) -> Self {
@@ -152,14 +162,30 @@ pub struct KeybindingsConfig {
     pub reset_font_size: String,
 }
 
-fn default_copy_key() -> String { "ctrl+shift+c".to_string() }
-fn default_paste_key() -> String { "ctrl+shift+v".to_string() }
-fn default_find_key() -> String { "ctrl+shift+f".to_string() }
-fn default_reload_key() -> String { "ctrl+shift+r".to_string() }
-fn default_toggle_theme_key() -> String { "ctrl+shift+t".to_string() }
-fn default_increase_font_key() -> String { "ctrl+plus".to_string() }
-fn default_decrease_font_key() -> String { "ctrl+minus".to_string() }
-fn default_reset_font_key() -> String { "ctrl+0".to_string() }
+fn default_copy_key() -> String {
+    "ctrl+shift+c".to_string()
+}
+fn default_paste_key() -> String {
+    "ctrl+shift+v".to_string()
+}
+fn default_find_key() -> String {
+    "ctrl+shift+f".to_string()
+}
+fn default_reload_key() -> String {
+    "ctrl+shift+r".to_string()
+}
+fn default_toggle_theme_key() -> String {
+    "ctrl+shift+t".to_string()
+}
+fn default_increase_font_key() -> String {
+    "ctrl+plus".to_string()
+}
+fn default_decrease_font_key() -> String {
+    "ctrl+minus".to_string()
+}
+fn default_reset_font_key() -> String {
+    "ctrl+0".to_string()
+}
 
 impl Default for KeybindingsConfig {
     fn default() -> Self {
@@ -255,9 +281,15 @@ pub struct FontConfig {
     pub cell_padding: (f32, f32),
 }
 
-fn default_font_family() -> String { "monospace".to_string() }
-fn default_font_size() -> f32 { 14.0 }
-fn default_line_height() -> f32 { 1.2 }
+fn default_font_family() -> String {
+    "monospace".to_string()
+}
+fn default_font_size() -> f32 {
+    14.0
+}
+fn default_line_height() -> f32 {
+    1.2
+}
 
 impl Default for FontConfig {
     fn default() -> Self {
@@ -285,10 +317,18 @@ pub struct SecurityConfig {
     pub title_throttle_ms: u64,
 }
 
-fn default_osc52_max_size() -> usize { 100_000 }
-fn default_true() -> bool { true }
-fn default_max_title_length() -> usize { 4096 }
-fn default_title_throttle_ms() -> u64 { 100 }
+fn default_osc52_max_size() -> usize {
+    100_000
+}
+fn default_true() -> bool {
+    true
+}
+fn default_max_title_length() -> usize {
+    4096
+}
+fn default_title_throttle_ms() -> u64 {
+    100
+}
 
 impl Default for SecurityConfig {
     fn default() -> Self {
@@ -328,9 +368,15 @@ pub struct Config {
     pub auto_reload: bool,
 }
 
-fn default_scrollback_lines() -> usize { 10000 }
-fn default_dimensions() -> (u16, u16) { (80, 24) }
-fn default_cursor_style() -> String { "block".to_string() }
+fn default_scrollback_lines() -> usize {
+    10000
+}
+fn default_dimensions() -> (u16, u16) {
+    (80, 24)
+}
+fn default_cursor_style() -> String {
+    "block".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -367,10 +413,22 @@ impl Default for ColorScheme {
             cursor: "#ffffff".to_string(),
             selection: "#264f78".to_string(),
             ansi: [
-                "#000000".to_string(), "#cd3131".to_string(), "#0dbc79".to_string(), "#e5e510".to_string(),
-                "#2472c8".to_string(), "#bc3fbc".to_string(), "#11a8cd".to_string(), "#e5e5e5".to_string(),
-                "#666666".to_string(), "#f14c4c".to_string(), "#23d18b".to_string(), "#f5f543".to_string(),
-                "#3b8eea".to_string(), "#d670d6".to_string(), "#29b8db".to_string(), "#ffffff".to_string(),
+                "#000000".to_string(),
+                "#cd3131".to_string(),
+                "#0dbc79".to_string(),
+                "#e5e510".to_string(),
+                "#2472c8".to_string(),
+                "#bc3fbc".to_string(),
+                "#11a8cd".to_string(),
+                "#e5e5e5".to_string(),
+                "#666666".to_string(),
+                "#f14c4c".to_string(),
+                "#23d18b".to_string(),
+                "#f5f543".to_string(),
+                "#3b8eea".to_string(),
+                "#d670d6".to_string(),
+                "#29b8db".to_string(),
+                "#ffffff".to_string(),
             ],
         }
     }
@@ -391,7 +449,10 @@ impl Config {
         }
     }
 
-    pub fn load_with_overrides(config_path: Option<PathBuf>, cli_overrides: CliOverrides) -> Result<Self, ConfigError> {
+    pub fn load_with_overrides(
+        config_path: Option<PathBuf>,
+        cli_overrides: CliOverrides,
+    ) -> Result<Self, ConfigError> {
         let mut config = Config::default();
         let file_path = config_path.clone().or_else(Self::default_config_path);
         if let Some(path) = file_path {
@@ -416,49 +477,87 @@ impl Config {
 
     fn apply_env_overrides(&mut self) {
         if let Ok(val) = env::var("MOCHI_THEME") {
-            if let Ok(theme) = ThemeName::from_str(&val) { self.theme = theme; }
+            if let Ok(theme) = ThemeName::from_str(&val) {
+                self.theme = theme;
+            }
         }
         if let Ok(val) = env::var("MOCHI_FONT_SIZE") {
-            if let Ok(size) = val.parse::<f32>() { self.font.size = size; }
+            if let Ok(size) = val.parse::<f32>() {
+                self.font.size = size;
+            }
         }
-        if let Ok(val) = env::var("MOCHI_FONT_FAMILY") { self.font.family = val; }
+        if let Ok(val) = env::var("MOCHI_FONT_FAMILY") {
+            self.font.family = val;
+        }
         if let Ok(val) = env::var("MOCHI_SCROLLBACK") {
-            if let Ok(lines) = val.parse::<usize>() { self.scrollback_lines = lines; }
+            if let Ok(lines) = val.parse::<usize>() {
+                self.scrollback_lines = lines;
+            }
         }
-        if let Ok(val) = env::var("MOCHI_SHELL") { self.shell = Some(val); }
+        if let Ok(val) = env::var("MOCHI_SHELL") {
+            self.shell = Some(val);
+        }
         if let Ok(val) = env::var("MOCHI_OSC52_CLIPBOARD") {
             self.security.osc52_clipboard = val == "1" || val.to_lowercase() == "true";
         }
     }
 
     fn apply_cli_overrides(&mut self, overrides: CliOverrides) {
-        if let Some(theme) = overrides.theme { self.theme = theme; }
-        if let Some(size) = overrides.font_size { self.font.size = size; }
-        if let Some(family) = overrides.font_family { self.font.family = family; }
-        if let Some(shell) = overrides.shell { self.shell = Some(shell); }
-        if let Some(scrollback) = overrides.scrollback { self.scrollback_lines = scrollback; }
+        if let Some(theme) = overrides.theme {
+            self.theme = theme;
+        }
+        if let Some(size) = overrides.font_size {
+            self.font.size = size;
+        }
+        if let Some(family) = overrides.font_family {
+            self.font.family = family;
+        }
+        if let Some(shell) = overrides.shell {
+            self.shell = Some(shell);
+        }
+        if let Some(scrollback) = overrides.scrollback {
+            self.scrollback_lines = scrollback;
+        }
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.font.size < 4.0 || self.font.size > 144.0 {
-            return Err(ConfigError::ValidationError(format!("Font size {} is out of range (4.0-144.0)", self.font.size)));
+            return Err(ConfigError::ValidationError(format!(
+                "Font size {} is out of range (4.0-144.0)",
+                self.font.size
+            )));
         }
         if self.font.line_height < 0.5 || self.font.line_height > 3.0 {
-            return Err(ConfigError::ValidationError(format!("Line height {} is out of range (0.5-3.0)", self.font.line_height)));
+            return Err(ConfigError::ValidationError(format!(
+                "Line height {} is out of range (0.5-3.0)",
+                self.font.line_height
+            )));
         }
         if self.scrollback_lines > 1_000_000 {
-            return Err(ConfigError::ValidationError(format!("Scrollback lines {} exceeds maximum (1,000,000)", self.scrollback_lines)));
+            return Err(ConfigError::ValidationError(format!(
+                "Scrollback lines {} exceeds maximum (1,000,000)",
+                self.scrollback_lines
+            )));
         }
         if self.dimensions.0 < 10 || self.dimensions.0 > 1000 {
-            return Err(ConfigError::ValidationError(format!("Column count {} is out of range (10-1000)", self.dimensions.0)));
+            return Err(ConfigError::ValidationError(format!(
+                "Column count {} is out of range (10-1000)",
+                self.dimensions.0
+            )));
         }
         if self.dimensions.1 < 5 || self.dimensions.1 > 500 {
-            return Err(ConfigError::ValidationError(format!("Row count {} is out of range (5-500)", self.dimensions.1)));
+            return Err(ConfigError::ValidationError(format!(
+                "Row count {} is out of range (5-500)",
+                self.dimensions.1
+            )));
         }
         self.colors.validate()?;
         let valid_styles = ["block", "underline", "bar"];
         if !valid_styles.contains(&self.cursor_style.as_str()) {
-            return Err(ConfigError::ValidationError(format!("Invalid cursor style '{}': expected one of {:?}", self.cursor_style, valid_styles)));
+            return Err(ConfigError::ValidationError(format!(
+                "Invalid cursor style '{}': expected one of {:?}",
+                self.cursor_style, valid_styles
+            )));
         }
         Ok(())
     }
@@ -473,7 +572,9 @@ impl Config {
     #[allow(dead_code)]
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let config_path = Self::default_config_path().ok_or("Could not determine config path")?;
-        if let Some(parent) = config_path.parent() { fs::create_dir_all(parent)?; }
+        if let Some(parent) = config_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let content = toml::to_string_pretty(self)?;
         fs::write(&config_path, content)?;
         Ok(())
@@ -486,12 +587,20 @@ impl Config {
         dirs::config_dir().map(|p| p.join("mochi").join("config.toml"))
     }
 
-    pub fn font_family(&self) -> &str { &self.font.family }
-    pub fn font_size(&self) -> f32 { self.font.size }
+    pub fn font_family(&self) -> &str {
+        &self.font.family
+    }
+    pub fn font_size(&self) -> f32 {
+        self.font.size
+    }
     #[allow(dead_code)]
-    pub fn osc52_clipboard(&self) -> bool { self.security.osc52_clipboard }
+    pub fn osc52_clipboard(&self) -> bool {
+        self.security.osc52_clipboard
+    }
     #[allow(dead_code)]
-    pub fn osc52_max_size(&self) -> usize { self.security.osc52_max_size }
+    pub fn osc52_max_size(&self) -> usize {
+        self.security.osc52_max_size
+    }
 }
 
 #[derive(Debug, Default)]
@@ -510,17 +619,22 @@ impl ColorScheme {
         Self::validate_color(&self.cursor)?;
         Self::validate_color(&self.selection)?;
         for (i, color) in self.ansi.iter().enumerate() {
-            Self::validate_color(color).map_err(|_| ConfigError::InvalidColor(format!("ansi[{}]: {}", i, color)))?;
+            Self::validate_color(color)
+                .map_err(|_| ConfigError::InvalidColor(format!("ansi[{}]: {}", i, color)))?;
         }
         Ok(())
     }
 
     fn validate_color(color: &str) -> Result<(), ConfigError> {
-        if Self::parse_hex(color).is_none() { return Err(ConfigError::InvalidColor(color.to_string())); }
+        if Self::parse_hex(color).is_none() {
+            return Err(ConfigError::InvalidColor(color.to_string()));
+        }
         Ok(())
     }
 
-    pub fn dark() -> Self { Self::default() }
+    pub fn dark() -> Self {
+        Self::default()
+    }
 
     pub fn light() -> Self {
         Self {
@@ -529,10 +643,22 @@ impl ColorScheme {
             cursor: "#000000".to_string(),
             selection: "#add6ff".to_string(),
             ansi: [
-                "#000000".to_string(), "#cd3131".to_string(), "#00bc00".to_string(), "#949800".to_string(),
-                "#0451a5".to_string(), "#bc05bc".to_string(), "#0598bc".to_string(), "#555555".to_string(),
-                "#666666".to_string(), "#cd3131".to_string(), "#14ce14".to_string(), "#b5ba00".to_string(),
-                "#0451a5".to_string(), "#bc05bc".to_string(), "#0598bc".to_string(), "#a5a5a5".to_string(),
+                "#000000".to_string(),
+                "#cd3131".to_string(),
+                "#00bc00".to_string(),
+                "#949800".to_string(),
+                "#0451a5".to_string(),
+                "#bc05bc".to_string(),
+                "#0598bc".to_string(),
+                "#555555".to_string(),
+                "#666666".to_string(),
+                "#cd3131".to_string(),
+                "#14ce14".to_string(),
+                "#b5ba00".to_string(),
+                "#0451a5".to_string(),
+                "#bc05bc".to_string(),
+                "#0598bc".to_string(),
+                "#a5a5a5".to_string(),
             ],
         }
     }
@@ -544,10 +670,22 @@ impl ColorScheme {
             cursor: "#93a1a1".to_string(),
             selection: "#073642".to_string(),
             ansi: [
-                "#073642".to_string(), "#dc322f".to_string(), "#859900".to_string(), "#b58900".to_string(),
-                "#268bd2".to_string(), "#d33682".to_string(), "#2aa198".to_string(), "#eee8d5".to_string(),
-                "#002b36".to_string(), "#cb4b16".to_string(), "#586e75".to_string(), "#657b83".to_string(),
-                "#839496".to_string(), "#6c71c4".to_string(), "#93a1a1".to_string(), "#fdf6e3".to_string(),
+                "#073642".to_string(),
+                "#dc322f".to_string(),
+                "#859900".to_string(),
+                "#b58900".to_string(),
+                "#268bd2".to_string(),
+                "#d33682".to_string(),
+                "#2aa198".to_string(),
+                "#eee8d5".to_string(),
+                "#002b36".to_string(),
+                "#cb4b16".to_string(),
+                "#586e75".to_string(),
+                "#657b83".to_string(),
+                "#839496".to_string(),
+                "#6c71c4".to_string(),
+                "#93a1a1".to_string(),
+                "#fdf6e3".to_string(),
             ],
         }
     }
@@ -559,10 +697,22 @@ impl ColorScheme {
             cursor: "#586e75".to_string(),
             selection: "#eee8d5".to_string(),
             ansi: [
-                "#073642".to_string(), "#dc322f".to_string(), "#859900".to_string(), "#b58900".to_string(),
-                "#268bd2".to_string(), "#d33682".to_string(), "#2aa198".to_string(), "#eee8d5".to_string(),
-                "#002b36".to_string(), "#cb4b16".to_string(), "#586e75".to_string(), "#657b83".to_string(),
-                "#839496".to_string(), "#6c71c4".to_string(), "#93a1a1".to_string(), "#fdf6e3".to_string(),
+                "#073642".to_string(),
+                "#dc322f".to_string(),
+                "#859900".to_string(),
+                "#b58900".to_string(),
+                "#268bd2".to_string(),
+                "#d33682".to_string(),
+                "#2aa198".to_string(),
+                "#eee8d5".to_string(),
+                "#002b36".to_string(),
+                "#cb4b16".to_string(),
+                "#586e75".to_string(),
+                "#657b83".to_string(),
+                "#839496".to_string(),
+                "#6c71c4".to_string(),
+                "#93a1a1".to_string(),
+                "#fdf6e3".to_string(),
             ],
         }
     }
@@ -574,10 +724,22 @@ impl ColorScheme {
             cursor: "#f8f8f2".to_string(),
             selection: "#44475a".to_string(),
             ansi: [
-                "#21222c".to_string(), "#ff5555".to_string(), "#50fa7b".to_string(), "#f1fa8c".to_string(),
-                "#bd93f9".to_string(), "#ff79c6".to_string(), "#8be9fd".to_string(), "#f8f8f2".to_string(),
-                "#6272a4".to_string(), "#ff6e6e".to_string(), "#69ff94".to_string(), "#ffffa5".to_string(),
-                "#d6acff".to_string(), "#ff92df".to_string(), "#a4ffff".to_string(), "#ffffff".to_string(),
+                "#21222c".to_string(),
+                "#ff5555".to_string(),
+                "#50fa7b".to_string(),
+                "#f1fa8c".to_string(),
+                "#bd93f9".to_string(),
+                "#ff79c6".to_string(),
+                "#8be9fd".to_string(),
+                "#f8f8f2".to_string(),
+                "#6272a4".to_string(),
+                "#ff6e6e".to_string(),
+                "#69ff94".to_string(),
+                "#ffffa5".to_string(),
+                "#d6acff".to_string(),
+                "#ff92df".to_string(),
+                "#a4ffff".to_string(),
+                "#ffffff".to_string(),
             ],
         }
     }
@@ -589,10 +751,22 @@ impl ColorScheme {
             cursor: "#d8dee9".to_string(),
             selection: "#434c5e".to_string(),
             ansi: [
-                "#3b4252".to_string(), "#bf616a".to_string(), "#a3be8c".to_string(), "#ebcb8b".to_string(),
-                "#81a1c1".to_string(), "#b48ead".to_string(), "#88c0d0".to_string(), "#e5e9f0".to_string(),
-                "#4c566a".to_string(), "#bf616a".to_string(), "#a3be8c".to_string(), "#ebcb8b".to_string(),
-                "#81a1c1".to_string(), "#b48ead".to_string(), "#8fbcbb".to_string(), "#eceff4".to_string(),
+                "#3b4252".to_string(),
+                "#bf616a".to_string(),
+                "#a3be8c".to_string(),
+                "#ebcb8b".to_string(),
+                "#81a1c1".to_string(),
+                "#b48ead".to_string(),
+                "#88c0d0".to_string(),
+                "#e5e9f0".to_string(),
+                "#4c566a".to_string(),
+                "#bf616a".to_string(),
+                "#a3be8c".to_string(),
+                "#ebcb8b".to_string(),
+                "#81a1c1".to_string(),
+                "#b48ead".to_string(),
+                "#8fbcbb".to_string(),
+                "#eceff4".to_string(),
             ],
         }
     }
@@ -604,10 +778,22 @@ impl ColorScheme {
             cursor: "#ebdbb2".to_string(),
             selection: "#504945".to_string(),
             ansi: [
-                "#282828".to_string(), "#cc241d".to_string(), "#98971a".to_string(), "#d79921".to_string(),
-                "#458588".to_string(), "#b16286".to_string(), "#689d6a".to_string(), "#a89984".to_string(),
-                "#928374".to_string(), "#fb4934".to_string(), "#b8bb26".to_string(), "#fabd2f".to_string(),
-                "#83a598".to_string(), "#d3869b".to_string(), "#8ec07c".to_string(), "#ebdbb2".to_string(),
+                "#282828".to_string(),
+                "#cc241d".to_string(),
+                "#98971a".to_string(),
+                "#d79921".to_string(),
+                "#458588".to_string(),
+                "#b16286".to_string(),
+                "#689d6a".to_string(),
+                "#a89984".to_string(),
+                "#928374".to_string(),
+                "#fb4934".to_string(),
+                "#b8bb26".to_string(),
+                "#fabd2f".to_string(),
+                "#83a598".to_string(),
+                "#d3869b".to_string(),
+                "#8ec07c".to_string(),
+                "#ebdbb2".to_string(),
             ],
         }
     }
@@ -619,29 +805,55 @@ impl ColorScheme {
             cursor: "#528bff".to_string(),
             selection: "#3e4451".to_string(),
             ansi: [
-                "#282c34".to_string(), "#e06c75".to_string(), "#98c379".to_string(), "#e5c07b".to_string(),
-                "#61afef".to_string(), "#c678dd".to_string(), "#56b6c2".to_string(), "#abb2bf".to_string(),
-                "#5c6370".to_string(), "#e06c75".to_string(), "#98c379".to_string(), "#e5c07b".to_string(),
-                "#61afef".to_string(), "#c678dd".to_string(), "#56b6c2".to_string(), "#ffffff".to_string(),
+                "#282c34".to_string(),
+                "#e06c75".to_string(),
+                "#98c379".to_string(),
+                "#e5c07b".to_string(),
+                "#61afef".to_string(),
+                "#c678dd".to_string(),
+                "#56b6c2".to_string(),
+                "#abb2bf".to_string(),
+                "#5c6370".to_string(),
+                "#e06c75".to_string(),
+                "#98c379".to_string(),
+                "#e5c07b".to_string(),
+                "#61afef".to_string(),
+                "#c678dd".to_string(),
+                "#56b6c2".to_string(),
+                "#ffffff".to_string(),
             ],
         }
     }
 
     pub fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
         let hex = hex.trim_start_matches('#');
-        if hex.len() != 6 { return None; }
+        if hex.len() != 6 {
+            return None;
+        }
         let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
         let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
         let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
         Some((r, g, b))
     }
 
-    pub fn foreground_rgb(&self) -> (u8, u8, u8) { Self::parse_hex(&self.foreground).unwrap_or((212, 212, 212)) }
-    pub fn background_rgb(&self) -> (u8, u8, u8) { Self::parse_hex(&self.background).unwrap_or((30, 30, 30)) }
-    pub fn cursor_rgb(&self) -> (u8, u8, u8) { Self::parse_hex(&self.cursor).unwrap_or((255, 255, 255)) }
-    pub fn selection_rgb(&self) -> (u8, u8, u8) { Self::parse_hex(&self.selection).unwrap_or((38, 79, 120)) }
+    pub fn foreground_rgb(&self) -> (u8, u8, u8) {
+        Self::parse_hex(&self.foreground).unwrap_or((212, 212, 212))
+    }
+    pub fn background_rgb(&self) -> (u8, u8, u8) {
+        Self::parse_hex(&self.background).unwrap_or((30, 30, 30))
+    }
+    pub fn cursor_rgb(&self) -> (u8, u8, u8) {
+        Self::parse_hex(&self.cursor).unwrap_or((255, 255, 255))
+    }
+    pub fn selection_rgb(&self) -> (u8, u8, u8) {
+        Self::parse_hex(&self.selection).unwrap_or((38, 79, 120))
+    }
     pub fn ansi_rgb(&self, index: usize) -> (u8, u8, u8) {
-        if index < 16 { Self::parse_hex(&self.ansi[index]).unwrap_or((128, 128, 128)) } else { (128, 128, 128) }
+        if index < 16 {
+            Self::parse_hex(&self.ansi[index]).unwrap_or((128, 128, 128))
+        } else {
+            (128, 128, 128)
+        }
     }
 }
 
@@ -674,7 +886,10 @@ mod tests {
     fn test_theme_from_str() {
         assert_eq!(ThemeName::from_str("dark").unwrap(), ThemeName::Dark);
         assert_eq!(ThemeName::from_str("LIGHT").unwrap(), ThemeName::Light);
-        assert_eq!(ThemeName::from_str("solarized-dark").unwrap(), ThemeName::SolarizedDark);
+        assert_eq!(
+            ThemeName::from_str("solarized-dark").unwrap(),
+            ThemeName::SolarizedDark
+        );
         assert!(ThemeName::from_str("invalid").is_err());
     }
 
@@ -725,11 +940,18 @@ mod tests {
     #[test]
     fn test_all_themes_valid() {
         let themes = [
-            ColorScheme::dark(), ColorScheme::light(), ColorScheme::solarized_dark(),
-            ColorScheme::solarized_light(), ColorScheme::dracula(), ColorScheme::nord(),
-            ColorScheme::gruvbox(), ColorScheme::onedark(),
+            ColorScheme::dark(),
+            ColorScheme::light(),
+            ColorScheme::solarized_dark(),
+            ColorScheme::solarized_light(),
+            ColorScheme::dracula(),
+            ColorScheme::nord(),
+            ColorScheme::gruvbox(),
+            ColorScheme::onedark(),
         ];
-        for theme in &themes { assert!(theme.validate().is_ok()); }
+        for theme in &themes {
+            assert!(theme.validate().is_ok());
+        }
     }
 
     #[test]

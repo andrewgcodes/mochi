@@ -6,41 +6,35 @@ use std::time::Instant;
 use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
 
-/// Security configuration for terminal
+/// Security configuration for the terminal
 #[derive(Debug, Clone)]
 pub struct SecurityConfig {
-    /// Whether OSC 52 clipboard is enabled
-    pub osc52_clipboard: bool,
-    /// Maximum size for OSC 52 clipboard data
-    pub osc52_max_size: usize,
-    /// Whether to show notification when clipboard is modified
-    pub clipboard_notification: bool,
-    /// Maximum title length
-    pub max_title_length: usize,
-    /// Minimum time between title updates (ms)
+    /// Enable OSC 52 clipboard operations (disabled by default for security)
+    pub osc52_enabled: bool,
+    /// Maximum OSC 52 payload size in bytes
+    pub osc52_max_bytes: usize,
+    /// Minimum interval between title updates (milliseconds)
     pub title_throttle_ms: u64,
 }
 
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
-            osc52_clipboard: false, // Disabled by default for security
-            osc52_max_size: 100_000,
-            clipboard_notification: true,
-            max_title_length: 4096,
+            osc52_enabled: false,
+            osc52_max_bytes: 100_000,
             title_throttle_ms: 100,
         }
     }
 }
 
-/// Clipboard event from OSC 52
-#[allow(dead_code)]
+/// Pending clipboard operation from OSC 52
 #[derive(Debug, Clone)]
-pub struct ClipboardEvent {
-    /// The clipboard data (base64 decoded)
+#[allow(dead_code)]
+pub struct ClipboardOperation {
+    /// Which clipboard (c = clipboard, p = primary, etc.)
+    pub clipboard: String,
+    /// Base64-encoded data
     pub data: String,
-    /// Whether notification should be shown
-    pub show_notification: bool,
 }
 
 /// Terminal emulator state
@@ -58,9 +52,11 @@ pub struct Terminal {
     /// Security configuration
     security: SecurityConfig,
     /// Last title update time for throttling
-    last_title_update: Instant,
-    /// Pending clipboard event
-    clipboard_event: Option<ClipboardEvent>,
+    last_title_update: Option<Instant>,
+    /// Pending clipboard operation (if OSC 52 is enabled)
+    pending_clipboard: Option<ClipboardOperation>,
+    /// Count of throttled title updates (for logging/debugging)
+    throttled_title_count: u32,
 }
 
 impl Terminal {
@@ -73,13 +69,13 @@ impl Terminal {
             title_changed: false,
             bell: false,
             security: SecurityConfig::default(),
-            // Initialize to a time in the past to allow immediate first title update
-            last_title_update: Instant::now() - std::time::Duration::from_secs(1),
-            clipboard_event: None,
+            last_title_update: None,
+            pending_clipboard: None,
+            throttled_title_count: 0,
         }
     }
 
-    /// Create a new terminal with security configuration
+    /// Create a new terminal with custom security configuration
     #[allow(dead_code)]
     pub fn with_security(cols: usize, rows: usize, security: SecurityConfig) -> Self {
         Self {
@@ -89,9 +85,9 @@ impl Terminal {
             title_changed: false,
             bell: false,
             security,
-            // Initialize to a time in the past to allow immediate first title update
-            last_title_update: Instant::now() - std::time::Duration::from_secs(1),
-            clipboard_event: None,
+            last_title_update: None,
+            pending_clipboard: None,
+            throttled_title_count: 0,
         }
     }
 
@@ -101,10 +97,22 @@ impl Terminal {
         self.security = security;
     }
 
-    /// Take pending clipboard event
+    /// Get security configuration
     #[allow(dead_code)]
-    pub fn take_clipboard_event(&mut self) -> Option<ClipboardEvent> {
-        self.clipboard_event.take()
+    pub fn security(&self) -> &SecurityConfig {
+        &self.security
+    }
+
+    /// Take pending clipboard operation (if any)
+    #[allow(dead_code)]
+    pub fn take_pending_clipboard(&mut self) -> Option<ClipboardOperation> {
+        self.pending_clipboard.take()
+    }
+
+    /// Get count of throttled title updates
+    #[allow(dead_code)]
+    pub fn throttled_title_count(&self) -> u32 {
+        self.throttled_title_count
     }
 
     /// Get screen reference
@@ -725,32 +733,33 @@ impl Terminal {
 
     /// Handle OSC sequences
     fn handle_osc(&mut self, osc: OscAction) {
+        use std::time::Duration;
+
         match osc {
             OscAction::SetIconAndTitle(title) | OscAction::SetTitle(title) => {
-                // Security: Apply title throttling
+                // Title throttling: prevent rapid title updates (DoS protection)
                 let now = Instant::now();
-                let elapsed = now.duration_since(self.last_title_update);
-                if elapsed.as_millis() < self.security.title_throttle_ms as u128 {
-                    log::debug!("Title update throttled ({}ms since last)", elapsed.as_millis());
-                    return;
-                }
-
-                // Security: Truncate title to max length
-                let truncated_title = if title.len() > self.security.max_title_length {
-                    log::warn!(
-                        "Title truncated from {} to {} bytes",
-                        title.len(),
-                        self.security.max_title_length
-                    );
-                    title[..self.security.max_title_length].to_string()
-                } else {
-                    title.clone()
+                let should_update = match self.last_title_update {
+                    Some(last) => {
+                        let elapsed = now.duration_since(last);
+                        elapsed >= Duration::from_millis(self.security.title_throttle_ms)
+                    }
+                    None => true,
                 };
 
-                self.title = truncated_title.clone();
-                self.screen.set_title(&truncated_title);
-                self.title_changed = true;
-                self.last_title_update = now;
+                if should_update {
+                    self.title = title.clone();
+                    self.screen.set_title(&title);
+                    self.title_changed = true;
+                    self.last_title_update = Some(now);
+                } else {
+                    // Throttled - count but don't update
+                    self.throttled_title_count += 1;
+                    log::debug!(
+                        "Title update throttled (count: {})",
+                        self.throttled_title_count
+                    );
+                }
             }
             OscAction::SetIconName(_) => {
                 // Icon name is typically ignored in modern terminals
@@ -765,44 +774,30 @@ impl Terminal {
                     self.screen.cursor_mut().hyperlink_id = id;
                 }
             }
-            OscAction::Clipboard { clipboard: _, data } => {
-                // Security: OSC 52 clipboard handling
-                if !self.security.osc52_clipboard {
-                    log::warn!("OSC 52 clipboard blocked (disabled in security config)");
+            OscAction::Clipboard { clipboard, data } => {
+                // OSC 52 clipboard security guards
+                if !self.security.osc52_enabled {
+                    log::debug!("OSC 52 clipboard blocked (disabled): {} bytes", data.len());
                     return;
                 }
 
-                // Security: Check payload size
-                if data.len() > self.security.osc52_max_size {
+                // Check payload size limit
+                if data.len() > self.security.osc52_max_bytes {
                     log::warn!(
-                        "OSC 52 clipboard blocked: payload {} bytes exceeds max {} bytes",
+                        "OSC 52 clipboard blocked (size limit): {} bytes > {} max",
                         data.len(),
-                        self.security.osc52_max_size
+                        self.security.osc52_max_bytes
                     );
                     return;
                 }
 
-                // Decode base64 data
-                use base64::{Engine as _, engine::general_purpose::STANDARD};
-                match STANDARD.decode(&data) {
-                    Ok(decoded) => {
-                        match String::from_utf8(decoded) {
-                            Ok(text) => {
-                                log::info!("OSC 52 clipboard: {} bytes accepted", text.len());
-                                self.clipboard_event = Some(ClipboardEvent {
-                                    data: text,
-                                    show_notification: self.security.clipboard_notification,
-                                });
-                            }
-                            Err(e) => {
-                                log::warn!("OSC 52 clipboard: invalid UTF-8: {}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("OSC 52 clipboard: invalid base64: {}", e);
-                    }
-                }
+                // Store pending clipboard operation for application layer to handle
+                log::debug!(
+                    "OSC 52 clipboard accepted: clipboard={}, {} bytes",
+                    clipboard,
+                    data.len()
+                );
+                self.pending_clipboard = Some(ClipboardOperation { clipboard, data });
             }
             OscAction::SetColor { index, color } => {
                 log::debug!("Set color {}: {}", index, color);
@@ -933,5 +928,91 @@ mod tests {
         assert_eq!(term.title(), "My Title");
         assert!(term.take_title_changed());
         assert!(!term.take_title_changed()); // Should be cleared
+    }
+
+    #[test]
+    fn test_osc52_disabled_by_default() {
+        let mut term = Terminal::new(80, 24);
+        // OSC 52 with base64 data "Hello" = "SGVsbG8="
+        term.process(b"\x1b]52;c;SGVsbG8=\x07");
+
+        // Should be blocked by default
+        assert!(term.take_pending_clipboard().is_none());
+    }
+
+    #[test]
+    fn test_osc52_enabled() {
+        let security = SecurityConfig {
+            osc52_enabled: true,
+            osc52_max_bytes: 100_000,
+            title_throttle_ms: 100,
+        };
+        let mut term = Terminal::with_security(80, 24, security);
+
+        // OSC 52 with base64 data "Hello" = "SGVsbG8="
+        term.process(b"\x1b]52;c;SGVsbG8=\x07");
+
+        // Should be accepted
+        let clipboard = term.take_pending_clipboard();
+        assert!(clipboard.is_some());
+        let clipboard = clipboard.unwrap();
+        assert_eq!(clipboard.clipboard, "c");
+        assert_eq!(clipboard.data, "SGVsbG8=");
+    }
+
+    #[test]
+    fn test_osc52_size_limit() {
+        let security = SecurityConfig {
+            osc52_enabled: true,
+            osc52_max_bytes: 10, // Very small limit
+            title_throttle_ms: 100,
+        };
+        let mut term = Terminal::with_security(80, 24, security);
+
+        // OSC 52 with data larger than limit
+        term.process(b"\x1b]52;c;SGVsbG8gV29ybGQhIFRoaXMgaXMgYSBsb25nIG1lc3NhZ2U=\x07");
+
+        // Should be blocked due to size
+        assert!(term.take_pending_clipboard().is_none());
+    }
+
+    #[test]
+    fn test_title_throttling() {
+        use std::thread;
+        use std::time::Duration;
+
+        let security = SecurityConfig {
+            osc52_enabled: false,
+            osc52_max_bytes: 100_000,
+            title_throttle_ms: 50, // 50ms throttle
+        };
+        let mut term = Terminal::with_security(80, 24, security);
+
+        // First title update should succeed
+        term.process(b"\x1b]0;Title 1\x07");
+        assert_eq!(term.title(), "Title 1");
+        assert!(term.take_title_changed());
+
+        // Immediate second update should be throttled
+        term.process(b"\x1b]0;Title 2\x07");
+        assert_eq!(term.title(), "Title 1"); // Still old title
+        assert!(!term.take_title_changed()); // No change
+        assert_eq!(term.throttled_title_count(), 1);
+
+        // Wait for throttle period
+        thread::sleep(Duration::from_millis(60));
+
+        // Now update should succeed
+        term.process(b"\x1b]0;Title 3\x07");
+        assert_eq!(term.title(), "Title 3");
+        assert!(term.take_title_changed());
+    }
+
+    #[test]
+    fn test_security_config_default() {
+        let config = SecurityConfig::default();
+        assert!(!config.osc52_enabled);
+        assert_eq!(config.osc52_max_bytes, 100_000);
+        assert_eq!(config.title_throttle_ms, 100);
     }
 }

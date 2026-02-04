@@ -57,7 +57,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Build CLI overrides from arguments
     let cli_overrides = CliOverrides {
-        theme: args.theme.as_ref().and_then(|t| ThemeName::from_str(t).ok()),
+        theme: args
+            .theme
+            .as_ref()
+            .and_then(|t| ThemeName::from_str(t).ok()),
         font_size: args.font_size,
         font_family: args.font_family,
         shell: args.shell,

@@ -444,8 +444,9 @@ impl App {
                     if let Some(renderer) = &mut self.renderer {
                         renderer.set_font_size(new_config.font.size);
                         // Recalculate terminal dimensions
-                        if let (Some(window), Some(terminal), Some(child)) = 
-                            (&self.window, &mut self.terminal, &self.child) {
+                        if let (Some(window), Some(terminal), Some(child)) =
+                            (&self.window, &mut self.terminal, &self.child)
+                        {
                             let size = window.inner_size();
                             let cell_size = renderer.cell_size();
                             let cols = (size.width as f32 / cell_size.width) as usize;
@@ -725,7 +726,10 @@ impl App {
 
         let row_isize = (row as isize) - (self.scroll_offset as isize);
         let selection = terminal.screen_mut().selection_mut();
-        selection.start(Point::new(start_col, row_isize), terminal_core::SelectionType::Word);
+        selection.start(
+            Point::new(start_col, row_isize),
+            terminal_core::SelectionType::Word,
+        );
         selection.update(Point::new(end_col, row_isize));
     }
 
@@ -980,7 +984,14 @@ impl App {
             self.search_state.current_match = 0;
         }
         self.needs_redraw = true;
-        log::info!("Find bar: {}", if self.search_state.active { "opened" } else { "closed" });
+        log::info!(
+            "Find bar: {}",
+            if self.search_state.active {
+                "opened"
+            } else {
+                "closed"
+            }
+        );
     }
 
     /// Handle input when find bar is active
@@ -1068,7 +1079,11 @@ impl App {
             }
         }
 
-        log::info!("Search '{}': {} matches found", query, self.search_state.matches.len());
+        log::info!(
+            "Search '{}': {} matches found",
+            query,
+            self.search_state.matches.len()
+        );
     }
 
     /// Navigate to next search match
@@ -1077,7 +1092,7 @@ impl App {
             return;
         }
 
-        self.search_state.current_match = 
+        self.search_state.current_match =
             (self.search_state.current_match + 1) % self.search_state.matches.len();
         self.scroll_to_current_match();
     }
@@ -1123,9 +1138,11 @@ impl App {
         }
 
         self.needs_redraw = true;
-        log::info!("Scrolled to match {} of {}", 
-            self.search_state.current_match + 1, 
-            self.search_state.matches.len());
+        log::info!(
+            "Scrolled to match {} of {}",
+            self.search_state.current_match + 1,
+            self.search_state.matches.len()
+        );
     }
 
     /// Get search state for rendering
