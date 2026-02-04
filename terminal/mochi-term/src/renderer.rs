@@ -54,11 +54,13 @@ impl Vertex {
 struct GlyphInfo {
     /// Position in texture atlas (x, y, width, height)
     atlas_rect: (u32, u32, u32, u32),
-    /// Glyph metrics for positioning
+    /// Glyph pixel dimensions for proper rendering
+    glyph_width: f32,
+    glyph_height: f32,
+    /// Horizontal offset from cell origin (bearing)
     xmin: f32,
+    /// Vertical offset - distance from baseline to top of glyph
     ymin: f32,
-    width: f32,
-    height: f32,
 }
 
 /// Glyph cache with texture atlas
@@ -139,10 +141,10 @@ impl GlyphCache {
 
         let glyph_info = GlyphInfo {
             atlas_rect: (self.next_x, self.next_y, glyph_width, glyph_height),
+            glyph_width: glyph_width as f32,
+            glyph_height: glyph_height as f32,
             xmin: metrics.xmin as f32,
             ymin: metrics.ymin as f32,
-            width: metrics.width as f32,
-            height: metrics.height as f32,
         };
 
         self.glyphs.insert(c, glyph_info);
@@ -417,98 +419,125 @@ impl Renderer {
 
         let cell_width = glyph_cache.cell_width;
         let cell_height = glyph_cache.cell_height;
-        let font_size = glyph_cache.font_size;
 
         let atlas_width = glyph_cache.atlas_width as f32;
         let atlas_height = glyph_cache.atlas_height as f32;
 
-        // Calculate baseline position within cell (font descends below baseline)
-        let baseline_offset = font_size * 0.8; // Approximate baseline at 80% of font size
+        // Default colors for empty cells
+        let default_fg = [0.9, 0.9, 0.9, 1.0];
+        let default_bg = [0.0, 0.0, 0.0, 1.0];
 
-        for row in 0..screen.rows().min(self.rows) {
+        // PASS 1: Draw background quads for ALL cells to ensure full coverage
+        for row in 0..self.rows {
+            for col in 0..self.cols {
+                let cell_x = col as f32 * cell_width;
+                let cell_y = row as f32 * cell_height;
+
+                // Get background color for this cell
+                let bg_color = if let Some(line) = screen.get_line(row) {
+                    if let Some(cell) = line.get(col) {
+                        let (_, bg) = get_cell_colors(cell);
+                        bg
+                    } else {
+                        default_bg
+                    }
+                } else {
+                    default_bg
+                };
+
+                // Cell quad position in normalized device coordinates
+                let x = (cell_x / screen_width) * 2.0 - 1.0;
+                let y = 1.0 - ((cell_y + cell_height) / screen_height) * 2.0;
+                let w = (cell_width / screen_width) * 2.0;
+                let h = (cell_height / screen_height) * 2.0;
+
+                let base_idx = self.vertices.len() as u16;
+
+                // Background quad with no texture (u,v = 0,0)
+                self.vertices.push(Vertex {
+                    position: [x, y + h],
+                    tex_coords: [0.0, 0.0],
+                    color: bg_color,
+                    bg_color,
+                });
+                self.vertices.push(Vertex {
+                    position: [x + w, y + h],
+                    tex_coords: [0.0, 0.0],
+                    color: bg_color,
+                    bg_color,
+                });
+                self.vertices.push(Vertex {
+                    position: [x + w, y],
+                    tex_coords: [0.0, 0.0],
+                    color: bg_color,
+                    bg_color,
+                });
+                self.vertices.push(Vertex {
+                    position: [x, y],
+                    tex_coords: [0.0, 0.0],
+                    color: bg_color,
+                    bg_color,
+                });
+
+                self.indices.push(base_idx);
+                self.indices.push(base_idx + 1);
+                self.indices.push(base_idx + 2);
+                self.indices.push(base_idx);
+                self.indices.push(base_idx + 2);
+                self.indices.push(base_idx + 3);
+            }
+        }
+
+        // PASS 2: Draw glyph quads at actual glyph size (not stretched)
+        for row in 0..self.rows {
             if let Some(line) = screen.get_line(row) {
-                for col in 0..screen.cols().min(self.cols) {
+                for col in 0..self.cols {
                     let cell = match line.get(col) {
                         Some(c) => c,
                         None => continue,
                     };
                     let c = cell.character;
 
-                    // Cell position (top-left corner in normalized coords)
-                    let cell_x = col as f32 * cell_width;
-                    let cell_y = row as f32 * cell_height;
-
-                    let (fg_color, bg_color) = get_cell_colors(cell);
-
-                    // First, draw the background quad for the entire cell
-                    let bg_x = (cell_x / screen_width) * 2.0 - 1.0;
-                    let bg_y = 1.0 - ((cell_y + cell_height) / screen_height) * 2.0;
-                    let bg_w = (cell_width / screen_width) * 2.0;
-                    let bg_h = (cell_height / screen_height) * 2.0;
-
-                    let base_idx = self.vertices.len() as u16;
-
-                    // Background quad (no texture, just solid color)
-                    self.vertices.push(Vertex {
-                        position: [bg_x, bg_y + bg_h],
-                        tex_coords: [0.0, 0.0],
-                        color: bg_color,
-                        bg_color,
-                    });
-                    self.vertices.push(Vertex {
-                        position: [bg_x + bg_w, bg_y + bg_h],
-                        tex_coords: [0.0, 0.0],
-                        color: bg_color,
-                        bg_color,
-                    });
-                    self.vertices.push(Vertex {
-                        position: [bg_x + bg_w, bg_y],
-                        tex_coords: [0.0, 0.0],
-                        color: bg_color,
-                        bg_color,
-                    });
-                    self.vertices.push(Vertex {
-                        position: [bg_x, bg_y],
-                        tex_coords: [0.0, 0.0],
-                        color: bg_color,
-                        bg_color,
-                    });
-
-                    self.indices.push(base_idx);
-                    self.indices.push(base_idx + 1);
-                    self.indices.push(base_idx + 2);
-                    self.indices.push(base_idx);
-                    self.indices.push(base_idx + 2);
-                    self.indices.push(base_idx + 3);
-
-                    // Skip drawing glyph for space characters
+                    // Skip spaces and null characters
                     if c == ' ' || c == '\0' {
                         continue;
                     }
 
-                    // Now draw the glyph with proper positioning
+                    let (fg_color, _) = get_cell_colors(cell);
+
+                    // Get glyph info
                     let glyph = glyph_cache.get_or_rasterize(c);
                     let (tx, ty, tw, th) = glyph.atlas_rect;
+                    let glyph_w = glyph.glyph_width;
+                    let glyph_h = glyph.glyph_height;
 
-                    // Glyph position within cell using metrics
-                    // xmin is the left bearing, ymin is the distance from baseline to top of glyph
+                    // Cell position (top-left corner)
+                    let cell_x = col as f32 * cell_width;
+                    let cell_y = row as f32 * cell_height;
+
+                    // Position glyph using font metrics for proper baseline alignment
+                    // xmin is the horizontal bearing (offset from cell left edge)
+                    // ymin is the vertical offset from baseline to bottom of glyph
                     let glyph_x = cell_x + glyph.xmin;
-                    let glyph_y = cell_y + baseline_offset - glyph.ymin;
+                    // Baseline is positioned near the bottom of the cell (with some descent space)
+                    // ymin tells us how far below baseline the glyph extends
+                    let baseline_y = cell_y + cell_height - 4.0; // Leave 4px for descenders
+                    let glyph_y = baseline_y - glyph_h - glyph.ymin;
 
                     // Convert to normalized device coordinates
                     let x = (glyph_x / screen_width) * 2.0 - 1.0;
-                    let y = 1.0 - ((glyph_y + glyph.height) / screen_height) * 2.0;
-                    let w = (glyph.width / screen_width) * 2.0;
-                    let h = (glyph.height / screen_height) * 2.0;
+                    let y = 1.0 - ((glyph_y + glyph_h) / screen_height) * 2.0;
+                    let w = (glyph_w / screen_width) * 2.0;
+                    let h = (glyph_h / screen_height) * 2.0;
+
+                    let base_idx = self.vertices.len() as u16;
 
                     let u0 = tx as f32 / atlas_width;
                     let v0 = ty as f32 / atlas_height;
                     let u1 = (tx + tw) as f32 / atlas_width;
                     let v1 = (ty + th) as f32 / atlas_height;
 
-                    let base_idx = self.vertices.len() as u16;
-
-                    // Glyph quad with texture
+                    // Glyph quad at actual size
                     self.vertices.push(Vertex {
                         position: [x, y + h],
                         tex_coords: [u0, v0],
@@ -644,9 +673,9 @@ impl Renderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.1,
-                            b: 0.1,
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -1100,7 +1129,7 @@ fn color_to_rgba(color: &Color, is_fg: bool) -> [f32; 4] {
             if is_fg {
                 [0.9, 0.9, 0.9, 1.0]
             } else {
-                [0.1, 0.1, 0.1, 1.0]
+                [0.0, 0.0, 0.0, 1.0] // True black background
             }
         }
         Color::Indexed(idx) => indexed_color_to_rgba(*idx),
