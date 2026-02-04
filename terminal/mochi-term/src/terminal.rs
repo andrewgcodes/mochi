@@ -29,6 +29,7 @@ impl Default for SecurityConfig {
 
 /// Pending clipboard operation from OSC 52
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ClipboardOperation {
     /// Which clipboard (c = clipboard, p = primary, etc.)
     pub clipboard: String,
@@ -75,6 +76,7 @@ impl Terminal {
     }
 
     /// Create a new terminal with custom security configuration
+    #[allow(dead_code)]
     pub fn with_security(cols: usize, rows: usize, security: SecurityConfig) -> Self {
         Self {
             screen: Screen::new(Dimensions::new(cols, rows)),
@@ -90,21 +92,25 @@ impl Terminal {
     }
 
     /// Update security configuration
+    #[allow(dead_code)]
     pub fn set_security(&mut self, security: SecurityConfig) {
         self.security = security;
     }
 
     /// Get security configuration
+    #[allow(dead_code)]
     pub fn security(&self) -> &SecurityConfig {
         &self.security
     }
 
     /// Take pending clipboard operation (if any)
+    #[allow(dead_code)]
     pub fn take_pending_clipboard(&mut self) -> Option<ClipboardOperation> {
         self.pending_clipboard.take()
     }
 
     /// Get count of throttled title updates
+    #[allow(dead_code)]
     pub fn throttled_title_count(&self) -> u32 {
         self.throttled_title_count
     }
@@ -771,10 +777,7 @@ impl Terminal {
             OscAction::Clipboard { clipboard, data } => {
                 // OSC 52 clipboard security guards
                 if !self.security.osc52_enabled {
-                    log::debug!(
-                        "OSC 52 clipboard blocked (disabled): {} bytes",
-                        data.len()
-                    );
+                    log::debug!("OSC 52 clipboard blocked (disabled): {} bytes", data.len());
                     return;
                 }
 
