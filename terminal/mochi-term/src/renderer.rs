@@ -745,7 +745,7 @@ impl ApplicationHandler for TerminalApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.renderer.window.is_none() {
             // Embed font directly in binary for cross-platform support
-        let font_data = include_bytes!("../../assets/fonts/DejaVuSansMono.ttf");
+            let font_data = include_bytes!("../../assets/fonts/DejaVuSansMono.ttf");
             let glyph_cache = GlyphCache::new(font_data, DEFAULT_FONT_SIZE);
 
             let window_width = (self.renderer.cols as f32 * glyph_cache.cell_width) as u32;
