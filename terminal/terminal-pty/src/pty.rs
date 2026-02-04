@@ -12,10 +12,10 @@ use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
-#[cfg(target_os = "linux")]
-use nix::pty::{grantpt, posix_openpt, ptsname, unlockpt, PtyMaster};
 #[cfg(target_os = "macos")]
 use nix::pty::openpty;
+#[cfg(target_os = "linux")]
+use nix::pty::{grantpt, posix_openpt, ptsname, unlockpt, PtyMaster};
 use nix::sys::termios::{self, SetArg};
 
 use crate::error::{Error, Result};
@@ -55,17 +55,29 @@ impl Pty {
         let slave_path = unsafe { ptsname(&master)? };
         let fd = master.as_raw_fd();
         let file = unsafe { File::from_raw_fd(libc::dup(fd)) };
-        Ok(Self { master, file, slave_path })
+        Ok(Self {
+            master,
+            file,
+            slave_path,
+        })
     }
 
-    pub fn slave_path(&self) -> &str { &self.slave_path }
-    pub fn master_fd(&self) -> RawFd { self.master.as_raw_fd() }
+    pub fn slave_path(&self) -> &str {
+        &self.slave_path
+    }
+    pub fn master_fd(&self) -> RawFd {
+        self.master.as_raw_fd()
+    }
 
     pub fn set_nonblocking(&self, nonblocking: bool) -> Result<()> {
         let fd = self.master.as_raw_fd();
         let flags = fcntl(fd, FcntlArg::F_GETFL)?;
         let flags = OFlag::from_bits_truncate(flags);
-        let new_flags = if nonblocking { flags | OFlag::O_NONBLOCK } else { flags & !OFlag::O_NONBLOCK };
+        let new_flags = if nonblocking {
+            flags | OFlag::O_NONBLOCK
+        } else {
+            flags & !OFlag::O_NONBLOCK
+        };
         fcntl(fd, FcntlArg::F_SETFL(new_flags))?;
         Ok(())
     }
@@ -74,20 +86,36 @@ impl Pty {
         let ws = size.to_winsize();
         let fd = self.master.as_raw_fd();
         let result = unsafe { libc::ioctl(fd, libc::TIOCSWINSZ as libc::c_ulong, &ws) };
-        if result == -1 { Err(Error::WindowSize(io::Error::last_os_error().to_string())) } else { Ok(()) }
+        if result == -1 {
+            Err(Error::WindowSize(io::Error::last_os_error().to_string()))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn get_window_size(&self) -> Result<WindowSize> {
         let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
         let fd = self.master.as_raw_fd();
         let result = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ as libc::c_ulong, &mut ws) };
-        if result == -1 { Err(Error::WindowSize(io::Error::last_os_error().to_string())) } else { Ok(WindowSize::from(ws)) }
+        if result == -1 {
+            Err(Error::WindowSize(io::Error::last_os_error().to_string()))
+        } else {
+            Ok(WindowSize::from(ws))
+        }
     }
 
-    pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> { self.file.read(buf) }
-    pub fn write(&mut self, buf: &[u8]) -> io::Result<usize> { self.file.write(buf) }
-    pub fn write_all(&mut self, buf: &[u8]) -> io::Result<()> { self.file.write_all(buf) }
-    pub fn flush(&mut self) -> io::Result<()> { self.file.flush() }
+    pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.file.read(buf)
+    }
+    pub fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.file.write(buf)
+    }
+    pub fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.file.write_all(buf)
+    }
+    pub fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
 
     pub fn try_read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.file.read(buf) {
@@ -100,12 +128,16 @@ impl Pty {
 
 #[cfg(target_os = "linux")]
 impl AsRawFd for Pty {
-    fn as_raw_fd(&self) -> RawFd { self.master.as_raw_fd() }
+    fn as_raw_fd(&self) -> RawFd {
+        self.master.as_raw_fd()
+    }
 }
 
 #[cfg(target_os = "linux")]
 impl AsFd for Pty {
-    fn as_fd(&self) -> BorrowedFd<'_> { self.master.as_fd() }
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.master.as_fd()
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -117,22 +149,39 @@ impl Pty {
         let slave_fd = result.slave.as_raw_fd();
         let slave_path = unsafe {
             let name = libc::ttyname(slave_fd);
-            if name.is_null() { return Err(Error::PtyCreation("Failed to get slave path".to_string())); }
-            std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned()
+            if name.is_null() {
+                return Err(Error::PtyCreation("Failed to get slave path".to_string()));
+            }
+            std::ffi::CStr::from_ptr(name)
+                .to_string_lossy()
+                .into_owned()
         };
         let file = unsafe { File::from_raw_fd(libc::dup(master_fd)) };
         let master_fd = unsafe { libc::dup(master_fd) };
-        Ok(Self { master_fd, _slave_fd: result.slave, file, slave_path })
+        Ok(Self {
+            master_fd,
+            _slave_fd: result.slave,
+            file,
+            slave_path,
+        })
     }
 
-    pub fn slave_path(&self) -> &str { &self.slave_path }
-    pub fn master_fd(&self) -> RawFd { self.master_fd }
+    pub fn slave_path(&self) -> &str {
+        &self.slave_path
+    }
+    pub fn master_fd(&self) -> RawFd {
+        self.master_fd
+    }
 
     pub fn set_nonblocking(&self, nonblocking: bool) -> Result<()> {
         let fd = self.master_fd;
         let flags = fcntl(fd, FcntlArg::F_GETFL)?;
         let flags = OFlag::from_bits_truncate(flags);
-        let new_flags = if nonblocking { flags | OFlag::O_NONBLOCK } else { flags & !OFlag::O_NONBLOCK };
+        let new_flags = if nonblocking {
+            flags | OFlag::O_NONBLOCK
+        } else {
+            flags & !OFlag::O_NONBLOCK
+        };
         fcntl(fd, FcntlArg::F_SETFL(new_flags))?;
         Ok(())
     }
@@ -141,20 +190,36 @@ impl Pty {
         let ws = size.to_winsize();
         let fd = self.master_fd;
         let result = unsafe { libc::ioctl(fd, libc::TIOCSWINSZ as libc::c_ulong, &ws) };
-        if result == -1 { Err(Error::WindowSize(io::Error::last_os_error().to_string())) } else { Ok(()) }
+        if result == -1 {
+            Err(Error::WindowSize(io::Error::last_os_error().to_string()))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn get_window_size(&self) -> Result<WindowSize> {
         let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
         let fd = self.master_fd;
         let result = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ as libc::c_ulong, &mut ws) };
-        if result == -1 { Err(Error::WindowSize(io::Error::last_os_error().to_string())) } else { Ok(WindowSize::from(ws)) }
+        if result == -1 {
+            Err(Error::WindowSize(io::Error::last_os_error().to_string()))
+        } else {
+            Ok(WindowSize::from(ws))
+        }
     }
 
-    pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> { self.file.read(buf) }
-    pub fn write(&mut self, buf: &[u8]) -> io::Result<usize> { self.file.write(buf) }
-    pub fn write_all(&mut self, buf: &[u8]) -> io::Result<()> { self.file.write_all(buf) }
-    pub fn flush(&mut self) -> io::Result<()> { self.file.flush() }
+    pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.file.read(buf)
+    }
+    pub fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.file.write(buf)
+    }
+    pub fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.file.write_all(buf)
+    }
+    pub fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
 
     pub fn try_read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.file.read(buf) {
@@ -167,19 +232,25 @@ impl Pty {
 
 #[cfg(target_os = "macos")]
 impl AsRawFd for Pty {
-    fn as_raw_fd(&self) -> RawFd { self.master_fd }
+    fn as_raw_fd(&self) -> RawFd {
+        self.master_fd
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl AsFd for Pty {
-    fn as_fd(&self) -> BorrowedFd<'_> { unsafe { BorrowedFd::borrow_raw(self.master_fd) } }
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(self.master_fd) }
+    }
 }
 
 pub fn open_slave(path: &str) -> Result<OwnedFd> {
     use std::ffi::CString;
     let path_cstr = CString::new(path).map_err(|e| Error::PtyCreation(e.to_string()))?;
     let fd = unsafe { libc::open(path_cstr.as_ptr(), libc::O_RDWR | libc::O_NOCTTY) };
-    if fd < 0 { return Err(Error::PtyCreation(io::Error::last_os_error().to_string())); }
+    if fd < 0 {
+        return Err(Error::PtyCreation(io::Error::last_os_error().to_string()));
+    }
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
@@ -187,13 +258,18 @@ pub fn configure_slave(fd: RawFd) -> Result<()> {
     let borrowed_fd = unsafe { BorrowedFd::borrow_raw(fd) };
     let mut termios = termios::tcgetattr(borrowed_fd)?;
     termios.input_flags &= !(termios::InputFlags::IGNBRK
-        | termios::InputFlags::BRKINT | termios::InputFlags::PARMRK
-        | termios::InputFlags::ISTRIP | termios::InputFlags::INLCR
-        | termios::InputFlags::IGNCR | termios::InputFlags::ICRNL
+        | termios::InputFlags::BRKINT
+        | termios::InputFlags::PARMRK
+        | termios::InputFlags::ISTRIP
+        | termios::InputFlags::INLCR
+        | termios::InputFlags::IGNCR
+        | termios::InputFlags::ICRNL
         | termios::InputFlags::IXON);
     termios.output_flags |= termios::OutputFlags::OPOST | termios::OutputFlags::ONLCR;
-    termios.local_flags &= !(termios::LocalFlags::ECHO | termios::LocalFlags::ECHONL
-        | termios::LocalFlags::ICANON | termios::LocalFlags::ISIG
+    termios.local_flags &= !(termios::LocalFlags::ECHO
+        | termios::LocalFlags::ECHONL
+        | termios::LocalFlags::ICANON
+        | termios::LocalFlags::ISIG
         | termios::LocalFlags::IEXTEN);
     termios.control_flags &= !(termios::ControlFlags::CSIZE | termios::ControlFlags::PARENB);
     termios.control_flags |= termios::ControlFlags::CS8;
