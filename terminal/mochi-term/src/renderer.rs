@@ -632,6 +632,7 @@ pub struct TerminalApp {
     pub input_encoder: crate::input::InputEncoder,
     pub bracketed_paste_mode: bool,
     pub modifiers: winit::keyboard::ModifiersState,
+    pub clipboard: Option<arboard::Clipboard>,
 }
 
 impl ApplicationHandler for TerminalApp {
@@ -749,11 +750,25 @@ impl TerminalApp {
         }
 
         // Extract modifier state from the tracked modifiers
-        let mods = Modifiers {
-            shift: self.modifiers.contains(ModifiersState::SHIFT),
-            ctrl: self.modifiers.contains(ModifiersState::CONTROL),
-            alt: self.modifiers.contains(ModifiersState::ALT),
-        };
+        let ctrl = self.modifiers.contains(ModifiersState::CONTROL);
+        let shift = self.modifiers.contains(ModifiersState::SHIFT);
+        let alt = self.modifiers.contains(ModifiersState::ALT);
+
+        // Handle Ctrl+Shift+V for paste
+        if ctrl && shift {
+            if let Key::Character(c) = &event.logical_key {
+                if c.eq_ignore_ascii_case("v") {
+                    if let Some(clipboard) = &mut self.clipboard {
+                        if let Ok(text) = clipboard.get_text() {
+                            self.handle_paste(&text);
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+
+        let mods = Modifiers { shift, ctrl, alt };
 
         // Convert winit key to our InputKey
         let input_key = match &event.logical_key {
@@ -799,7 +814,6 @@ impl TerminalApp {
     }
 
     /// Handle clipboard paste
-    #[allow(dead_code)]
     fn handle_paste(&mut self, text: &str) {
         let bytes = self
             .input_encoder
@@ -899,6 +913,12 @@ pub fn run_terminal(cols: usize, rows: usize) -> Result<(), Box<dyn std::error::
 
     info!("Shell spawned with PTY");
 
+    // Initialize clipboard (may fail on headless systems)
+    let clipboard = arboard::Clipboard::new().ok();
+    if clipboard.is_none() {
+        warn!("Failed to initialize clipboard - paste will not work");
+    }
+
     let mut app = TerminalApp {
         renderer: Renderer::new(cols, rows),
         screen: Screen::new(cols, rows),
@@ -908,6 +928,7 @@ pub fn run_terminal(cols: usize, rows: usize) -> Result<(), Box<dyn std::error::
         input_encoder: crate::input::InputEncoder::new(),
         bracketed_paste_mode: false,
         modifiers: winit::keyboard::ModifiersState::empty(),
+        clipboard,
     };
 
     event_loop.run_app(&mut app)?;

@@ -25,5 +25,6 @@ serde_json.workspace = true
 mochi-core = { path = "../mochi-core" }
 mochi-parser = { path = "../mochi-parser" }
 mochi-pty = { path = "../mochi-pty" }
+arboard = { version = "3.2", default-features = false }
 
 [dev-dependencies]
