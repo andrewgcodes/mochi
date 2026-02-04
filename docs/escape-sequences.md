@@ -187,9 +187,51 @@ Planned: Spawn real applications and verify screen state.
 ### Fuzzing
 Planned: Fuzz the parser to ensure no crashes or hangs on malformed input.
 
+## Terminfo Strategy
+
+Mochi provides two options for TERM configuration:
+
+### Option A: Use xterm-256color (Recommended)
+
+Mochi implements enough of the xterm specification to be compatible with `TERM=xterm-256color`. This is the recommended approach as it requires no additional setup and works with all applications that support xterm.
+
+```bash
+export TERM=xterm-256color
+```
+
+### Option B: Use mochi-256color (Custom)
+
+For users who want a terminfo entry that precisely matches Mochi's capabilities, we provide a custom terminfo file.
+
+**Installation:**
+```bash
+cd terminal/assets/terminfo
+tic -x mochi.terminfo
+export TERM=mochi-256color
+```
+
+**Validation:**
+```bash
+# Check the compiled entry
+infocmp mochi-256color
+
+# Test with a curses application
+tput colors  # Should output 256
+```
+
+### Compatibility Notes
+
+1. **Colors**: Full 256-color and truecolor (24-bit) support via SGR sequences
+2. **Mouse**: X10, VT200, button event, and SGR 1006 mouse modes
+3. **Alternate Screen**: Full support for ?1049h/l
+4. **Bracketed Paste**: Full support for ?2004h/l
+5. **Cursor Styles**: Block, underline, and bar cursor styles
+6. **Character Sets**: ASCII only (DEC Special Graphics not yet implemented)
+
 ## References
 
 - [Xterm Control Sequences](https://www.x.org/docs/xterm/ctlseqs.pdf) - Primary reference
 - [ECMA-48](https://ecma-international.org/wp-content/uploads/ECMA-48_5th_edition_june_1991.pdf) - Formal standard
 - [VT220 Programmer Reference](https://vt100.net/dec/ek-vt220-rm-001.pdf) - DEC terminal behavior
 - [vttest](https://invisible-island.net/vttest/) - Terminal test suite
+- [terminfo(5)](https://man7.org/linux/man-pages/man5/terminfo.5.html) - Terminfo database format
