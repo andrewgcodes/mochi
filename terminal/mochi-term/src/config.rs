@@ -148,8 +148,22 @@ pub struct ColorScheme {
     pub cursor: String,
     /// Selection color (hex)
     pub selection: String,
+    /// Search match highlight color (hex)
+    #[serde(default = "default_search_match")]
+    pub search_match: String,
+    /// Current search match highlight color (hex)
+    #[serde(default = "default_search_match_current")]
+    pub search_match_current: String,
     /// ANSI colors 0-15 (hex)
     pub ansi: [String; 16],
+}
+
+fn default_search_match() -> String {
+    "#5a5a00".to_string() // Dark yellow for matches
+}
+
+fn default_search_match_current() -> String {
+    "#8a8a00".to_string() // Brighter yellow for current match
 }
 
 impl Default for Config {
@@ -193,6 +207,8 @@ impl Default for ColorScheme {
             background: "#1e1e1e".to_string(),
             cursor: "#ffffff".to_string(),
             selection: "#264f78".to_string(),
+            search_match: default_search_match(),
+            search_match_current: default_search_match_current(),
             ansi: [
                 "#000000".to_string(), // Black
                 "#cd3131".to_string(), // Red
@@ -429,6 +445,8 @@ impl ColorScheme {
             background: "#ffffff".to_string(),
             cursor: "#000000".to_string(),
             selection: "#add6ff".to_string(),
+            search_match: "#fff3a0".to_string(),         // Light yellow
+            search_match_current: "#ffdf00".to_string(), // Bright yellow
             ansi: [
                 "#000000".to_string(), // Black
                 "#cd3131".to_string(), // Red
@@ -457,6 +475,8 @@ impl ColorScheme {
             background: "#002b36".to_string(),
             cursor: "#93a1a1".to_string(),
             selection: "#073642".to_string(),
+            search_match: "#5a5a00".to_string(),
+            search_match_current: "#8a8a00".to_string(),
             ansi: [
                 "#073642".to_string(), // Black
                 "#dc322f".to_string(), // Red
@@ -485,6 +505,8 @@ impl ColorScheme {
             background: "#fdf6e3".to_string(),
             cursor: "#586e75".to_string(),
             selection: "#eee8d5".to_string(),
+            search_match: "#fff3a0".to_string(),
+            search_match_current: "#ffdf00".to_string(),
             ansi: [
                 "#073642".to_string(), // Black
                 "#dc322f".to_string(), // Red
@@ -513,6 +535,8 @@ impl ColorScheme {
             background: "#282a36".to_string(),
             cursor: "#f8f8f2".to_string(),
             selection: "#44475a".to_string(),
+            search_match: "#5a5a00".to_string(),
+            search_match_current: "#8a8a00".to_string(),
             ansi: [
                 "#21222c".to_string(), // Black
                 "#ff5555".to_string(), // Red
@@ -541,6 +565,8 @@ impl ColorScheme {
             background: "#2e3440".to_string(),
             cursor: "#d8dee9".to_string(),
             selection: "#434c5e".to_string(),
+            search_match: "#5a5a00".to_string(),
+            search_match_current: "#8a8a00".to_string(),
             ansi: [
                 "#3b4252".to_string(), // Black
                 "#bf616a".to_string(), // Red
@@ -594,6 +620,16 @@ impl ColorScheme {
     /// Get selection color as RGB
     pub fn selection_rgb(&self) -> (u8, u8, u8) {
         Self::parse_hex(&self.selection).unwrap_or((38, 79, 120))
+    }
+
+    /// Get search match highlight color as RGB
+    pub fn search_match_rgb(&self) -> (u8, u8, u8) {
+        Self::parse_hex(&self.search_match).unwrap_or((90, 90, 0))
+    }
+
+    /// Get current search match highlight color as RGB
+    pub fn search_match_current_rgb(&self) -> (u8, u8, u8) {
+        Self::parse_hex(&self.search_match_current).unwrap_or((138, 138, 0))
     }
 
     /// Get ANSI color as RGB

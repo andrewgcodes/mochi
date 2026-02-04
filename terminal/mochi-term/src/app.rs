@@ -1056,7 +1056,25 @@ impl App {
         let screen = terminal.screen();
         let selection = screen.selection();
 
-        if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
+        // Pass search matches to renderer if search is active
+        let search_matches = if self.search_active && !self.search_matches.is_empty() {
+            Some(self.search_matches.as_slice())
+        } else {
+            None
+        };
+        let current_match_idx = if self.search_active && !self.search_matches.is_empty() {
+            Some(self.search_match_index)
+        } else {
+            None
+        };
+
+        if let Err(e) = renderer.render(
+            screen,
+            selection,
+            self.scroll_offset,
+            search_matches,
+            current_match_idx,
+        ) {
             log::warn!("Render error: {:?}", e);
         }
 

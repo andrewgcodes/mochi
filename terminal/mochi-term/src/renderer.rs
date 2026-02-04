@@ -175,11 +175,20 @@ impl Renderer {
     }
 
     /// Render the terminal screen
+    ///
+    /// # Arguments
+    /// * `screen` - The terminal screen to render
+    /// * `selection` - Current text selection
+    /// * `scroll_offset` - Lines scrolled back from bottom
+    /// * `search_matches` - Optional search matches as (line_idx, start_col, end_col)
+    /// * `current_match_idx` - Index of the currently highlighted match
     pub fn render(
         &mut self,
         screen: &Screen,
         selection: &Selection,
         scroll_offset: usize,
+        search_matches: Option<&[(usize, usize, usize)]>,
+        current_match_idx: Option<usize>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let width = self.width;
         let height = self.height;
@@ -199,6 +208,8 @@ impl Renderer {
         let fg_color = self.colors.foreground_rgb();
         let sel_color = self.colors.selection_rgb();
         let cursor_color = self.colors.cursor_rgb();
+        let search_match_color = self.colors.search_match_rgb();
+        let search_match_current_color = self.colors.search_match_current_rgb();
         let cell_width_px = self.cell_size.width;
         let cell_height_px = self.cell_size.height;
         let baseline = self.cell_size.baseline;
@@ -262,12 +273,12 @@ impl Renderer {
         // Render each cell
         for row in 0..rows {
             // Calculate which line to render based on scroll offset
-            let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
+            let (line, is_from_scrollback, actual_screen_row, line_index) = if scroll_offset > 0 {
                 let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
                 if scrollback_row < scrollback_len {
                     // This row comes from scrollback
                     if let Some(sb_line) = scrollback.get(scrollback_row) {
-                        (sb_line, true, None)
+                        (sb_line, true, None, scrollback_row)
                     } else {
                         continue;
                     }
@@ -275,13 +286,13 @@ impl Renderer {
                     // This row comes from screen
                     let screen_row = scrollback_row - scrollback_len;
                     if screen_row < rows {
-                        (screen.line(screen_row), false, Some(screen_row))
+                        (screen.line(screen_row), false, Some(screen_row), scrollback_len + screen_row)
                     } else {
                         continue;
                     }
                 }
             } else {
-                (screen.line(row), false, Some(row))
+                (screen.line(row), false, Some(row), scrollback_len + row)
             };
 
             for col in 0..cols.min(line.cols()) {
@@ -303,10 +314,32 @@ impl Renderer {
                     && actual_screen_row == Some(cursor.row)
                     && cursor.col == col;
 
+                // Check if this cell is part of a search match
+                let (is_search_match, is_current_match) = if let Some(matches) = search_matches {
+                    let mut found_match = false;
+                    let mut is_current = false;
+                    for (idx, &(match_line, start_col, end_col)) in matches.iter().enumerate() {
+                        if match_line == line_index && col >= start_col && col < end_col {
+                            found_match = true;
+                            if current_match_idx == Some(idx) {
+                                is_current = true;
+                            }
+                            break;
+                        }
+                    }
+                    (found_match, is_current)
+                } else {
+                    (false, false)
+                };
+
                 let (fg, bg) = if is_selected {
                     (fg_color, sel_color)
                 } else if is_cursor {
                     (bg_color, cursor_color)
+                } else if is_current_match {
+                    (fg_color, search_match_current_color)
+                } else if is_search_match {
+                    (fg_color, search_match_color)
                 } else {
                     let fg = Self::resolve_color_static(
                         &self.colors,
