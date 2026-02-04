@@ -739,7 +739,7 @@ impl Screen {
 
             match selection.selection_type {
                 SelectionType::Line => {
-                    result.push_str(&line.text().trim_end());
+                    result.push_str(line.text().trim_end());
                 }
                 SelectionType::Block => {
                     let min_col = start.col.min(end.col);
@@ -764,10 +764,10 @@ impl Screen {
                 }
             }
 
-            if row_idx < end.row {
-                if selection.selection_type == SelectionType::Block || !line.wrapped {
-                    result.push('\n');
-                }
+            if row_idx < end.row
+                && (selection.selection_type == SelectionType::Block || !line.wrapped)
+            {
+                result.push('\n');
             }
         }
 

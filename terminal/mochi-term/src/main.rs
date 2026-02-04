@@ -26,15 +26,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Load configuration with precedence: CLI > env > file > defaults
     let config = match Config::load_with_args(&args) {
-        Ok(config) => config,
+        Ok(config) => {
+            log::info!(
+                "Configuration loaded successfully (theme: {})",
+                config.theme
+            );
+            config
+        }
         Err(e) => {
-            log::error!("Configuration error: {}", e);
-            eprintln!("Configuration error: {}", e);
-            std::process::exit(1);
+            log::error!("Failed to load configuration: {}", e);
+            log::info!("Using default configuration");
+            Config::default()
         }
     };
-
-    log::info!("Using theme: {:?}", config.theme);
 
     // Run the application
     let app = App::new(config)?;

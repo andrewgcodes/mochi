@@ -58,10 +58,6 @@ pub struct Renderer {
     height: u32,
     /// Current font size (scaled for HiDPI)
     font_size: f32,
-    /// Line height multiplier
-    line_height: f32,
-    /// Cell padding (horizontal, vertical)
-    cell_padding: (f32, f32),
 }
 
 impl Renderer {
@@ -69,8 +65,6 @@ impl Renderer {
     pub fn new(
         window: Rc<Window>,
         font_size: f32,
-        line_height: f32,
-        cell_padding: (f32, f32),
         colors: ColorScheme,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let context = Context::new(window.clone())?;
@@ -87,13 +81,12 @@ impl Renderer {
         // Scale font size for HiDPI displays
         let scale_factor = window.scale_factor() as f32;
         let scaled_font_size = font_size * scale_factor;
-        let scaled_padding = (cell_padding.0 * scale_factor, cell_padding.1 * scale_factor);
 
-        // Calculate cell size with line height and padding
+        // Calculate cell size
         let metrics = font.metrics('M', scaled_font_size);
         let cell_size = CellSize {
-            width: metrics.advance_width.ceil() + scaled_padding.0 * 2.0,
-            height: (scaled_font_size * line_height).ceil() + scaled_padding.1 * 2.0,
+            width: metrics.advance_width.ceil(),
+            height: (scaled_font_size * 1.4).ceil(),
             baseline: scaled_font_size,
         };
 
@@ -110,8 +103,6 @@ impl Renderer {
             width: size.width,
             height: size.height,
             font_size: scaled_font_size,
-            line_height,
-            cell_padding: scaled_padding,
         })
     }
 
@@ -129,11 +120,11 @@ impl Renderer {
     pub fn set_font_size(&mut self, font_size: f32) {
         self.font_size = font_size;
 
-        // Recalculate cell size using stored line_height and cell_padding
+        // Recalculate cell size
         let metrics = self.font.metrics('M', font_size);
         self.cell_size = CellSize {
-            width: metrics.advance_width.ceil() + self.cell_padding.0 * 2.0,
-            height: (font_size * self.line_height).ceil() + self.cell_padding.1 * 2.0,
+            width: metrics.advance_width.ceil(),
+            height: (font_size * 1.4).ceil(),
             baseline: font_size,
         };
 
@@ -141,37 +132,21 @@ impl Renderer {
         self.glyph_cache.clear();
     }
 
-    /// Update line height and cell padding, recalculating cell dimensions
-    pub fn set_layout(&mut self, line_height: f32, cell_padding: (f32, f32)) {
-        self.line_height = line_height;
-        self.cell_padding = cell_padding;
+    /// Update the color scheme at runtime
+    pub fn set_colors(&mut self, colors: ColorScheme) {
+        self.colors = colors;
+    }
 
-        // Recalculate cell size
-        let metrics = self.font.metrics('M', self.font_size);
-        self.cell_size = CellSize {
-            width: metrics.advance_width.ceil() + cell_padding.0 * 2.0,
-            height: (self.font_size * line_height).ceil() + cell_padding.1 * 2.0,
-            baseline: self.font_size,
-        };
-
-        // Clear glyph cache since layout changed
-        self.glyph_cache.clear();
+    /// Get a reference to the current color scheme
+    #[allow(dead_code)]
+    pub fn colors(&self) -> &ColorScheme {
+        &self.colors
     }
 
     /// Resize the renderer
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-    }
-
-    /// Update the color scheme (for runtime theme switching)
-    pub fn set_colors(&mut self, colors: ColorScheme) {
-        self.colors = colors;
-    }
-
-    /// Get the current color scheme
-    pub fn colors(&self) -> &ColorScheme {
-        &self.colors
     }
 
     /// Render the terminal screen
