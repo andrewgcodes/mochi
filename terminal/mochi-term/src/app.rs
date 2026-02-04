@@ -649,7 +649,6 @@ impl App {
     }
 
     /// Handle paste
-    #[allow(dead_code)]
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
             return;
