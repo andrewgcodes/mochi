@@ -12,18 +12,25 @@ mod terminal;
 use std::error::Error;
 
 use app::App;
-use config::Config;
+use config::{CliArgs, Config};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     log::info!("Starting Mochi Terminal");
 
-    // Load configuration
-    let config = Config::load().unwrap_or_default();
+    let args = CliArgs::parse_args();
 
-    // Run the application
+    let config = match Config::load_with_args(&args) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Configuration error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    log::info!("Config loaded: theme={:?}, font_size={}", config.theme, config.font_size);
+
     let app = App::new(config)?;
     app.run()?;
 

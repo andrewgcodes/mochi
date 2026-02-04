@@ -1,0 +1,69 @@
+# Mochi Terminal Configuration
+# 
+# This is an example configuration file for Mochi Terminal.
+# Copy this file to ~/.config/mochi/config.toml and customize as needed.
+#
+# Configuration precedence (highest to lowest):
+# 1. CLI flags (e.g., --theme dark)
+# 2. Environment variables (e.g., MOCHI_THEME=dark)
+# 3. Config file (~/.config/mochi/config.toml)
+# 4. Built-in defaults
+
+# Font settings
+font_family = "monospace"
+font_size = 14.0
+
+# Terminal dimensions (columns x rows)
+dimensions = [80, 24]
+
+# Scrollback buffer size (number of lines to keep in history)
+scrollback_lines = 10000
+
+# Theme selection
+# Available built-in themes: dark, light, solarized-dark, solarized-light, dracula, nord, gruvbox
+# Use "custom" to define your own colors below
+theme = "dark"
+
+# Shell command (optional - defaults to $SHELL environment variable)
+# shell = "/bin/bash"
+
+# Cursor settings
+cursor_style = "block"  # Options: block, underline, bar
+cursor_blink = true
+
+# Security settings
+# OSC 52 clipboard support allows programs to read/write the system clipboard
+# This is DISABLED by default for security reasons
+osc52_clipboard = false
+osc52_max_size = 100000  # Maximum payload size in bytes
+
+# Custom color scheme (only used when theme = "custom")
+# All colors are specified as hex values with # prefix
+[colors]
+foreground = "#d4d4d4"
+background = "#1e1e1e"
+cursor = "#ffffff"
+selection = "#264f78"
+
+# ANSI colors 0-15 (standard 16-color palette)
+# Order: black, red, green, yellow, blue, magenta, cyan, white,
+#        bright black, bright red, bright green, bright yellow,
+#        bright blue, bright magenta, bright cyan, bright white
+ansi = [
+    "#000000",  # 0: Black
+    "#cd3131",  # 1: Red
+    "#0dbc79",  # 2: Green
+    "#e5e510",  # 3: Yellow
+    "#2472c8",  # 4: Blue
+    "#bc3fbc",  # 5: Magenta
+    "#11a8cd",  # 6: Cyan
+    "#e5e5e5",  # 7: White
+    "#666666",  # 8: Bright Black
+    "#f14c4c",  # 9: Bright Red
+    "#23d18b",  # 10: Bright Green
+    "#f5f543",  # 11: Bright Yellow
+    "#3b8eea",  # 12: Bright Blue
+    "#d670d6",  # 13: Bright Magenta
+    "#29b8db",  # 14: Bright Cyan
+    "#ffffff",  # 15: Bright White
+]
