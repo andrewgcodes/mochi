@@ -1,0 +1,87 @@
+# Mochi Terminal Configuration
+# 
+# This is an example configuration file for Mochi Terminal.
+# Copy this file to ~/.config/mochi/config.toml and customize as needed.
+#
+# Configuration precedence (highest to lowest):
+# 1. CLI flags (--config, --font-size, --theme, etc.)
+# 2. Environment variables (MOCHI_CONFIG, MOCHI_FONT_SIZE, MOCHI_THEME)
+# 3. Config file (~/.config/mochi/config.toml)
+# 4. Built-in defaults
+
+# Font family name (must be a monospace font)
+# Default: "DejaVu Sans Mono" (bundled)
+font_family = "DejaVu Sans Mono"
+
+# Font size in points
+# Valid range: 6.0 to 72.0
+# Default: 14.0
+font_size = 14.0
+
+# Number of scrollback lines to keep in history
+# Minimum: 1
+# Default: 10000
+scrollback_lines = 10000
+
+# Initial window dimensions [columns, rows]
+# Minimum: [10, 5]
+# Default: [80, 24]
+dimensions = [80, 24]
+
+# Theme name
+# Built-in themes: dark, light, solarizeddark, solarizedlight, dracula, nord
+# Default: dark
+theme = "dark"
+
+# Shell command to run (optional)
+# If not specified, uses $SHELL environment variable
+# shell = "/bin/bash"
+
+# Cursor style: "block", "underline", or "beam"
+# Default: "block"
+cursor_style = "block"
+
+# Enable cursor blinking
+# Default: true
+cursor_blink = true
+
+# OSC 52 clipboard support (allows applications to read/write clipboard)
+# WARNING: This is a security-sensitive feature. Enable only if you trust
+# all applications running in the terminal.
+# Default: false (disabled for security)
+osc52_clipboard = false
+
+# Maximum OSC 52 payload size in bytes
+# Limits the amount of data that can be copied via OSC 52
+# Default: 100000
+osc52_max_size = 100000
+
+# Custom color scheme (only used when theme = "custom")
+# All colors are specified in hex format (#rrggbb or rrggbb)
+[colors]
+foreground = "#d4d4d4"
+background = "#1e1e1e"
+cursor = "#ffffff"
+selection = "#264f78"
+
+# ANSI 16-color palette
+# Colors 0-7: Normal colors (black, red, green, yellow, blue, magenta, cyan, white)
+# Colors 8-15: Bright colors
+ansi = [
+    "#1e1e1e",  # 0: Black
+    "#f44747",  # 1: Red
+    "#6a9955",  # 2: Green
+    "#dcdcaa",  # 3: Yellow
+    "#569cd6",  # 4: Blue
+    "#c586c0",  # 5: Magenta
+    "#4ec9b0",  # 6: Cyan
+    "#d4d4d4",  # 7: White
+    "#808080",  # 8: Bright Black
+    "#f44747",  # 9: Bright Red
+    "#6a9955",  # 10: Bright Green
+    "#dcdcaa",  # 11: Bright Yellow
+    "#569cd6",  # 12: Bright Blue
+    "#c586c0",  # 13: Bright Magenta
+    "#4ec9b0",  # 14: Bright Cyan
+    "#ffffff",  # 15: Bright White
+]
