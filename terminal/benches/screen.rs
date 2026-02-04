@@ -19,7 +19,7 @@ fn bench_screen_print(c: &mut Criterion) {
             for action in &chars {
                 screen.apply(action.clone());
             }
-            black_box(&screen)
+            black_box(screen)
         })
     });
 
@@ -39,7 +39,7 @@ fn bench_screen_scroll(c: &mut Criterion) {
                     screen.apply(TerminalAction::Print(c));
                 }
             }
-            black_box(&screen)
+            black_box(screen)
         })
     });
 
@@ -60,7 +60,7 @@ fn bench_screen_csi(c: &mut Criterion) {
             for action in actions {
                 screen.apply(action);
             }
-            black_box(&screen)
+            black_box(screen)
         })
     });
 
@@ -81,7 +81,7 @@ fn bench_screen_resize(c: &mut Criterion) {
             screen.resize(120, 40);
             screen.resize(80, 24);
             screen.resize(132, 50);
-            black_box(&screen)
+            black_box(screen)
         })
     });
 
@@ -108,7 +108,7 @@ fn bench_screen_full_redraw(c: &mut Criterion) {
             for action in actions {
                 screen.apply(action);
             }
-            black_box(&screen)
+            black_box(screen)
         })
     });
 
