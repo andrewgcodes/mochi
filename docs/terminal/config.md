@@ -58,8 +58,17 @@ The following environment variables are supported:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `font_family` | string | `"monospace"` | Font family name |
+| `font_family` | string | `"monospace"` | Font family name (see note below) |
 | `font_size` | float | `14.0` | Font size in points (6.0 - 128.0) |
+
+**Font Discovery:** Mochi Terminal uses bundled DejaVu Sans Mono fonts for cross-platform reliability. The `font_family` setting is reserved for future fontconfig integration. Currently, all text is rendered using the bundled monospace font.
+
+**Runtime Font Size Changes:** You can change the font size at runtime using keyboard shortcuts:
+- `Ctrl++` or `Ctrl+=` - Increase font size
+- `Ctrl+-` - Decrease font size
+- `Ctrl+0` - Reset to default font size
+
+When font size changes, the terminal grid is automatically recalculated and the PTY is resized to match the new dimensions.
 
 ### Terminal Dimensions
 
@@ -139,6 +148,28 @@ All colors must be specified in hex format (`#RRGGBB`).
 | `osc52_max_size` | usize | `100000` | Maximum OSC 52 payload size in bytes |
 
 **Security Note:** OSC 52 clipboard support is disabled by default because it allows applications running in the terminal to read and write your system clipboard via escape sequences. Only enable this if you trust the applications you run.
+
+## Keyboard Shortcuts
+
+Mochi Terminal provides the following built-in keyboard shortcuts:
+
+### Application Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Shift+T` | Toggle theme (cycle through available themes) |
+| `Ctrl+Shift+C` | Copy selection to clipboard |
+| `Ctrl+Shift+V` | Paste from clipboard |
+
+### Font Size Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl++` or `Ctrl+=` | Increase font size |
+| `Ctrl+-` | Decrease font size |
+| `Ctrl+0` | Reset to default font size |
+
+Note: On macOS, use `Cmd` instead of `Ctrl` for font size shortcuts.
 
 ## Example Configuration
 
