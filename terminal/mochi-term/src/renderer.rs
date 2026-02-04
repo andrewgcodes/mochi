@@ -137,6 +137,7 @@ impl Renderer {
     }
 
     /// Set line height and recalculate cell dimensions
+    #[allow(dead_code)]
     pub fn set_line_height(&mut self, line_height: f32) {
         self.line_height = line_height;
 
@@ -164,6 +165,7 @@ impl Renderer {
     }
 
     /// Get current color scheme
+    #[allow(dead_code)]
     pub fn colors(&self) -> &ColorScheme {
         &self.colors
     }
@@ -286,7 +288,12 @@ impl Renderer {
                     // This row comes from screen
                     let screen_row = scrollback_row - scrollback_len;
                     if screen_row < rows {
-                        (screen.line(screen_row), false, Some(screen_row), scrollback_len + screen_row)
+                        (
+                            screen.line(screen_row),
+                            false,
+                            Some(screen_row),
+                            scrollback_len + screen_row,
+                        )
                     } else {
                         continue;
                     }

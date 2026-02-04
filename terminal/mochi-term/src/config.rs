@@ -77,6 +77,7 @@ impl ThemeName {
     }
 
     /// Get all available theme names
+    #[allow(dead_code)]
     pub fn all() -> &'static [ThemeName] {
         &[
             ThemeName::Dark,
@@ -275,6 +276,7 @@ impl Config {
     }
 
     /// Load configuration from file (legacy method for backwards compatibility)
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         let config_path = Self::default_config_path()?;
 
@@ -445,7 +447,7 @@ impl ColorScheme {
             background: "#ffffff".to_string(),
             cursor: "#000000".to_string(),
             selection: "#add6ff".to_string(),
-            search_match: "#fff3a0".to_string(),         // Light yellow
+            search_match: "#fff3a0".to_string(), // Light yellow
             search_match_current: "#ffdf00".to_string(), // Bright yellow
             ansi: [
                 "#000000".to_string(), // Black
@@ -672,8 +674,14 @@ mod tests {
     fn test_theme_name_from_str() {
         assert_eq!(ThemeName::from_str("dark"), Some(ThemeName::Dark));
         assert_eq!(ThemeName::from_str("LIGHT"), Some(ThemeName::Light));
-        assert_eq!(ThemeName::from_str("solarized-dark"), Some(ThemeName::SolarizedDark));
-        assert_eq!(ThemeName::from_str("solarized-light"), Some(ThemeName::SolarizedLight));
+        assert_eq!(
+            ThemeName::from_str("solarized-dark"),
+            Some(ThemeName::SolarizedDark)
+        );
+        assert_eq!(
+            ThemeName::from_str("solarized-light"),
+            Some(ThemeName::SolarizedLight)
+        );
         assert_eq!(ThemeName::from_str("dracula"), Some(ThemeName::Dracula));
         assert_eq!(ThemeName::from_str("nord"), Some(ThemeName::Nord));
         assert_eq!(ThemeName::from_str("invalid"), None);
@@ -694,28 +702,40 @@ mod tests {
 
     #[test]
     fn test_config_validation_invalid_font_size() {
-        let mut config = Config::default();
-        config.font_size = 5.0; // Too small
+        let config = Config {
+            font_size: 5.0, // Too small
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
 
-        config.font_size = 200.0; // Too large
+        let config = Config {
+            font_size: 200.0, // Too large
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_config_validation_invalid_scrollback() {
-        let mut config = Config::default();
-        config.scrollback_lines = 2_000_000; // Too large
+        let config = Config {
+            scrollback_lines: 2_000_000, // Too large
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_config_validation_invalid_line_height() {
-        let mut config = Config::default();
-        config.line_height = 0.5; // Too small
+        let config = Config {
+            line_height: 0.5, // Too small
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
 
-        config.line_height = 4.0; // Too large
+        let config = Config {
+            line_height: 4.0, // Too large
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
@@ -841,17 +861,24 @@ mod tests {
 
     #[test]
     fn test_effective_colors() {
-        let mut config = Config::default();
-
-        config.theme = ThemeName::Dark;
+        let config = Config {
+            theme: ThemeName::Dark,
+            ..Default::default()
+        };
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#1e1e1e");
 
-        config.theme = ThemeName::Light;
+        let config = Config {
+            theme: ThemeName::Light,
+            ..Default::default()
+        };
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#ffffff");
 
-        config.theme = ThemeName::Nord;
+        let config = Config {
+            theme: ThemeName::Nord,
+            ..Default::default()
+        };
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#2e3440");
     }
@@ -859,8 +886,10 @@ mod tests {
     #[test]
     fn test_all_themes_have_valid_colors() {
         for theme in ThemeName::all() {
-            let mut config = Config::default();
-            config.theme = *theme;
+            let config = Config {
+                theme: *theme,
+                ..Default::default()
+            };
             let colors = config.effective_colors();
 
             // Verify all colors are valid hex
@@ -879,10 +908,16 @@ mod tests {
         let colors = ColorScheme::dark();
         // Dark theme should have dark background
         let (r, g, b) = colors.background_rgb();
-        assert!(r < 100 && g < 100 && b < 100, "Dark theme background should be dark");
+        assert!(
+            r < 100 && g < 100 && b < 100,
+            "Dark theme background should be dark"
+        );
         // And light foreground
         let (r, g, b) = colors.foreground_rgb();
-        assert!(r > 150 || g > 150 || b > 150, "Dark theme foreground should be light");
+        assert!(
+            r > 150 || g > 150 || b > 150,
+            "Dark theme foreground should be light"
+        );
     }
 
     #[test]
@@ -890,10 +925,16 @@ mod tests {
         let colors = ColorScheme::light();
         // Light theme should have light background
         let (r, g, b) = colors.background_rgb();
-        assert!(r > 200 && g > 200 && b > 200, "Light theme background should be light");
+        assert!(
+            r > 200 && g > 200 && b > 200,
+            "Light theme background should be light"
+        );
         // And dark foreground
         let (r, g, b) = colors.foreground_rgb();
-        assert!(r < 100 && g < 100 && b < 100, "Light theme foreground should be dark");
+        assert!(
+            r < 100 && g < 100 && b < 100,
+            "Light theme foreground should be dark"
+        );
     }
 
     #[test]
@@ -932,10 +973,17 @@ mod tests {
     fn test_ansi_colors_count() {
         // All themes should have exactly 16 ANSI colors
         for theme in ThemeName::all() {
-            let mut config = Config::default();
-            config.theme = *theme;
+            let config = Config {
+                theme: *theme,
+                ..Default::default()
+            };
             let colors = config.effective_colors();
-            assert_eq!(colors.ansi.len(), 16, "Theme {:?} should have 16 ANSI colors", theme);
+            assert_eq!(
+                colors.ansi.len(),
+                16,
+                "Theme {:?} should have 16 ANSI colors",
+                theme
+            );
         }
     }
 
@@ -952,7 +1000,10 @@ mod tests {
                 break;
             }
             // Safety: prevent infinite loop
-            assert!(count < 20, "Theme cycle should return to start within 20 iterations");
+            assert!(
+                count < 20,
+                "Theme cycle should return to start within 20 iterations"
+            );
         }
         // Should cycle through all non-custom themes
         assert_eq!(count, 6, "Should cycle through 6 themes");

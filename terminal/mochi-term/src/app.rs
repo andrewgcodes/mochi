@@ -15,7 +15,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::{CliArgs, Config, ThemeName};
+use crate::config::{CliArgs, Config};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -528,15 +528,18 @@ impl App {
         match self.click_count {
             1 => {
                 // Single click: start normal selection
-                terminal.screen_mut().selection_mut().start(point, SelectionType::Normal);
+                terminal
+                    .screen_mut()
+                    .selection_mut()
+                    .start(point, SelectionType::Normal);
             }
             2 => {
                 // Double click: select word
                 if let Some((word_start, word_end)) = word_bounds {
-                    terminal.screen_mut().selection_mut().start(
-                        Point::new(word_start, sel_row),
-                        SelectionType::Word,
-                    );
+                    terminal
+                        .screen_mut()
+                        .selection_mut()
+                        .start(Point::new(word_start, sel_row), SelectionType::Word);
                     terminal
                         .screen_mut()
                         .selection_mut()
@@ -545,10 +548,10 @@ impl App {
             }
             3 => {
                 // Triple click: select line
-                terminal.screen_mut().selection_mut().start(
-                    Point::new(0, sel_row),
-                    SelectionType::Line,
-                );
+                terminal
+                    .screen_mut()
+                    .selection_mut()
+                    .start(Point::new(0, sel_row), SelectionType::Line);
                 let cols = terminal.screen().cols();
                 terminal
                     .screen_mut()
@@ -968,7 +971,11 @@ impl App {
     /// Toggle theme (Ctrl+Shift+T)
     fn toggle_theme(&mut self) {
         let new_theme = self.config.theme.next();
-        log::info!("Toggling theme from {:?} to {:?}", self.config.theme, new_theme);
+        log::info!(
+            "Toggling theme from {:?} to {:?}",
+            self.config.theme,
+            new_theme
+        );
         self.config.theme = new_theme;
 
         if let Some(renderer) = &mut self.renderer {
