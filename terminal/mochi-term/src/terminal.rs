@@ -670,9 +670,7 @@ impl Terminal {
                 // Title update throttling to prevent DoS
                 let now = Instant::now();
                 let should_update = match self.last_title_update {
-                    Some(last) => {
-                        now.duration_since(last).as_millis() >= TITLE_THROTTLE_MS as u128
-                    }
+                    Some(last) => now.duration_since(last).as_millis() >= TITLE_THROTTLE_MS as u128,
                     None => true,
                 };
 
