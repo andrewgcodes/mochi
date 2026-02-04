@@ -123,11 +123,11 @@ impl GlyphCache {
 
     /// Rasterize a glyph and add it to the atlas
     fn rasterize_glyph(&mut self, c: char, bold: bool, italic: bool) {
-        // Select font variant
-        let font = if bold && self.bold_font.is_some() {
-            self.bold_font.as_ref().unwrap()
-        } else if italic && self.italic_font.is_some() {
-            self.italic_font.as_ref().unwrap()
+        // Select font variant using pattern matching to avoid unnecessary_unwrap lint
+        let font = if bold {
+            self.bold_font.as_ref().unwrap_or(&self.font)
+        } else if italic {
+            self.italic_font.as_ref().unwrap_or(&self.font)
         } else {
             &self.font
         };
