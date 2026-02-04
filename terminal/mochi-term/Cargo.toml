@@ -1,0 +1,25 @@
+[package]
+name = "mochi-term"
+description = "Mochi Terminal Emulator: a real VT/xterm-style terminal with GUI"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mochi"
+path = "src/main.rs"
+
+[dependencies]
+mochi-core = { path = "../mochi-core" }
+mochi-parser = { path = "../mochi-parser" }
+mochi-pty = { path = "../mochi-pty" }
+
+winit = { workspace = true }
+fontdue = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
