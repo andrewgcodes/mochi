@@ -708,6 +708,79 @@ impl Screen {
         let charset = parse_charset_designation(designation);
         self.charset.set_slot(slot, charset);
     }
+
+    /// Get selected text from the terminal
+    ///
+    /// Returns the text within the current selection, or None if no selection is active.
+    /// Handles both scrollback and visible buffer content.
+    pub fn selection_text(&self) -> Option<String> {
+        if !self.selection.active || self.selection.is_empty() {
+            return None;
+        }
+
+        let (start, end) = self.selection.bounds();
+        let mut result = String::new();
+        let scrollback_len = self.scrollback.len() as isize;
+
+        for row in start.row..=end.row {
+            let line_text: String = if row < 0 {
+                // In scrollback (negative row)
+                let scrollback_idx = (scrollback_len + row) as usize;
+                if let Some(line) = self.scrollback.get(scrollback_idx) {
+                    line.iter().map(|cell| cell.display_char()).collect()
+                } else {
+                    continue;
+                }
+            } else if (row as usize) < self.rows() {
+                // In visible buffer
+                let grid_row = row as usize;
+                (0..self.cols())
+                    .map(|col| self.grid().line(grid_row).cell(col).display_char())
+                    .collect()
+            } else {
+                continue;
+            };
+
+            // Determine column range for this row
+            let (col_start, col_end): (usize, usize) = match self.selection.selection_type {
+                crate::selection::SelectionType::Line => (0, line_text.len()),
+                crate::selection::SelectionType::Block => {
+                    let min_col = start.col.min(end.col);
+                    let max_col = start.col.max(end.col);
+                    (min_col, (max_col + 1).min(line_text.len()))
+                }
+                _ => {
+                    if row == start.row && row == end.row {
+                        (start.col, (end.col + 1).min(line_text.len()))
+                    } else if row == start.row {
+                        (start.col, line_text.len())
+                    } else if row == end.row {
+                        (0, (end.col + 1).min(line_text.len()))
+                    } else {
+                        (0, line_text.len())
+                    }
+                }
+            };
+
+            if col_start < line_text.len() {
+                let chars: Vec<char> = line_text.chars().collect();
+                let end_idx = col_end.min(chars.len());
+                let selected: String = chars[col_start..end_idx].iter().collect();
+                result.push_str(selected.trim_end());
+            }
+
+            // Add newline between rows (except for the last row)
+            if row < end.row {
+                result.push('\n');
+            }
+        }
+
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
+    }
 }
 
 #[cfg(test)]

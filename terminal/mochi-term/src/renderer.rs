@@ -132,6 +132,25 @@ impl Renderer {
         self.glyph_cache.clear();
     }
 
+    /// Set the color scheme/theme
+    pub fn set_theme(&mut self, theme: crate::config::ThemeName) {
+        use crate::config::ThemeName;
+        self.colors = match theme {
+            ThemeName::Dark => ColorScheme::dark(),
+            ThemeName::Light => ColorScheme::light(),
+            ThemeName::SolarizedDark => ColorScheme::solarized_dark(),
+            ThemeName::SolarizedLight => ColorScheme::solarized_light(),
+            ThemeName::Dracula => ColorScheme::dracula(),
+            ThemeName::Nord => ColorScheme::nord(),
+            ThemeName::Custom => self.colors.clone(), // Keep current custom colors
+        };
+    }
+
+    /// Get current color scheme
+    pub fn colors(&self) -> &ColorScheme {
+        &self.colors
+    }
+
     /// Resize the renderer
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;

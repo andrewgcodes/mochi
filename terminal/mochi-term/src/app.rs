@@ -3,6 +3,7 @@
 //! Ties together the terminal, PTY, and renderer.
 
 use std::io;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -14,7 +15,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::Config;
+use crate::config::{CliArgs, Config, ThemeName};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -23,6 +24,8 @@ use crate::terminal::Terminal;
 pub struct App {
     /// Configuration
     config: Config,
+    /// Path to config file (for reload)
+    config_path: Option<PathBuf>,
     /// Window (created on resume)
     window: Option<Rc<Window>>,
     /// Renderer
@@ -32,7 +35,6 @@ pub struct App {
     /// Child process
     child: Option<Child>,
     /// Clipboard
-    #[allow(dead_code)]
     clipboard: Option<Clipboard>,
     /// Current modifiers state
     modifiers: ModifiersState,
@@ -48,13 +50,30 @@ pub struct App {
     focused: bool,
     /// Scroll offset (number of lines scrolled back into history)
     scroll_offset: usize,
+    /// Search mode active
+    search_active: bool,
+    /// Search query
+    search_query: String,
+    /// Search matches (line, start_col, end_col)
+    search_matches: Vec<(usize, usize, usize)>,
+    /// Current search match index
+    search_match_index: usize,
 }
 
 impl App {
     /// Create a new application
     pub fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::new_with_config_path(config, None)
+    }
+
+    /// Create a new application with a specific config path for reload
+    pub fn new_with_config_path(
+        config: Config,
+        config_path: Option<PathBuf>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             config,
+            config_path,
             window: None,
             renderer: None,
             terminal: None,
@@ -67,6 +86,10 @@ impl App {
             needs_redraw: true,
             focused: true,
             scroll_offset: 0,
+            search_active: false,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            search_match_index: 0,
         })
     }
 
@@ -223,13 +246,77 @@ impl App {
             return;
         }
 
+        // Handle search mode input first
+        if self.search_active {
+            match &event.logical_key {
+                Key::Named(NamedKey::Escape) => {
+                    self.close_search();
+                    return;
+                }
+                Key::Named(NamedKey::Enter) => {
+                    if self.modifiers.shift_key() {
+                        self.search_prev();
+                    } else {
+                        self.search_next();
+                    }
+                    return;
+                }
+                Key::Named(NamedKey::Backspace) => {
+                    self.search_query.pop();
+                    self.update_search_matches();
+                    self.needs_redraw = true;
+                    return;
+                }
+                Key::Character(c) => {
+                    self.search_query.push_str(c);
+                    self.update_search_matches();
+                    self.needs_redraw = true;
+                    return;
+                }
+                _ => return,
+            }
+        }
+
+        // Check for Ctrl+Shift shortcuts (app-level keybindings)
+        let ctrl_shift = self.modifiers.control_key() && self.modifiers.shift_key();
+        if ctrl_shift {
+            match &event.logical_key {
+                // Copy: Ctrl+Shift+C
+                Key::Character(c) if c.eq_ignore_ascii_case("c") => {
+                    self.handle_copy();
+                    return;
+                }
+                // Paste: Ctrl+Shift+V
+                Key::Character(c) if c.eq_ignore_ascii_case("v") => {
+                    self.handle_paste();
+                    return;
+                }
+                // Find/Search: Ctrl+Shift+F
+                Key::Character(c) if c.eq_ignore_ascii_case("f") => {
+                    self.open_search();
+                    return;
+                }
+                // Reload config: Ctrl+Shift+R
+                Key::Character(c) if c.eq_ignore_ascii_case("r") => {
+                    self.reload_config();
+                    return;
+                }
+                // Toggle theme: Ctrl+Shift+T
+                Key::Character(c) if c.eq_ignore_ascii_case("t") => {
+                    self.toggle_theme();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
         let zoom_modifier = self.modifiers.control_key();
 
-        if zoom_modifier {
+        if zoom_modifier && !self.modifiers.shift_key() {
             match &event.logical_key {
                 Key::Character(c) if c == "=" || c == "+" => {
                     self.change_font_size(2.0);
@@ -451,8 +538,28 @@ impl App {
         }
     }
 
-    /// Handle paste
-    #[allow(dead_code)]
+    /// Handle copy (Ctrl+Shift+C)
+    fn handle_copy(&mut self) {
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        // Get selected text from terminal
+        if let Some(text) = terminal.screen().selection_text() {
+            if !text.is_empty() {
+                if let Err(e) = clipboard.set_text(&text) {
+                    log::warn!("Failed to copy to clipboard: {}", e);
+                } else {
+                    log::debug!("Copied {} bytes to clipboard", text.len());
+                }
+            }
+        }
+    }
+
+    /// Handle paste (Ctrl+Shift+V)
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
             return;
@@ -485,6 +592,225 @@ impl App {
             let data = encode_focus(focused);
             let _ = child.write_all(&data);
         }
+    }
+
+    /// Open search bar (Ctrl+Shift+F)
+    fn open_search(&mut self) {
+        self.search_active = true;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.search_match_index = 0;
+        self.needs_redraw = true;
+        log::debug!("Search mode activated");
+    }
+
+    /// Close search bar (Escape)
+    fn close_search(&mut self) {
+        self.search_active = false;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.search_match_index = 0;
+        self.needs_redraw = true;
+        log::debug!("Search mode deactivated");
+    }
+
+    /// Navigate to next search match (Enter)
+    fn search_next(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+        self.search_match_index = (self.search_match_index + 1) % self.search_matches.len();
+        self.scroll_to_match();
+        self.needs_redraw = true;
+    }
+
+    /// Navigate to previous search match (Shift+Enter)
+    fn search_prev(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+        if self.search_match_index == 0 {
+            self.search_match_index = self.search_matches.len() - 1;
+        } else {
+            self.search_match_index -= 1;
+        }
+        self.scroll_to_match();
+        self.needs_redraw = true;
+    }
+
+    /// Update search matches based on current query
+    fn update_search_matches(&mut self) {
+        self.search_matches.clear();
+        self.search_match_index = 0;
+
+        if self.search_query.is_empty() {
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let query = self.search_query.to_lowercase();
+
+        // Search in scrollback
+        for (line_idx, line) in screen.scrollback().iter().enumerate() {
+            let line_text: String = line.iter().map(|cell| cell.display_char()).collect();
+            let line_lower = line_text.to_lowercase();
+            let mut start = 0;
+            while let Some(pos) = line_lower[start..].find(&query) {
+                let abs_pos = start + pos;
+                self.search_matches
+                    .push((line_idx, abs_pos, abs_pos + query.len()));
+                start = abs_pos + 1;
+            }
+        }
+
+        // Search in visible buffer
+        let scrollback_len = screen.scrollback().len();
+        for row in 0..screen.rows() {
+            let line_text: String = (0..screen.cols())
+                .map(|col| screen.line(row).cell(col).display_char())
+                .collect();
+            let line_lower = line_text.to_lowercase();
+            let mut start = 0;
+            while let Some(pos) = line_lower[start..].find(&query) {
+                let abs_pos = start + pos;
+                self.search_matches
+                    .push((scrollback_len + row, abs_pos, abs_pos + query.len()));
+                start = abs_pos + 1;
+            }
+        }
+
+        log::debug!(
+            "Found {} matches for '{}'",
+            self.search_matches.len(),
+            self.search_query
+        );
+    }
+
+    /// Scroll viewport to show current match
+    fn scroll_to_match(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let (match_line, _, _) = self.search_matches[self.search_match_index];
+        let screen = terminal.screen();
+        let scrollback_len = screen.scrollback().len();
+        let visible_rows = screen.rows();
+
+        // Calculate scroll offset to show the match
+        if match_line < scrollback_len {
+            // Match is in scrollback
+            self.scroll_offset = scrollback_len - match_line;
+        } else {
+            // Match is in visible area
+            let visible_line = match_line - scrollback_len;
+            if visible_line < visible_rows {
+                self.scroll_offset = 0;
+            }
+        }
+    }
+
+    /// Reload configuration (Ctrl+Shift+R)
+    fn reload_config(&mut self) {
+        log::info!("Reloading configuration...");
+
+        // Try to reload from the same path or default
+        let new_config = if let Some(path) = &self.config_path {
+            Config::load_from_path(path)
+        } else {
+            Config::load_with_args(&CliArgs::default())
+        };
+
+        match new_config {
+            Ok(config) => {
+                log::info!("Configuration reloaded successfully");
+                self.config = config;
+                self.apply_config_changes();
+            }
+            Err(e) => {
+                log::error!("Failed to reload configuration: {}", e);
+                // Keep the old config - don't crash
+            }
+        }
+    }
+
+    /// Apply configuration changes after reload
+    fn apply_config_changes(&mut self) {
+        // Apply theme changes
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_theme(self.config.theme);
+        }
+
+        // Apply font size changes
+        if let Some(renderer) = &mut self.renderer {
+            if let Some(window) = &self.window {
+                let scale_factor = window.scale_factor() as f32;
+                let new_size = self.config.font_size * scale_factor;
+                renderer.set_font_size(new_size);
+
+                // Recalculate terminal dimensions
+                let size = window.inner_size();
+                let cell_size = renderer.cell_size();
+                let cols = (size.width as f32 / cell_size.width) as usize;
+                let rows = (size.height as f32 / cell_size.height) as usize;
+
+                if cols > 0 && rows > 0 {
+                    if let Some(terminal) = &mut self.terminal {
+                        terminal.resize(cols, rows);
+                    }
+                    if let Some(child) = &self.child {
+                        let _ = child.resize(WindowSize::new(cols as u16, rows as u16));
+                    }
+                }
+            }
+        }
+
+        self.needs_redraw = true;
+    }
+
+    /// Toggle theme (Ctrl+Shift+T)
+    fn toggle_theme(&mut self) {
+        let new_theme = self.config.theme.next();
+        log::info!("Toggling theme from {:?} to {:?}", self.config.theme, new_theme);
+        self.config.theme = new_theme;
+
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_theme(new_theme);
+        }
+
+        self.needs_redraw = true;
+    }
+
+    /// Check if search is active
+    #[allow(dead_code)]
+    pub fn is_search_active(&self) -> bool {
+        self.search_active
+    }
+
+    /// Get search query
+    #[allow(dead_code)]
+    pub fn search_query(&self) -> &str {
+        &self.search_query
+    }
+
+    /// Get search matches
+    #[allow(dead_code)]
+    pub fn search_matches(&self) -> &[(usize, usize, usize)] {
+        &self.search_matches
+    }
+
+    /// Get current search match index
+    #[allow(dead_code)]
+    pub fn search_match_index(&self) -> usize {
+        self.search_match_index
     }
 
     /// Poll PTY for output
