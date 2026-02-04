@@ -28,6 +28,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = "0.8"
 dirs = "5.0"
+clap = { version = "4.5", features = ["derive"] }
+base64 = "0.22"
 
 [dev-dependencies]
 proptest = { workspace = true }

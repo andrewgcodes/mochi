@@ -5,6 +5,15 @@
 use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
 
+/// OSC 52 clipboard request
+#[derive(Debug, Clone)]
+pub struct ClipboardRequest {
+    /// Clipboard target (c = clipboard, p = primary, etc.)
+    pub target: String,
+    /// Base64-encoded data to set, or "?" to query
+    pub data: String,
+}
+
 /// Terminal emulator state
 pub struct Terminal {
     /// Screen state
@@ -17,6 +26,8 @@ pub struct Terminal {
     title_changed: bool,
     /// Bell triggered
     bell: bool,
+    /// Pending OSC 52 clipboard request
+    clipboard_request: Option<ClipboardRequest>,
 }
 
 impl Terminal {
@@ -28,6 +39,7 @@ impl Terminal {
             title: String::new(),
             title_changed: false,
             bell: false,
+            clipboard_request: None,
         }
     }
 
@@ -63,6 +75,11 @@ impl Terminal {
         let bell = self.bell;
         self.bell = false;
         bell
+    }
+
+    /// Take pending clipboard request (if any)
+    pub fn take_clipboard_request(&mut self) -> Option<ClipboardRequest> {
+        self.clipboard_request.take()
     }
 
     /// Process input bytes from the PTY
@@ -668,9 +685,17 @@ impl Terminal {
                     self.screen.cursor_mut().hyperlink_id = id;
                 }
             }
-            OscAction::Clipboard { clipboard: _, data } => {
-                // OSC 52 clipboard - handled by the application layer
-                log::debug!("OSC 52 clipboard: {} bytes", data.len());
+            OscAction::Clipboard { clipboard, data } => {
+                // OSC 52 clipboard - store for application layer to handle
+                log::debug!(
+                    "OSC 52 clipboard request: target={}, data_len={}",
+                    clipboard,
+                    data.len()
+                );
+                self.clipboard_request = Some(ClipboardRequest {
+                    target: clipboard,
+                    data,
+                });
             }
             OscAction::SetColor { index, color } => {
                 log::debug!("Set color {}: {}", index, color);

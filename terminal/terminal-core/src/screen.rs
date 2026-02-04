@@ -10,7 +10,7 @@ use crate::grid::Grid;
 use crate::line::Line;
 use crate::modes::Modes;
 use crate::scrollback::Scrollback;
-use crate::selection::Selection;
+use crate::selection::{Selection, SelectionType};
 use crate::snapshot::Snapshot;
 use crate::Dimensions;
 
@@ -453,16 +453,46 @@ impl Screen {
     }
 
     /// Move cursor right by n columns
+    /// Fills skipped cells with spaces to support TUI applications
     pub fn move_cursor_right(&mut self, n: usize) {
         let cols = self.cols();
-        self.cursor.col = (self.cursor.col + n).min(cols - 1);
+        let old_col = self.cursor.col;
+        let new_col = (old_col + n).min(cols - 1);
+
+        // Fill skipped cells with spaces
+        if new_col > old_col {
+            let attrs = self.cursor.attrs;
+            let row = self.cursor.row;
+            let line = self.grid_mut().line_mut(row);
+            for c in old_col..new_col {
+                line.cell_mut(c).clear(attrs);
+            }
+        }
+
+        self.cursor.col = new_col;
         self.cursor.pending_wrap = false;
     }
 
     /// Set cursor column (1-indexed)
+    /// When moving forward, fills skipped cells with spaces to support TUI applications
+    /// that use cursor positioning to skip over empty areas (like Ink-based apps).
     pub fn set_cursor_col(&mut self, col: usize) {
         let cols = self.cols();
-        self.cursor.col = col.saturating_sub(1).min(cols - 1);
+        let new_col = col.saturating_sub(1).min(cols - 1);
+        let old_col = self.cursor.col;
+
+        // If moving forward on the same line, fill skipped cells with spaces
+        // This ensures previous content doesn't show through in TUI applications
+        if new_col > old_col {
+            let attrs = self.cursor.attrs;
+            let row = self.cursor.row;
+            let line = self.grid_mut().line_mut(row);
+            for c in old_col..new_col {
+                line.cell_mut(c).clear(attrs);
+            }
+        }
+
+        self.cursor.col = new_col;
         self.cursor.pending_wrap = false;
     }
 
@@ -753,6 +783,71 @@ impl Screen {
     pub fn designate_charset(&mut self, slot: u8, designation: char) {
         let charset = parse_charset_designation(designation);
         self.charset.set_slot(slot, charset);
+    }
+
+    /// Extract selected text from the screen
+    pub fn get_selected_text(&self, selection: &Selection) -> String {
+        if selection.is_empty() {
+            return String::new();
+        }
+
+        let (start, end) = selection.bounds();
+        let mut result = String::new();
+        let cols = self.cols();
+        let rows = self.rows();
+
+        for row_idx in start.row..=end.row {
+            if row_idx < 0 {
+                continue;
+            }
+            let row_idx_usize = row_idx as usize;
+            if row_idx_usize >= rows {
+                continue;
+            }
+
+            let line = self.line(row_idx_usize);
+            let line_start = if row_idx == start.row { start.col } else { 0 };
+            let line_end = if row_idx == end.row {
+                end.col.min(cols.saturating_sub(1))
+            } else {
+                cols.saturating_sub(1)
+            };
+
+            match selection.selection_type {
+                SelectionType::Line => {
+                    result.push_str(line.text().trim_end());
+                }
+                SelectionType::Block => {
+                    let min_col = start.col.min(end.col);
+                    let max_col = start.col.max(end.col).min(cols.saturating_sub(1));
+                    for col in min_col..=max_col {
+                        let cell = line.cell(col);
+                        if !cell.is_continuation() {
+                            result.push(cell.display_char());
+                        }
+                    }
+                }
+                _ => {
+                    for col in line_start..=line_end {
+                        if col >= cols {
+                            break;
+                        }
+                        let cell = line.cell(col);
+                        if !cell.is_continuation() {
+                            result.push(cell.display_char());
+                        }
+                    }
+                }
+            }
+
+            if row_idx < end.row
+                && (selection.selection_type == SelectionType::Block || !line.wrapped)
+            {
+                result.push('\n');
+            }
+        }
+
+        result.trim_end().to_string()
     }
 }
 
