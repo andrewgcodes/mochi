@@ -556,4 +556,58 @@ impl Renderer {
     fn rgb_to_pixel(r: u8, g: u8, b: u8) -> u32 {
         0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
     }
+
+    /// Calculate terminal dimensions (cols, rows) from pixel size and cell size
+    /// This is a pure function useful for testing and external calculations
+    pub fn calculate_dimensions(
+        pixel_width: u32,
+        pixel_height: u32,
+        cell_width: f32,
+        cell_height: f32,
+    ) -> (usize, usize) {
+        let cols = (pixel_width as f32 / cell_width) as usize;
+        let rows = (pixel_height as f32 / cell_height) as usize;
+        (cols.max(1), rows.max(1))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_dimensions() {
+        // Test basic calculation
+        let (cols, rows) = Renderer::calculate_dimensions(800, 600, 10.0, 20.0);
+        assert_eq!(cols, 80);
+        assert_eq!(rows, 30);
+    }
+
+    #[test]
+    fn test_calculate_dimensions_minimum() {
+        // Test that we always get at least 1x1
+        let (cols, rows) = Renderer::calculate_dimensions(5, 5, 10.0, 20.0);
+        assert_eq!(cols, 1);
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn test_calculate_dimensions_fractional() {
+        // Test fractional cell sizes
+        let (cols, rows) = Renderer::calculate_dimensions(800, 600, 8.5, 17.0);
+        assert_eq!(cols, 94); // 800 / 8.5 = 94.11
+        assert_eq!(rows, 35); // 600 / 17.0 = 35.29
+    }
+
+    #[test]
+    fn test_cell_size_struct() {
+        let cell = CellSize {
+            width: 10.0,
+            height: 20.0,
+            baseline: 15.0,
+        };
+        assert_eq!(cell.width, 10.0);
+        assert_eq!(cell.height, 20.0);
+        assert_eq!(cell.baseline, 15.0);
+    }
 }
