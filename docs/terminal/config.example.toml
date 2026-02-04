@@ -1,0 +1,158 @@
+# Mochi Terminal Configuration
+# 
+# This is an example configuration file for Mochi Terminal.
+# Copy this file to ~/.config/mochi/config.toml and customize as needed.
+#
+# Configuration precedence (highest to lowest):
+#   1. CLI arguments (e.g., --theme dark)
+#   2. Environment variables (e.g., MOCHI_THEME=dark)
+#   3. Config file (this file)
+#   4. Built-in defaults
+
+# =============================================================================
+# Theme Settings
+# =============================================================================
+
+# Available built-in themes:
+#   - dark (default)
+#   - light
+#   - solarized-dark
+#   - solarized-light
+#   - dracula
+#   - nord
+#
+# You can also specify "custom" and provide a custom color scheme below.
+theme = "dark"
+
+# =============================================================================
+# Font Settings
+# =============================================================================
+
+[font]
+# Font family name. The terminal will search for this font using fontconfig.
+# If not found, it falls back to a default monospace font.
+family = "JetBrains Mono"
+
+# Font size in points
+size = 14.0
+
+# Font weight (100-900, where 400 is normal and 700 is bold)
+# weight = 400
+
+# Line height multiplier (1.0 = normal, 1.2 = 20% extra spacing)
+line_height = 1.0
+
+# Fallback fonts for missing glyphs (e.g., emoji)
+# fallback = ["Noto Color Emoji", "Symbols Nerd Font"]
+
+# Enable font ligatures (if supported by the font)
+# ligatures = false
+
+# =============================================================================
+# Keybindings
+# =============================================================================
+
+[keybindings]
+# Format: "modifier+modifier+key"
+# Available modifiers: ctrl, alt, shift, super
+# Keys: single characters (a-z, 0-9) or named keys (f1-f12, escape, tab, etc.)
+
+# Copy selected text to clipboard
+copy = "ctrl+shift+c"
+
+# Paste from clipboard
+paste = "ctrl+shift+v"
+
+# Open search/find bar
+find = "ctrl+shift+f"
+
+# Reload configuration file
+reload_config = "ctrl+shift+r"
+
+# Toggle between themes (cycles through all built-in themes)
+toggle_theme = "ctrl+shift+t"
+
+# Font size controls
+# font_size_increase = "ctrl+plus"
+# font_size_decrease = "ctrl+minus"
+# font_size_reset = "ctrl+0"
+
+# Scrollback controls
+# scroll_up = "shift+pageup"
+# scroll_down = "shift+pagedown"
+# scroll_to_top = "shift+home"
+# scroll_to_bottom = "shift+end"
+
+# =============================================================================
+# Security Settings
+# =============================================================================
+
+[security]
+# Allow applications to read/write clipboard via OSC 52 escape sequences.
+# WARNING: This can be a security risk as malicious applications could
+# read your clipboard contents. Disabled by default.
+osc52_clipboard = false
+
+# Maximum size (in bytes) for OSC 52 clipboard operations.
+# Prevents denial-of-service from extremely large clipboard data.
+osc52_max_size = 100000
+
+# Show a visual indicator when clipboard is modified by escape sequences.
+osc52_show_notification = true
+
+# Rate limit for window title updates (milliseconds between updates).
+# Prevents visual spam from rapidly changing titles.
+title_rate_limit_ms = 100
+
+# Maximum length for window titles (characters).
+title_max_length = 256
+
+# =============================================================================
+# Terminal Settings
+# =============================================================================
+
+# Number of lines to keep in scrollback history
+scrollback_lines = 10000
+
+# Initial terminal dimensions (columns x rows)
+# These are overridden by the actual window size on startup.
+# columns = 80
+# rows = 24
+
+# Cursor style: "block", "underline", or "bar"
+cursor_style = "block"
+
+# =============================================================================
+# Custom Color Scheme
+# =============================================================================
+
+# To use a custom color scheme, set theme = "custom" above and define colors here.
+# All colors are in #RRGGBB hex format.
+
+# [colors]
+# # Basic colors
+# foreground = "#d4d4d4"
+# background = "#1e1e1e"
+# cursor = "#ffffff"
+# selection = "#264f78"
+#
+# # ANSI colors (0-15)
+# # Standard colors (0-7)
+# black = "#000000"
+# red = "#cd3131"
+# green = "#0dbc79"
+# yellow = "#e5e510"
+# blue = "#2472c8"
+# magenta = "#bc3fbc"
+# cyan = "#11a8cd"
+# white = "#e5e5e5"
+#
+# # Bright colors (8-15)
+# bright_black = "#666666"
+# bright_red = "#f14c4c"
+# bright_green = "#23d18b"
+# bright_yellow = "#f5f543"
+# bright_blue = "#3b8eea"
+# bright_magenta = "#d670d6"
+# bright_cyan = "#29b8db"
+# bright_white = "#ffffff"
