@@ -219,7 +219,11 @@ mod tests {
 
         let pty = pty.unwrap();
         assert!(!pty.slave_path().is_empty());
+        // Linux uses /dev/pts/*, macOS uses /dev/ttys*
+        #[cfg(target_os = "linux")]
         assert!(pty.slave_path().starts_with("/dev/pts/"));
+        #[cfg(target_os = "macos")]
+        assert!(pty.slave_path().starts_with("/dev/ttys"));
     }
 
     #[test]

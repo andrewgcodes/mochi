@@ -130,8 +130,19 @@ impl Child {
                 // Set environment if provided
                 if let Some(env_vars) = env_cstr {
                     // Clear environment and set new variables
+                    // Note: clearenv() is not available on macOS, so we use
+                    // a portable approach of unsetting all variables
+                    #[cfg(target_os = "linux")]
                     unsafe {
                         libc::clearenv();
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        // On macOS and other platforms, manually clear environment
+                        // by iterating and unsetting each variable
+                        for (key, _) in std::env::vars_os() {
+                            std::env::remove_var(&key);
+                        }
                     }
                     for var in env_vars {
                         unsafe {

@@ -1,6 +1,6 @@
 [package]
 name = "terminal-pty"
-description = "Linux PTY management for terminal emulation"
+description = "PTY management for terminal emulation (Linux and macOS)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
