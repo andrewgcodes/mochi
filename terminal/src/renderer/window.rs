@@ -35,8 +35,8 @@ impl Default for WindowConfig {
             width: 800,
             height: 600,
             font_size: 16.0,
-            background: [0.0, 0.0, 0.0],       // Black
-            foreground: [0.9, 0.9, 0.9],       // Light gray
+            background: [0.0, 0.0, 0.0], // Black
+            foreground: [0.9, 0.9, 0.9], // Light gray
         }
     }
 }
@@ -57,23 +57,23 @@ impl Default for ColorPalette {
         Self {
             colors: [
                 // Standard colors (0-7)
-                [0.0, 0.0, 0.0],       // 0: Black
-                [0.8, 0.0, 0.0],       // 1: Red
-                [0.0, 0.8, 0.0],       // 2: Green
-                [0.8, 0.8, 0.0],       // 3: Yellow
-                [0.0, 0.0, 0.8],       // 4: Blue
-                [0.8, 0.0, 0.8],       // 5: Magenta
-                [0.0, 0.8, 0.8],       // 6: Cyan
-                [0.75, 0.75, 0.75],    // 7: White
+                [0.0, 0.0, 0.0],    // 0: Black
+                [0.8, 0.0, 0.0],    // 1: Red
+                [0.0, 0.8, 0.0],    // 2: Green
+                [0.8, 0.8, 0.0],    // 3: Yellow
+                [0.0, 0.0, 0.8],    // 4: Blue
+                [0.8, 0.0, 0.8],    // 5: Magenta
+                [0.0, 0.8, 0.8],    // 6: Cyan
+                [0.75, 0.75, 0.75], // 7: White
                 // Bright colors (8-15)
-                [0.5, 0.5, 0.5],       // 8: Bright Black (Gray)
-                [1.0, 0.0, 0.0],       // 9: Bright Red
-                [0.0, 1.0, 0.0],       // 10: Bright Green
-                [1.0, 1.0, 0.0],       // 11: Bright Yellow
-                [0.0, 0.0, 1.0],       // 12: Bright Blue
-                [1.0, 0.0, 1.0],       // 13: Bright Magenta
-                [0.0, 1.0, 1.0],       // 14: Bright Cyan
-                [1.0, 1.0, 1.0],       // 15: Bright White
+                [0.5, 0.5, 0.5], // 8: Bright Black (Gray)
+                [1.0, 0.0, 0.0], // 9: Bright Red
+                [0.0, 1.0, 0.0], // 10: Bright Green
+                [1.0, 1.0, 0.0], // 11: Bright Yellow
+                [0.0, 0.0, 1.0], // 12: Bright Blue
+                [1.0, 0.0, 1.0], // 13: Bright Magenta
+                [0.0, 1.0, 1.0], // 14: Bright Cyan
+                [1.0, 1.0, 1.0], // 15: Bright White
             ],
             foreground: [0.9, 0.9, 0.9],
             background: [0.0, 0.0, 0.0],
@@ -102,9 +102,21 @@ impl ColorPalette {
                     let g = (i / 6) % 6;
                     let b = i % 6;
                     [
-                        if r == 0 { 0.0 } else { (r as f32 * 40.0 + 55.0) / 255.0 },
-                        if g == 0 { 0.0 } else { (g as f32 * 40.0 + 55.0) / 255.0 },
-                        if b == 0 { 0.0 } else { (b as f32 * 40.0 + 55.0) / 255.0 },
+                        if r == 0 {
+                            0.0
+                        } else {
+                            (r as f32 * 40.0 + 55.0) / 255.0
+                        },
+                        if g == 0 {
+                            0.0
+                        } else {
+                            (g as f32 * 40.0 + 55.0) / 255.0
+                        },
+                        if b == 0 {
+                            0.0
+                        } else {
+                            (b as f32 * 40.0 + 55.0) / 255.0
+                        },
                     ]
                 } else {
                     // Grayscale (232-255)
@@ -434,8 +446,8 @@ mod tests {
 
         // Check first pixel
         assert_eq!(renderer.buffer[0], 255); // R
-        assert_eq!(renderer.buffer[1], 0);   // G
-        assert_eq!(renderer.buffer[2], 0);   // B
+        assert_eq!(renderer.buffer[1], 0); // G
+        assert_eq!(renderer.buffer[2], 0); // B
         assert_eq!(renderer.buffer[3], 255); // A
     }
 
@@ -447,13 +459,13 @@ mod tests {
 
         // Check pixel inside rect
         let idx = ((3 * 10 + 3) * 4) as usize;
-        assert_eq!(renderer.buffer[idx], 0);     // R
+        assert_eq!(renderer.buffer[idx], 0); // R
         assert_eq!(renderer.buffer[idx + 1], 255); // G
-        assert_eq!(renderer.buffer[idx + 2], 0);   // B
+        assert_eq!(renderer.buffer[idx + 2], 0); // B
 
         // Check pixel outside rect
         let idx = ((0 * 10 + 0) * 4) as usize;
-        assert_eq!(renderer.buffer[idx], 0);     // R
+        assert_eq!(renderer.buffer[idx], 0); // R
         assert_eq!(renderer.buffer[idx + 1], 0); // G
         assert_eq!(renderer.buffer[idx + 2], 0); // B
     }

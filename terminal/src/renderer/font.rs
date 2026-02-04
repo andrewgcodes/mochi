@@ -114,13 +114,8 @@ impl FontRenderer {
     pub fn rasterize(&mut self, c: char) -> &RasterizedGlyph {
         if !self.glyph_cache.contains_key(&c) {
             let (metrics, bitmap) = self.font.rasterize(c, self.font_size);
-            self.glyph_cache.insert(
-                c,
-                RasterizedGlyph {
-                    metrics,
-                    bitmap,
-                },
-            );
+            self.glyph_cache
+                .insert(c, RasterizedGlyph { metrics, bitmap });
         }
         self.glyph_cache.get(&c).unwrap()
     }

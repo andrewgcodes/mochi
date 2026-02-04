@@ -113,27 +113,15 @@ pub enum OscAction {
     /// Set icon name (OSC 1)
     SetIconName(String),
     /// Set/query color (OSC 4, 10, 11, etc.)
-    SetColor {
-        index: u32,
-        color: String,
-    },
+    SetColor { index: u32, color: String },
     /// Hyperlink (OSC 8)
-    Hyperlink {
-        params: String,
-        uri: String,
-    },
+    Hyperlink { params: String, uri: String },
     /// Clipboard operation (OSC 52)
-    Clipboard {
-        clipboard: String,
-        data: String,
-    },
+    Clipboard { clipboard: String, data: String },
     /// Reset color (OSC 104, 110, 111, etc.)
     ResetColor(u32),
     /// Unknown OSC command
-    Unknown {
-        command: u32,
-        data: String,
-    },
+    Unknown { command: u32, data: String },
 }
 
 /// SGR (Select Graphic Rendition) attribute
@@ -224,9 +212,7 @@ impl CsiAction {
                         match self.params[i + 1] {
                             5 if i + 2 < self.params.len() => {
                                 // 256-color: 38;5;N
-                                attrs.push(SgrAttribute::Foreground256(
-                                    self.params[i + 2] as u8,
-                                ));
+                                attrs.push(SgrAttribute::Foreground256(self.params[i + 2] as u8));
                                 i += 2;
                             }
                             2 if i + 4 < self.params.len() => {
@@ -250,9 +236,7 @@ impl CsiAction {
                         match self.params[i + 1] {
                             5 if i + 2 < self.params.len() => {
                                 // 256-color: 48;5;N
-                                attrs.push(SgrAttribute::Background256(
-                                    self.params[i + 2] as u8,
-                                ));
+                                attrs.push(SgrAttribute::Background256(self.params[i + 2] as u8));
                                 i += 2;
                             }
                             2 if i + 4 < self.params.len() => {

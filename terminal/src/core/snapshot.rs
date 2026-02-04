@@ -343,10 +343,7 @@ mod tests {
 
     #[test]
     fn test_color_snapshot() {
-        assert_eq!(
-            ColorSnapshot::from(&Color::Default),
-            ColorSnapshot::Default
-        );
+        assert_eq!(ColorSnapshot::from(&Color::Default), ColorSnapshot::Default);
         assert_eq!(
             ColorSnapshot::from(&Color::Indexed(5)),
             ColorSnapshot::Indexed { index: 5 }

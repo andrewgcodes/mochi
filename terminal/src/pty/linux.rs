@@ -116,8 +116,7 @@ impl Pty {
         env: &[(&str, &str)],
     ) -> Result<Self, PtyError> {
         // Open PTY master
-        let master = posix_openpt(OFlag::O_RDWR | OFlag::O_NOCTTY)
-            .map_err(PtyError::OpenMaster)?;
+        let master = posix_openpt(OFlag::O_RDWR | OFlag::O_NOCTTY).map_err(PtyError::OpenMaster)?;
 
         // Grant and unlock the slave
         grantpt(&master).map_err(PtyError::Grant)?;
@@ -238,7 +237,7 @@ impl Pty {
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, PtyError> {
         let fd = self.master.as_raw_fd();
         let result = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-        
+
         if result < 0 {
             let err = io::Error::last_os_error();
             if err.kind() == io::ErrorKind::WouldBlock {
@@ -307,7 +306,7 @@ impl Pty {
                     Ok(false)
                 }
             }
-            Ok(_) => Ok(false), // Timeout
+            Ok(_) => Ok(false),                         // Timeout
             Err(nix::errno::Errno::EINTR) => Ok(false), // Interrupted
             Err(e) => Err(PtyError::Io(io::Error::new(io::ErrorKind::Other, e))),
         }
@@ -346,7 +345,7 @@ impl Pty {
     pub fn is_child_alive(&self) -> bool {
         match waitpid(self.child_pid, Some(WaitPidFlag::WNOHANG)) {
             Ok(WaitStatus::StillAlive) => true,
-            Ok(_) => false, // Child exited
+            Ok(_) => false,  // Child exited
             Err(_) => false, // Error checking, assume dead
         }
     }

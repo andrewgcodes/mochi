@@ -486,7 +486,9 @@ impl Parser {
         match byte {
             // Digit
             0x30..=0x39 => {
-                self.current_param = self.current_param.saturating_mul(10)
+                self.current_param = self
+                    .current_param
+                    .saturating_mul(10)
                     .saturating_add((byte - b'0') as u32);
                 self.param_has_digit = true;
                 None
@@ -563,7 +565,9 @@ impl Parser {
     /// Dispatch CSI sequence
     fn dispatch_csi(&mut self, final_byte: u8) -> Option<Action> {
         // Filter out the private marker from intermediates for the action
-        let intermediates: Vec<u8> = self.intermediates.iter()
+        let intermediates: Vec<u8> = self
+            .intermediates
+            .iter()
             .filter(|&&b| b != b'?' && b != b'>' && b != b'<' && b != b'=')
             .copied()
             .collect();
@@ -713,7 +717,9 @@ impl Parser {
     fn process_dcs_param(&mut self, byte: u8) -> Option<Action> {
         match byte {
             0x30..=0x39 => {
-                self.current_param = self.current_param.saturating_mul(10)
+                self.current_param = self
+                    .current_param
+                    .saturating_mul(10)
                     .saturating_add((byte - b'0') as u32);
                 self.param_has_digit = true;
                 None
@@ -1002,7 +1008,13 @@ mod tests {
         let actions = parser.parse(b"\x1b(B\x1b)0");
 
         assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0], Action::EscDispatch(EscAction::DesignateG0(b'B')));
-        assert_eq!(actions[1], Action::EscDispatch(EscAction::DesignateG1(b'0')));
+        assert_eq!(
+            actions[0],
+            Action::EscDispatch(EscAction::DesignateG0(b'B'))
+        );
+        assert_eq!(
+            actions[1],
+            Action::EscDispatch(EscAction::DesignateG1(b'0'))
+        );
     }
 }

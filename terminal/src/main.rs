@@ -9,7 +9,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, Event, ModifiersState, MouseScrollDelta, VirtualKeyCode, WindowEvent};
+use winit::event::{
+    ElementState, Event, ModifiersState, MouseScrollDelta, VirtualKeyCode, WindowEvent,
+};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 
@@ -314,7 +316,9 @@ fn main() {
 
                         // Try to encode the key
                         if let Some(keycode) = input.virtual_keycode {
-                            if let Some(data) = encode_key(keycode, modifiers, app_cursor, app_keypad) {
+                            if let Some(data) =
+                                encode_key(keycode, modifiers, app_cursor, app_keypad)
+                            {
                                 app.write_to_pty(&data);
                             }
                         }
@@ -383,13 +387,7 @@ fn main() {
                     };
 
                     if let Some(data) = input::encode_mouse(
-                        mouse_btn,
-                        event_type,
-                        col as u16,
-                        row as u16,
-                        modifiers,
-                        mode,
-                        encoding,
+                        mouse_btn, event_type, col as u16, row as u16, modifiers, mode, encoding,
                     ) {
                         app.write_to_pty(&data);
                     }

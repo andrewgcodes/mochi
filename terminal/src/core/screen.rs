@@ -240,7 +240,9 @@ impl Screen {
 
     /// Get a mutable cell at the given position
     pub fn get_cell_mut(&mut self, col: usize, row: usize) -> Option<&mut Cell> {
-        self.grid_mut().get_mut(row).and_then(|line| line.get_mut(col))
+        self.grid_mut()
+            .get_mut(row)
+            .and_then(|line| line.get_mut(col))
     }
 
     /// Get a line at the given row
@@ -1004,7 +1006,6 @@ impl Screen {
             self.hyperlinks.get(id as usize - 1).map(|s| s.as_str())
         }
     }
-
 }
 
 /// Helper function to resize a grid (outside impl to avoid borrow checker issues)
