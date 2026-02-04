@@ -805,4 +805,88 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_theme_dark_colors() {
+        let colors = ColorScheme::dark();
+        // Dark theme should have dark background
+        let (r, g, b) = colors.background_rgb();
+        assert!(r < 100 && g < 100 && b < 100, "Dark theme background should be dark");
+        // And light foreground
+        let (r, g, b) = colors.foreground_rgb();
+        assert!(r > 150 || g > 150 || b > 150, "Dark theme foreground should be light");
+    }
+
+    #[test]
+    fn test_theme_light_colors() {
+        let colors = ColorScheme::light();
+        // Light theme should have light background
+        let (r, g, b) = colors.background_rgb();
+        assert!(r > 200 && g > 200 && b > 200, "Light theme background should be light");
+        // And dark foreground
+        let (r, g, b) = colors.foreground_rgb();
+        assert!(r < 100 && g < 100 && b < 100, "Light theme foreground should be dark");
+    }
+
+    #[test]
+    fn test_theme_solarized_dark() {
+        let colors = ColorScheme::solarized_dark();
+        // Solarized dark has specific background color #002b36
+        assert_eq!(colors.background, "#002b36");
+        assert_eq!(colors.foreground, "#839496");
+    }
+
+    #[test]
+    fn test_theme_solarized_light() {
+        let colors = ColorScheme::solarized_light();
+        // Solarized light has specific background color #fdf6e3
+        assert_eq!(colors.background, "#fdf6e3");
+        assert_eq!(colors.foreground, "#657b83");
+    }
+
+    #[test]
+    fn test_theme_dracula() {
+        let colors = ColorScheme::dracula();
+        // Dracula has specific background color #282a36
+        assert_eq!(colors.background, "#282a36");
+        assert_eq!(colors.foreground, "#f8f8f2");
+    }
+
+    #[test]
+    fn test_theme_nord() {
+        let colors = ColorScheme::nord();
+        // Nord has specific background color #2e3440
+        assert_eq!(colors.background, "#2e3440");
+        assert_eq!(colors.foreground, "#d8dee9");
+    }
+
+    #[test]
+    fn test_ansi_colors_count() {
+        // All themes should have exactly 16 ANSI colors
+        for theme in ThemeName::all() {
+            let mut config = Config::default();
+            config.theme = *theme;
+            let colors = config.effective_colors();
+            assert_eq!(colors.ansi.len(), 16, "Theme {:?} should have 16 ANSI colors", theme);
+        }
+    }
+
+    #[test]
+    fn test_theme_cycle_returns_to_start() {
+        // Cycling through all themes should eventually return to the start
+        let start = ThemeName::Dark;
+        let mut current = start;
+        let mut count = 0;
+        loop {
+            current = current.next();
+            count += 1;
+            if current == start {
+                break;
+            }
+            // Safety: prevent infinite loop
+            assert!(count < 20, "Theme cycle should return to start within 20 iterations");
+        }
+        // Should cycle through all non-custom themes
+        assert_eq!(count, 6, "Should cycle through 6 themes");
+    }
 }
