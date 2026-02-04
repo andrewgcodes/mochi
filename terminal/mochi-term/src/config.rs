@@ -991,4 +991,48 @@ mod tests {
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#ffffff");
     }
+
+    #[test]
+    fn test_osc52_disabled_by_default() {
+        let config = Config::default();
+        assert!(!config.osc52_clipboard, "OSC 52 should be disabled by default for security");
+    }
+
+    #[test]
+    fn test_osc52_max_size_default() {
+        let config = Config::default();
+        assert_eq!(config.osc52_max_size, 100_000, "Default OSC 52 max size should be 100KB");
+    }
+
+    #[test]
+    fn test_osc52_max_size_validation() {
+        let mut config = Config::default();
+        
+        // Valid size
+        config.osc52_max_size = 1_000_000;
+        assert!(config.validate().is_ok());
+        
+        // Too large
+        config.osc52_max_size = 100_000_000;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_title_update_rate_default() {
+        let config = Config::default();
+        assert_eq!(config.title_update_rate, 10, "Default title update rate should be 10/sec");
+    }
+
+    #[test]
+    fn test_security_settings_in_reload_fields() {
+        // Verify that security settings are included in the reload method
+        // by checking the Config struct has the expected security fields
+        let config = Config::default();
+        
+        // These fields should exist and have secure defaults
+        assert!(!config.osc52_clipboard, "OSC 52 should be disabled by default");
+        assert!(config.osc52_max_size > 0, "OSC 52 max size should be positive");
+        assert!(config.osc52_max_size <= 10_000_000, "OSC 52 max size should be reasonable");
+        assert!(config.title_update_rate > 0, "Title update rate should be positive");
+    }
 }

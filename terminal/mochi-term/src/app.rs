@@ -1079,6 +1079,74 @@ impl App {
             // Could play a sound or flash the window
             log::debug!("Bell!");
         }
+
+        // Check for OSC 52 clipboard request
+        if let Some(request) = terminal.take_clipboard_request() {
+            self.handle_osc52_clipboard(&request);
+        }
+    }
+
+    /// Handle OSC 52 clipboard request with security checks
+    fn handle_osc52_clipboard(&mut self, request: &crate::terminal::ClipboardRequest) {
+        // Security check: OSC 52 must be explicitly enabled
+        if !self.config.osc52_clipboard {
+            log::warn!(
+                "OSC 52 clipboard request blocked (disabled in config). \
+                 Enable with osc52_clipboard = true in config or --osc52-clipboard flag"
+            );
+            return;
+        }
+
+        // Security check: payload size limit
+        if request.data.len() > self.config.osc52_max_size {
+            log::warn!(
+                "OSC 52 clipboard request blocked: payload size {} exceeds limit {}",
+                request.data.len(),
+                self.config.osc52_max_size
+            );
+            return;
+        }
+
+        let Some(clipboard) = &mut self.clipboard else {
+            log::warn!("OSC 52 clipboard request: clipboard not available");
+            return;
+        };
+
+        // Handle clipboard query (data = "?")
+        if request.data == "?" {
+            log::debug!("OSC 52 clipboard query (not implemented - would require writing to PTY)");
+            return;
+        }
+
+        // Decode base64 data
+        use base64::Engine;
+        let decoded = match base64::engine::general_purpose::STANDARD.decode(&request.data) {
+            Ok(data) => data,
+            Err(e) => {
+                log::warn!("OSC 52 clipboard: invalid base64 data: {}", e);
+                return;
+            }
+        };
+
+        // Convert to string
+        let text = match String::from_utf8(decoded) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("OSC 52 clipboard: invalid UTF-8 data: {}", e);
+                return;
+            }
+        };
+
+        // Set clipboard
+        if let Err(e) = clipboard.set_text(&text) {
+            log::warn!("OSC 52 clipboard: failed to set clipboard: {}", e);
+        } else {
+            log::info!(
+                "OSC 52 clipboard: set {} characters (target: {})",
+                text.len(),
+                request.target
+            );
+        }
     }
 
     /// Render the terminal
