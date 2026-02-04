@@ -11,20 +11,15 @@ use serde::{Deserialize, Serialize};
 /// - Default (terminal's default fg/bg)
 /// - Indexed colors (0-255, includes 16 standard + 216 cube + 24 grayscale)
 /// - True color (24-bit RGB)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Color {
     /// Terminal's default color
+    #[default]
     Default,
     /// Indexed color (0-15 standard, 16-231 color cube, 232-255 grayscale)
     Indexed(u8),
     /// True color RGB
     Rgb(u8, u8, u8),
-}
-
-impl Default for Color {
-    fn default() -> Self {
-        Color::Default
-    }
 }
 
 impl Color {

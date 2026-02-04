@@ -112,12 +112,10 @@ impl FontRenderer {
 
     /// Rasterize a character, using cache if available
     pub fn rasterize(&mut self, c: char) -> &RasterizedGlyph {
-        if !self.glyph_cache.contains_key(&c) {
+        self.glyph_cache.entry(c).or_insert_with(|| {
             let (metrics, bitmap) = self.font.rasterize(c, self.font_size);
-            self.glyph_cache
-                .insert(c, RasterizedGlyph { metrics, bitmap });
-        }
-        self.glyph_cache.get(&c).unwrap()
+            RasterizedGlyph { metrics, bitmap }
+        })
     }
 
     /// Rasterize a character and return owned data (for texture upload)

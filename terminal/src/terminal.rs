@@ -4,7 +4,7 @@
 //! to update the terminal state. This is the main integration point
 //! between parsing and the screen model.
 
-use crate::core::{Cell, Color, Screen, Style};
+use crate::core::{Color, Screen};
 use crate::parser::{Action, CsiAction, EscAction, OscAction, Parser, SgrAttribute};
 
 /// Terminal executor that processes parsed actions and updates the screen
@@ -89,7 +89,7 @@ impl Terminal {
                 // HT - Horizontal Tab
                 self.screen.tab();
             }
-            0x0A | 0x0B | 0x0C => {
+            0x0A..=0x0C => {
                 // LF, VT, FF - Line Feed (VT and FF treated as LF)
                 self.screen.linefeed();
             }

@@ -306,8 +306,6 @@ impl Parser {
             self.utf8_remaining = 0;
 
             // Emit replacement for incomplete sequence
-            let action = Some(Action::Print('\u{FFFD}'));
-
             // The current byte might be a new sequence start or control
             // We need to handle it, but we can only return one action
             // Store it for next iteration by recursively calling process_byte
@@ -315,7 +313,7 @@ impl Parser {
             // next call handle this byte. But we've already consumed it.
             // For simplicity, we'll just return the replacement.
             // A more complete implementation would queue the byte.
-            action
+            Some(Action::Print('\u{FFFD}'))
         }
     }
 

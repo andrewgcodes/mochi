@@ -18,7 +18,6 @@ use nix::libc;
 use nix::poll::{poll, PollFd, PollFlags};
 use nix::pty::{grantpt, posix_openpt, ptsname, unlockpt, PtyMaster};
 use nix::sys::signal::{self, Signal};
-use nix::sys::termios::{self, SetArg, Termios};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{close, dup2, execvp, fork, setsid, ForkResult, Pid};
 
@@ -128,7 +127,7 @@ impl Pty {
         // Set master to non-blocking
         let master_fd = master.as_raw_fd();
         fcntl(master_fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))
-            .map_err(|e| PtyError::Io(io::Error::new(io::ErrorKind::Other, e)))?;
+            .map_err(|e| PtyError::Io(io::Error::other(e)))?;
 
         // Fork the child process
         let child_pid = match unsafe { fork() }.map_err(PtyError::Fork)? {
@@ -258,12 +257,12 @@ impl Pty {
 
         // Get current flags
         let flags = fcntl(fd, FcntlArg::F_GETFL)
-            .map_err(|e| PtyError::Io(io::Error::new(io::ErrorKind::Other, e)))?;
+            .map_err(|e| PtyError::Io(io::Error::other(e)))?;
 
         // Remove O_NONBLOCK temporarily
         let flags_without_nonblock = OFlag::from_bits_truncate(flags) & !OFlag::O_NONBLOCK;
         fcntl(fd, FcntlArg::F_SETFL(flags_without_nonblock))
-            .map_err(|e| PtyError::Io(io::Error::new(io::ErrorKind::Other, e)))?;
+            .map_err(|e| PtyError::Io(io::Error::other(e)))?;
 
         let result = unsafe { libc::write(fd, data.as_ptr() as *const libc::c_void, data.len()) };
 
@@ -308,7 +307,7 @@ impl Pty {
             }
             Ok(_) => Ok(false),                         // Timeout
             Err(nix::errno::Errno::EINTR) => Ok(false), // Interrupted
-            Err(e) => Err(PtyError::Io(io::Error::new(io::ErrorKind::Other, e))),
+            Err(e) => Err(PtyError::Io(io::Error::other(e))),
         }
     }
 
@@ -356,7 +355,7 @@ impl Pty {
             Ok(WaitStatus::Exited(_, code)) => Ok(code),
             Ok(WaitStatus::Signaled(_, sig, _)) => Ok(128 + sig as i32),
             Ok(_) => Ok(0),
-            Err(e) => Err(PtyError::Io(io::Error::new(io::ErrorKind::Other, e))),
+            Err(e) => Err(PtyError::Io(io::Error::other(e))),
         }
     }
 

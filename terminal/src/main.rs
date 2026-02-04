@@ -2,7 +2,7 @@
 //!
 //! A real Linux terminal emulator built from scratch.
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;

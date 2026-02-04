@@ -3,8 +3,7 @@
 //! Manages the terminal window, event loop, and rendering pipeline.
 //! Uses winit for window management and software rendering.
 
-use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, MouseButton as WinitMouseButton, VirtualKeyCode};
+use winit::event::{MouseButton as WinitMouseButton, VirtualKeyCode};
 
 use crate::core::Color;
 use crate::input::{self, Key, Modifiers, MouseButton};
@@ -133,6 +132,7 @@ impl ColorPalette {
 /// The terminal window and renderer
 pub struct TerminalWindow {
     /// Window configuration
+    #[allow(dead_code)]
     config: WindowConfig,
     /// Font renderer
     font: FontRenderer,
@@ -330,6 +330,7 @@ impl SoftwareRenderer {
     }
 
     /// Draw a glyph bitmap at position with foreground color
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_glyph(
         &mut self,
         bitmap: &[u8],

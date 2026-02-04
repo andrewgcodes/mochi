@@ -74,7 +74,7 @@ impl Line {
     }
 
     /// Extract text content from the line
-    pub fn to_string(&self) -> String {
+    pub fn text_content(&self) -> String {
         let mut s = String::new();
         for cell in &self.cells {
             if cell.is_continuation() {
@@ -236,7 +236,7 @@ impl<'a> Iterator for ScrollbackIter<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for ScrollbackIter<'a> {}
+impl ExactSizeIterator for ScrollbackIter<'_> {}
 
 #[cfg(test)]
 mod tests {
@@ -264,7 +264,7 @@ mod tests {
         let mut line = Line::new(10);
         line.cells[0].set_char('H');
         line.cells[1].set_char('i');
-        assert_eq!(line.to_string(), "Hi");
+        assert_eq!(line.text_content(), "Hi");
     }
 
     #[test]

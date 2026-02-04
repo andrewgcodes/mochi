@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::cell::{Cell, Color, Style};
+use super::cell::Cell;
 use super::cursor::{Cursor, SavedCursor};
 use super::scrollback::{Line, Scrollback};
 
@@ -1097,9 +1097,9 @@ mod tests {
         }
 
         // "Hello" on first line, " Worl" on second, "d" on third
-        assert_eq!(screen.get_line(0).unwrap().to_string(), "Hello");
-        assert_eq!(screen.get_line(1).unwrap().to_string(), " Worl");
-        assert_eq!(screen.get_line(2).unwrap().to_string(), "d");
+        assert_eq!(screen.get_line(0).unwrap().text_content(), "Hello");
+        assert_eq!(screen.get_line(1).unwrap().text_content(), " Worl");
+        assert_eq!(screen.get_line(2).unwrap().text_content(), "d");
     }
 
     #[test]
@@ -1120,13 +1120,13 @@ mod tests {
         screen.carriage_return();
         screen.print_char('4');
 
-        assert_eq!(screen.get_line(0).unwrap().to_string(), "2");
-        assert_eq!(screen.get_line(1).unwrap().to_string(), "3");
-        assert_eq!(screen.get_line(2).unwrap().to_string(), "4");
+        assert_eq!(screen.get_line(0).unwrap().text_content(), "2");
+        assert_eq!(screen.get_line(1).unwrap().text_content(), "3");
+        assert_eq!(screen.get_line(2).unwrap().text_content(), "4");
 
         // Check scrollback
         assert_eq!(screen.scrollback().len(), 1);
-        assert_eq!(screen.scrollback().get(0).unwrap().to_string(), "1");
+        assert_eq!(screen.scrollback().get(0).unwrap().text_content(), "1");
     }
 
     #[test]
@@ -1144,9 +1144,9 @@ mod tests {
         screen.move_cursor_to(1, 5);
         screen.erase_in_display(0);
 
-        assert_eq!(screen.get_line(0).unwrap().to_string(), "XXXXXXXXXX");
-        assert_eq!(screen.get_line(1).unwrap().to_string(), "XXXXX");
-        assert_eq!(screen.get_line(2).unwrap().to_string(), "");
+        assert_eq!(screen.get_line(0).unwrap().text_content(), "XXXXXXXXXX");
+        assert_eq!(screen.get_line(1).unwrap().text_content(), "XXXXX");
+        assert_eq!(screen.get_line(2).unwrap().text_content(), "");
     }
 
     #[test]
@@ -1160,7 +1160,7 @@ mod tests {
         screen.move_cursor_to(0, 5);
         screen.erase_in_line(0); // Erase to end
 
-        assert_eq!(screen.get_line(0).unwrap().to_string(), "ABCDE");
+        assert_eq!(screen.get_line(0).unwrap().text_content(), "ABCDE");
     }
 
     #[test]
@@ -1197,11 +1197,11 @@ mod tests {
         screen.move_cursor_to(2, 0);
         screen.insert_lines(2);
 
-        assert_eq!(screen.get_line(0).unwrap().to_string(), "0");
-        assert_eq!(screen.get_line(1).unwrap().to_string(), "1");
-        assert_eq!(screen.get_line(2).unwrap().to_string(), "");
-        assert_eq!(screen.get_line(3).unwrap().to_string(), "");
-        assert_eq!(screen.get_line(4).unwrap().to_string(), "2");
+        assert_eq!(screen.get_line(0).unwrap().text_content(), "0");
+        assert_eq!(screen.get_line(1).unwrap().text_content(), "1");
+        assert_eq!(screen.get_line(2).unwrap().text_content(), "");
+        assert_eq!(screen.get_line(3).unwrap().text_content(), "");
+        assert_eq!(screen.get_line(4).unwrap().text_content(), "2");
     }
 
     #[test]
@@ -1216,12 +1216,12 @@ mod tests {
         screen.move_cursor_to(0, 3);
         screen.insert_chars(2);
 
-        assert_eq!(screen.get_line(0).unwrap().to_string(), "ABC  DEFGH");
+        assert_eq!(screen.get_line(0).unwrap().text_content(), "ABC  DEFGH");
 
         // Delete 2 chars at position 3
         screen.delete_chars(2);
 
-        assert_eq!(screen.get_line(0).unwrap().to_string(), "ABCDEFGH");
+        assert_eq!(screen.get_line(0).unwrap().text_content(), "ABCDEFGH");
     }
 
     #[test]
