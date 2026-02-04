@@ -96,6 +96,12 @@ pub struct Config {
     pub font_family: String,
     #[serde(default = "default_font_size")]
     pub font_size: f32,
+    /// Line height multiplier (1.0 = normal, 1.2 = 20% extra spacing)
+    #[serde(default = "default_line_height")]
+    pub line_height: f32,
+    /// Cell padding in pixels (horizontal, vertical)
+    #[serde(default = "default_cell_padding")]
+    pub cell_padding: (f32, f32),
     #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: usize,
     #[serde(default = "default_dimensions")]
@@ -124,6 +130,14 @@ fn default_font_family() -> String {
 
 fn default_font_size() -> f32 {
     14.0
+}
+
+fn default_line_height() -> f32 {
+    1.4
+}
+
+fn default_cell_padding() -> (f32, f32) {
+    (0.0, 0.0)
 }
 
 fn default_scrollback_lines() -> usize {
@@ -203,6 +217,8 @@ impl Default for Config {
         Self {
             font_family: default_font_family(),
             font_size: default_font_size(),
+            line_height: default_line_height(),
+            cell_padding: default_cell_padding(),
             scrollback_lines: default_scrollback_lines(),
             dimensions: default_dimensions(),
             theme: ThemeName::Dark,
@@ -363,6 +379,24 @@ impl Config {
             return Err(ConfigError::ValidationError(format!(
                 "font_size must be between 6 and 128, got {}",
                 self.font_size
+            )));
+        }
+        if self.line_height < 0.5 || self.line_height > 3.0 {
+            return Err(ConfigError::ValidationError(format!(
+                "line_height must be between 0.5 and 3.0, got {}",
+                self.line_height
+            )));
+        }
+        if self.cell_padding.0 < 0.0 || self.cell_padding.0 > 20.0 {
+            return Err(ConfigError::ValidationError(format!(
+                "cell_padding horizontal must be between 0 and 20, got {}",
+                self.cell_padding.0
+            )));
+        }
+        if self.cell_padding.1 < 0.0 || self.cell_padding.1 > 20.0 {
+            return Err(ConfigError::ValidationError(format!(
+                "cell_padding vertical must be between 0 and 20, got {}",
+                self.cell_padding.1
             )));
         }
         if self.dimensions.0 < 10 || self.dimensions.0 > 1000 {
