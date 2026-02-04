@@ -1,0 +1,57 @@
+[package]
+name = "mochi-term"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mochi Terminal Contributors"]
+description = "A terminal emulator built from scratch"
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+# Window creation and event handling
+winit = { version = "0.28", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
+# Software rendering (no GPU required)
+softbuffer = "0.2"
+# Font loading and rasterization
+fontdue = "0.8"
+# Clipboard integration - disable image feature to avoid moxcms
+arboard = { version = "3.2", default-features = false }
+# Logging
+log = "0.4"
+env_logger = "0.10"
+# Unicode width calculation
+unicode-width = "0.1"
+# Non-blocking IO
+polling = "3.3"
+# For PTY operations
+libc = "0.2"
+nix = { version = "0.27", features = ["term", "signal", "process", "fs"] }
+# Serialization for snapshots
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+# Testing
+proptest = "1.4"
+# Fuzzing support
+arbitrary = { version = "1.3", features = ["derive"] }
+
+[features]
+default = []
+fuzz = []
+
+[[bin]]
+name = "mochi-term"
+path = "src/main.rs"
+
+[[bin]]
+name = "pty-relay"
+path = "src/bin/pty_relay.rs"
+
+[[bin]]
+name = "headless-runner"
+path = "src/bin/headless_runner.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
