@@ -37,6 +37,18 @@ cursor_blink = true
 osc52_clipboard = false
 osc52_max_size = 100000  # Maximum payload size in bytes
 
+# Keybindings
+# Format: "modifier+modifier+key" (e.g., "ctrl+shift+c")
+# Available modifiers: ctrl, alt, shift, super (or cmd/meta)
+[keybindings]
+copy = "ctrl+shift+c"
+paste = "ctrl+shift+v"
+toggle_theme = "ctrl+shift+t"
+reload_config = "ctrl+shift+r"
+font_increase = "ctrl+="
+font_decrease = "ctrl+-"
+font_reset = "ctrl+0"
+
 # Custom color scheme (only used when theme = "custom")
 # All colors are specified as hex values with # prefix
 [colors]
