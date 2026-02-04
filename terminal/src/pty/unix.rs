@@ -222,7 +222,7 @@ impl Pty {
         Ok(n > 0
             && fds[0]
                 .revents()
-                .map_or(false, |r| r.contains(PollFlags::POLLIN)))
+                .is_some_and(|r| r.contains(PollFlags::POLLIN)))
     }
 
     /// Resize the PTY
@@ -233,7 +233,7 @@ impl Pty {
     /// Send a signal to the child process
     pub fn signal(&self, signal: nix::sys::signal::Signal) -> PtyResult<()> {
         nix::sys::signal::kill(self.child_pid, signal)
-            .map_err(|e| PtyError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))
+            .map_err(|e| PtyError::Io(std::io::Error::other(e)))
     }
 }
 
