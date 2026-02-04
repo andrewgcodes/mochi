@@ -687,7 +687,11 @@ impl Terminal {
             }
             OscAction::Clipboard { clipboard, data } => {
                 // OSC 52 clipboard - store for application layer to handle
-                log::debug!("OSC 52 clipboard request: target={}, data_len={}", clipboard, data.len());
+                log::debug!(
+                    "OSC 52 clipboard request: target={}, data_len={}",
+                    clipboard,
+                    data.len()
+                );
                 self.clipboard_request = Some(ClipboardRequest {
                     target: clipboard,
                     data,

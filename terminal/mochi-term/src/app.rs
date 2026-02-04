@@ -825,8 +825,8 @@ impl App {
         let double_click_threshold = std::time::Duration::from_millis(500);
 
         // Check for double/triple click
-        let same_position =
-            self.last_click_pos.0 == self.mouse_cell.0 && self.last_click_pos.1 == self.mouse_cell.1;
+        let same_position = self.last_click_pos.0 == self.mouse_cell.0
+            && self.last_click_pos.1 == self.mouse_cell.1;
 
         if same_position && now.duration_since(self.last_click_time) < double_click_threshold {
             self.click_count = (self.click_count % 3) + 1;
@@ -852,7 +852,10 @@ impl App {
         let Some(terminal) = &mut self.terminal else {
             return;
         };
-        terminal.screen_mut().selection_mut().start(point, selection_type);
+        terminal
+            .screen_mut()
+            .selection_mut()
+            .start(point, selection_type);
 
         // For word/line selection, expand to word/line boundaries
         let click_count = self.click_count;
