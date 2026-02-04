@@ -183,7 +183,7 @@ impl Pty {
             Err(nix::Error::EAGAIN) => {
                 Err(io::Error::new(io::ErrorKind::WouldBlock, "would block"))
             }
-            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+            Err(e) => Err(io::Error::other(e)),
         }
     }
 
@@ -193,7 +193,7 @@ impl Pty {
             Err(nix::Error::EAGAIN) => {
                 Err(io::Error::new(io::ErrorKind::WouldBlock, "would block"))
             }
-            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+            Err(e) => Err(io::Error::other(e)),
         }
     }
 
@@ -221,8 +221,7 @@ impl Pty {
 
     pub fn signal_child(&self, signal: Signal) -> Result<(), PtyError> {
         if let Some(pid) = self.child_pid {
-            signal::kill(pid, signal)
-                .map_err(|e| PtyError::Io(io::Error::new(io::ErrorKind::Other, e)))?;
+            signal::kill(pid, signal).map_err(|e| PtyError::Io(io::Error::other(e)))?;
         }
         Ok(())
     }
@@ -233,7 +232,7 @@ impl Pty {
                 Ok(WaitStatus::Exited(_, status)) => Ok(status),
                 Ok(WaitStatus::Signaled(_, signal, _)) => Err(PtyError::ChildKilled(signal as i32)),
                 Ok(_) => Ok(0),
-                Err(e) => Err(PtyError::Io(io::Error::new(io::ErrorKind::Other, e))),
+                Err(e) => Err(PtyError::Io(io::Error::other(e))),
             }
         } else {
             Ok(0)
