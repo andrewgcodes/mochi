@@ -555,6 +555,7 @@ impl App {
     /// Handle paste from clipboard
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
+            log::warn!("Clipboard not available for paste");
             return;
         };
         let Some(terminal) = &self.terminal else {
@@ -562,13 +563,20 @@ impl App {
         };
         let Some(child) = &mut self.child else { return };
 
-        if let Ok(text) = clipboard.get_text() {
-            let data = if terminal.screen().modes().bracketed_paste {
-                encode_bracketed_paste(&text)
-            } else {
-                text.into_bytes()
-            };
-            let _ = child.write_all(&data);
+        match clipboard.get_text() {
+            Ok(text) => {
+                let data = if terminal.screen().modes().bracketed_paste {
+                    encode_bracketed_paste(&text)
+                } else {
+                    text.into_bytes()
+                };
+                if let Err(e) = child.write_all(&data) {
+                    log::warn!("Failed to write paste data to PTY: {}", e);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to get clipboard text: {}", e);
+            }
         }
     }
 
