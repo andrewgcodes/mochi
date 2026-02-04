@@ -326,7 +326,9 @@ impl App {
         // macOS-specific: Cmd+C/V for copy/paste (standard macOS shortcuts)
         // This is in addition to Ctrl+Shift+C/V which also works
         #[cfg(target_os = "macos")]
-        if self.modifiers.super_key() && !self.modifiers.shift_key() && !self.modifiers.control_key()
+        if self.modifiers.super_key()
+            && !self.modifiers.shift_key()
+            && !self.modifiers.control_key()
         {
             match &event.logical_key {
                 // Copy: Cmd+C
