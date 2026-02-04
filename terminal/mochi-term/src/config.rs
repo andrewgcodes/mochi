@@ -174,6 +174,71 @@ impl Default for KeybindingsConfig {
     }
 }
 
+/// Parsed keybinding with modifiers and key
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedKeybinding {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub super_key: bool,
+    pub key: String,
+}
+
+impl ParsedKeybinding {
+    /// Parse a keybinding string like "ctrl+shift+c" into its components
+    pub fn parse(s: &str) -> Option<Self> {
+        let lowercase = s.to_lowercase();
+        let parts: Vec<&str> = lowercase.split('+').collect();
+        if parts.is_empty() {
+            return None;
+        }
+
+        let mut ctrl = false;
+        let mut shift = false;
+        let mut alt = false;
+        let mut super_key = false;
+        let mut key = String::new();
+
+        for (i, part) in parts.iter().enumerate() {
+            let part = part.trim();
+            if i == parts.len() - 1 {
+                // Last part is the key
+                key = part.to_string();
+            } else {
+                // Modifier
+                match part {
+                    "ctrl" | "control" => ctrl = true,
+                    "shift" => shift = true,
+                    "alt" => alt = true,
+                    "super" | "meta" | "cmd" | "win" => super_key = true,
+                    _ => return None, // Unknown modifier
+                }
+            }
+        }
+
+        if key.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            ctrl,
+            shift,
+            alt,
+            super_key,
+            key,
+        })
+    }
+
+    /// Check if this keybinding matches the given modifiers and key
+    pub fn matches(&self, ctrl: bool, shift: bool, alt: bool, super_key: bool, key: &str) -> bool {
+        self.ctrl == ctrl
+            && self.shift == shift
+            && self.alt == alt
+            && self.super_key == super_key
+            && self.key == key.to_lowercase()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FontConfig {
     #[serde(default = "default_font_family")]
@@ -659,5 +724,58 @@ mod tests {
             ColorScheme::gruvbox(), ColorScheme::onedark(),
         ];
         for theme in &themes { assert!(theme.validate().is_ok()); }
+    }
+
+    #[test]
+    fn test_parse_keybinding_simple() {
+        let kb = ParsedKeybinding::parse("ctrl+shift+c").unwrap();
+        assert!(kb.ctrl);
+        assert!(kb.shift);
+        assert!(!kb.alt);
+        assert!(!kb.super_key);
+        assert_eq!(kb.key, "c");
+    }
+
+    #[test]
+    fn test_parse_keybinding_single_key() {
+        let kb = ParsedKeybinding::parse("f1").unwrap();
+        assert!(!kb.ctrl);
+        assert!(!kb.shift);
+        assert!(!kb.alt);
+        assert!(!kb.super_key);
+        assert_eq!(kb.key, "f1");
+    }
+
+    #[test]
+    fn test_parse_keybinding_all_modifiers() {
+        let kb = ParsedKeybinding::parse("ctrl+shift+alt+super+x").unwrap();
+        assert!(kb.ctrl);
+        assert!(kb.shift);
+        assert!(kb.alt);
+        assert!(kb.super_key);
+        assert_eq!(kb.key, "x");
+    }
+
+    #[test]
+    fn test_parse_keybinding_case_insensitive() {
+        let kb = ParsedKeybinding::parse("CTRL+SHIFT+C").unwrap();
+        assert!(kb.ctrl);
+        assert!(kb.shift);
+        assert_eq!(kb.key, "c");
+    }
+
+    #[test]
+    fn test_keybinding_matches() {
+        let kb = ParsedKeybinding::parse("ctrl+shift+t").unwrap();
+        assert!(kb.matches(true, true, false, false, "t"));
+        assert!(kb.matches(true, true, false, false, "T"));
+        assert!(!kb.matches(true, false, false, false, "t")); // missing shift
+        assert!(!kb.matches(false, true, false, false, "t")); // missing ctrl
+    }
+
+    #[test]
+    fn test_parse_keybinding_invalid() {
+        assert!(ParsedKeybinding::parse("").is_none());
+        assert!(ParsedKeybinding::parse("unknown+c").is_none());
     }
 }
