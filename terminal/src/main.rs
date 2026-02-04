@@ -351,8 +351,9 @@ fn render_terminal(
 
                 // Fill cell background if not default
                 if bg_color != palette.background || cell.style.inverse {
-                    let bg_pixel =
-                        ((bg_color[0] as u32) << 16) | ((bg_color[1] as u32) << 8) | (bg_color[2] as u32);
+                    let bg_pixel = ((bg_color[0] as u32) << 16)
+                        | ((bg_color[1] as u32) << 8)
+                        | (bg_color[2] as u32);
                     for py in 0..cell_height {
                         for px in 0..cell_width {
                             let idx = ((y + py) * width + (x + px)) as usize;
@@ -419,8 +420,9 @@ fn render_terminal(
                     for px in 0..cell_width {
                         let idx = (underline_y * width + x + px) as usize;
                         if idx < buffer.len() {
-                            buffer[idx] =
-                                ((fg_color[0] as u32) << 16) | ((fg_color[1] as u32) << 8) | (fg_color[2] as u32);
+                            buffer[idx] = ((fg_color[0] as u32) << 16)
+                                | ((fg_color[1] as u32) << 8)
+                                | (fg_color[2] as u32);
                         }
                     }
                 }
@@ -718,7 +720,8 @@ fn main() {
 
                     // Render terminal to buffer
                     if let (Ok(term), Some(font)) = (app.terminal.lock(), app.font.as_mut()) {
-                        let pixels = render_terminal(&term, font, &palette, size.width, size.height);
+                        let pixels =
+                            render_terminal(&term, font, &palette, size.width, size.height);
 
                         // Copy to surface buffer
                         let mut buffer = surface.buffer_mut().expect("Failed to get buffer");
