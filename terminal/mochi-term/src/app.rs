@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::Config;
+use crate::config::{Config, ThemeName};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -223,6 +223,25 @@ impl App {
             return;
         }
 
+        // Check for Ctrl+Shift shortcuts (theme toggle, copy, paste, etc.)
+        if self.modifiers.control_key() && self.modifiers.shift_key() {
+            match &event.logical_key {
+                Key::Character(c) if c.to_lowercase() == "t" => {
+                    self.toggle_theme();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.copy_selection();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
@@ -330,6 +349,116 @@ impl App {
         }
 
         self.needs_redraw = true;
+    }
+
+    /// Toggle to the next theme (Ctrl+Shift+T)
+    fn toggle_theme(&mut self) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+        let Some(window) = &self.window else { return };
+
+        // Cycle to next theme
+        let current_theme = self.config.theme;
+        let new_theme = current_theme.next();
+        self.config.theme = new_theme;
+
+        // Update renderer colors
+        let new_colors = self.config.effective_colors();
+        renderer.set_colors(new_colors);
+
+        // Update window title to show current theme
+        let title = format!("Mochi Terminal - {}", new_theme.display_name());
+        window.set_title(&title);
+
+        log::info!("Theme switched to: {}", new_theme.display_name());
+
+        self.needs_redraw = true;
+    }
+
+    /// Copy selection to clipboard (Ctrl+Shift+C)
+    fn copy_selection(&mut self) {
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if !selection.active {
+            return;
+        }
+
+        // Extract selected text from screen
+        let text = Self::extract_selected_text_static(screen, selection);
+        if text.is_empty() {
+            return;
+        }
+
+        // Now borrow clipboard separately
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+
+        if let Err(e) = clipboard.set_text(&text) {
+            log::warn!("Failed to copy to clipboard: {}", e);
+        } else {
+            log::debug!("Copied {} characters to clipboard", text.len());
+        }
+    }
+
+    /// Extract text from the current selection (static version to avoid borrow issues)
+    fn extract_selected_text_static(
+        screen: &terminal_core::Screen,
+        selection: &terminal_core::Selection,
+    ) -> String {
+        if !selection.active {
+            return String::new();
+        }
+
+        let (start, end) = selection.bounds();
+        let mut text = String::new();
+        let cols = screen.cols();
+
+        for row in start.row..=end.row {
+            if row < 0 {
+                // Scrollback - skip for now, will be implemented in M5
+                continue;
+            }
+
+            let row_idx = row as usize;
+            if row_idx >= screen.rows() {
+                continue;
+            }
+
+            let line = screen.line(row_idx);
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col.min(cols - 1)
+            } else {
+                cols - 1
+            };
+
+            for col in start_col..=end_col {
+                if col < line.cols() {
+                    let cell = line.cell(col);
+                    if !cell.is_continuation() {
+                        text.push(cell.display_char());
+                    }
+                }
+            }
+
+            // Add newline between rows (except for the last row)
+            if row < end.row {
+                text.push('\n');
+            }
+        }
+
+        // Trim trailing whitespace from each line
+        text.lines()
+            .map(|line| line.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Handle mouse input

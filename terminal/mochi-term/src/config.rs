@@ -135,6 +135,32 @@ impl ThemeName {
             "nord",
         ]
     }
+
+    /// Cycle to the next theme (skips Custom)
+    pub fn next(&self) -> Self {
+        match self {
+            Self::Dark => Self::Light,
+            Self::Light => Self::SolarizedDark,
+            Self::SolarizedDark => Self::SolarizedLight,
+            Self::SolarizedLight => Self::Dracula,
+            Self::Dracula => Self::Nord,
+            Self::Nord => Self::Dark,
+            Self::Custom => Self::Dark, // Custom cycles to Dark
+        }
+    }
+
+    /// Get display name for the theme
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Dark => "Dark",
+            Self::Light => "Light",
+            Self::SolarizedDark => "Solarized Dark",
+            Self::SolarizedLight => "Solarized Light",
+            Self::Dracula => "Dracula",
+            Self::Nord => "Nord",
+            Self::Custom => "Custom",
+        }
+    }
 }
 
 /// Terminal configuration
@@ -938,5 +964,29 @@ mod tests {
         assert!(names.contains(&"solarized-light"));
         assert!(names.contains(&"dracula"));
         assert!(names.contains(&"nord"));
+    }
+
+    #[test]
+    fn test_theme_cycling() {
+        // Test that themes cycle correctly
+        assert_eq!(ThemeName::Dark.next(), ThemeName::Light);
+        assert_eq!(ThemeName::Light.next(), ThemeName::SolarizedDark);
+        assert_eq!(ThemeName::SolarizedDark.next(), ThemeName::SolarizedLight);
+        assert_eq!(ThemeName::SolarizedLight.next(), ThemeName::Dracula);
+        assert_eq!(ThemeName::Dracula.next(), ThemeName::Nord);
+        assert_eq!(ThemeName::Nord.next(), ThemeName::Dark);
+        // Custom should cycle back to Dark
+        assert_eq!(ThemeName::Custom.next(), ThemeName::Dark);
+    }
+
+    #[test]
+    fn test_theme_display_names() {
+        assert_eq!(ThemeName::Dark.display_name(), "Dark");
+        assert_eq!(ThemeName::Light.display_name(), "Light");
+        assert_eq!(ThemeName::SolarizedDark.display_name(), "Solarized Dark");
+        assert_eq!(ThemeName::SolarizedLight.display_name(), "Solarized Light");
+        assert_eq!(ThemeName::Dracula.display_name(), "Dracula");
+        assert_eq!(ThemeName::Nord.display_name(), "Nord");
+        assert_eq!(ThemeName::Custom.display_name(), "Custom");
     }
 }
