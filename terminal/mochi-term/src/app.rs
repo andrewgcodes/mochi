@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::{Config, ThemeName};
+use crate::config::{Config, KeyAction};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -225,64 +225,79 @@ impl App {
             return;
         }
 
-        // Check for Ctrl+Shift shortcuts (app-level keybindings)
-        let ctrl_shift = self.modifiers.control_key() && self.modifiers.shift_key();
+        // Extract key name for keybinding matching
+        let key_name = match &event.logical_key {
+            Key::Character(c) => c.to_uppercase(),
+            Key::Named(NamedKey::Enter) => "ENTER".to_string(),
+            Key::Named(NamedKey::Escape) => "ESCAPE".to_string(),
+            Key::Named(NamedKey::Tab) => "TAB".to_string(),
+            Key::Named(NamedKey::Space) => "SPACE".to_string(),
+            Key::Named(NamedKey::Backspace) => "BACKSPACE".to_string(),
+            Key::Named(NamedKey::Delete) => "DELETE".to_string(),
+            Key::Named(NamedKey::ArrowUp) => "UP".to_string(),
+            Key::Named(NamedKey::ArrowDown) => "DOWN".to_string(),
+            Key::Named(NamedKey::ArrowLeft) => "LEFT".to_string(),
+            Key::Named(NamedKey::ArrowRight) => "RIGHT".to_string(),
+            Key::Named(NamedKey::Home) => "HOME".to_string(),
+            Key::Named(NamedKey::End) => "END".to_string(),
+            Key::Named(NamedKey::PageUp) => "PAGEUP".to_string(),
+            Key::Named(NamedKey::PageDown) => "PAGEDOWN".to_string(),
+            Key::Named(NamedKey::F1) => "F1".to_string(),
+            Key::Named(NamedKey::F2) => "F2".to_string(),
+            Key::Named(NamedKey::F3) => "F3".to_string(),
+            Key::Named(NamedKey::F4) => "F4".to_string(),
+            Key::Named(NamedKey::F5) => "F5".to_string(),
+            Key::Named(NamedKey::F6) => "F6".to_string(),
+            Key::Named(NamedKey::F7) => "F7".to_string(),
+            Key::Named(NamedKey::F8) => "F8".to_string(),
+            Key::Named(NamedKey::F9) => "F9".to_string(),
+            Key::Named(NamedKey::F10) => "F10".to_string(),
+            Key::Named(NamedKey::F11) => "F11".to_string(),
+            Key::Named(NamedKey::F12) => "F12".to_string(),
+            _ => String::new(),
+        };
 
-        if ctrl_shift {
-            match &event.logical_key {
-                // Ctrl+Shift+T: Toggle theme
-                Key::Character(c) if c.to_uppercase() == "T" => {
-                    self.toggle_theme();
-                    return;
-                }
-                // Ctrl+Shift+R: Reload config
-                Key::Character(c) if c.to_uppercase() == "R" => {
-                    self.reload_config();
-                    return;
-                }
-                // Ctrl+Shift+C: Copy (placeholder for now)
-                Key::Character(c) if c.to_uppercase() == "C" => {
-                    self.copy_selection();
-                    return;
-                }
-                // Ctrl+Shift+V: Paste
-                Key::Character(c) if c.to_uppercase() == "V" => {
-                    self.handle_paste();
-                    return;
-                }
-                _ => {}
-            }
-        }
+        // Check for configurable keybindings
+        let ctrl = self.modifiers.control_key();
+        let alt = self.modifiers.alt_key();
+        let shift = self.modifiers.shift_key();
 
-        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
-        #[cfg(target_os = "macos")]
-        let zoom_modifier = self.modifiers.super_key();
-        #[cfg(not(target_os = "macos"))]
-        let zoom_modifier = self.modifiers.control_key();
-
-        if zoom_modifier && !self.modifiers.shift_key() {
-            match &event.logical_key {
-                Key::Character(c) if c == "=" || c == "+" => {
-                    self.change_font_size(2.0);
-                    return;
+        if !key_name.is_empty() {
+            if let Some(action) = self.config.keybindings.match_key(ctrl, alt, shift, &key_name) {
+                match action {
+                    KeyAction::Copy => {
+                        self.copy_selection();
+                        return;
+                    }
+                    KeyAction::Paste => {
+                        self.handle_paste();
+                        return;
+                    }
+                    KeyAction::ToggleTheme => {
+                        self.toggle_theme();
+                        return;
+                    }
+                    KeyAction::ReloadConfig => {
+                        self.reload_config();
+                        return;
+                    }
+                    KeyAction::Find => {
+                        log::info!("Find action triggered (not yet implemented)");
+                        return;
+                    }
+                    KeyAction::ZoomIn => {
+                        self.change_font_size(2.0);
+                        return;
+                    }
+                    KeyAction::ZoomOut => {
+                        self.change_font_size(-2.0);
+                        return;
+                    }
+                    KeyAction::ZoomReset => {
+                        self.reset_font_size();
+                        return;
+                    }
                 }
-                Key::Character(c) if c == "-" => {
-                    self.change_font_size(-2.0);
-                    return;
-                }
-                Key::Character(c) if c == "0" => {
-                    self.reset_font_size();
-                    return;
-                }
-                Key::Named(NamedKey::ArrowUp) => {
-                    self.change_font_size(2.0);
-                    return;
-                }
-                Key::Named(NamedKey::ArrowDown) => {
-                    self.change_font_size(-2.0);
-                    return;
-                }
-                _ => {}
             }
         }
 

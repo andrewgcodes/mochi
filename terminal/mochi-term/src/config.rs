@@ -89,6 +89,188 @@ impl ThemeName {
     }
 }
 
+/// Keybinding configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Keybindings {
+    /// Copy selection to clipboard (default: Ctrl+Shift+C)
+    #[serde(default = "default_keybind_copy")]
+    pub copy: String,
+    /// Paste from clipboard (default: Ctrl+Shift+V)
+    #[serde(default = "default_keybind_paste")]
+    pub paste: String,
+    /// Toggle theme (default: Ctrl+Shift+T)
+    #[serde(default = "default_keybind_toggle_theme")]
+    pub toggle_theme: String,
+    /// Reload configuration (default: Ctrl+Shift+R)
+    #[serde(default = "default_keybind_reload_config")]
+    pub reload_config: String,
+    /// Open search/find bar (default: Ctrl+Shift+F)
+    #[serde(default = "default_keybind_find")]
+    pub find: String,
+    /// Increase font size (default: Ctrl+Plus)
+    #[serde(default = "default_keybind_zoom_in")]
+    pub zoom_in: String,
+    /// Decrease font size (default: Ctrl+Minus)
+    #[serde(default = "default_keybind_zoom_out")]
+    pub zoom_out: String,
+    /// Reset font size (default: Ctrl+0)
+    #[serde(default = "default_keybind_zoom_reset")]
+    pub zoom_reset: String,
+}
+
+fn default_keybind_copy() -> String {
+    "Ctrl+Shift+C".to_string()
+}
+
+fn default_keybind_paste() -> String {
+    "Ctrl+Shift+V".to_string()
+}
+
+fn default_keybind_toggle_theme() -> String {
+    "Ctrl+Shift+T".to_string()
+}
+
+fn default_keybind_reload_config() -> String {
+    "Ctrl+Shift+R".to_string()
+}
+
+fn default_keybind_find() -> String {
+    "Ctrl+Shift+F".to_string()
+}
+
+fn default_keybind_zoom_in() -> String {
+    "Ctrl+Plus".to_string()
+}
+
+fn default_keybind_zoom_out() -> String {
+    "Ctrl+Minus".to_string()
+}
+
+fn default_keybind_zoom_reset() -> String {
+    "Ctrl+0".to_string()
+}
+
+impl Default for Keybindings {
+    fn default() -> Self {
+        Self {
+            copy: default_keybind_copy(),
+            paste: default_keybind_paste(),
+            toggle_theme: default_keybind_toggle_theme(),
+            reload_config: default_keybind_reload_config(),
+            find: default_keybind_find(),
+            zoom_in: default_keybind_zoom_in(),
+            zoom_out: default_keybind_zoom_out(),
+            zoom_reset: default_keybind_zoom_reset(),
+        }
+    }
+}
+
+/// Parsed keybinding for matching against key events
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedKeybinding {
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub key: String,
+}
+
+impl ParsedKeybinding {
+    /// Parse a keybinding string like "Ctrl+Shift+C" into components
+    pub fn parse(s: &str) -> Option<Self> {
+        let mut ctrl = false;
+        let mut alt = false;
+        let mut shift = false;
+        let mut key = String::new();
+
+        for part in s.split('+') {
+            let part = part.trim();
+            match part.to_lowercase().as_str() {
+                "ctrl" | "control" => ctrl = true,
+                "alt" => alt = true,
+                "shift" => shift = true,
+                "super" | "meta" | "cmd" => {} // Ignore super/meta for now
+                _ => key = part.to_uppercase(),
+            }
+        }
+
+        if key.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            ctrl,
+            alt,
+            shift,
+            key,
+        })
+    }
+
+    /// Check if this keybinding matches the given modifiers and key
+    pub fn matches(&self, ctrl: bool, alt: bool, shift: bool, key: &str) -> bool {
+        self.ctrl == ctrl && self.alt == alt && self.shift == shift && self.key == key.to_uppercase()
+    }
+}
+
+/// Actions that can be triggered by keybindings
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyAction {
+    Copy,
+    Paste,
+    ToggleTheme,
+    ReloadConfig,
+    Find,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+}
+
+impl Keybindings {
+    /// Match a key event against configured keybindings and return the action
+    pub fn match_key(&self, ctrl: bool, alt: bool, shift: bool, key: &str) -> Option<KeyAction> {
+        if let Some(kb) = ParsedKeybinding::parse(&self.copy) {
+            if kb.matches(ctrl, alt, shift, key) {
+                return Some(KeyAction::Copy);
+            }
+        }
+        if let Some(kb) = ParsedKeybinding::parse(&self.paste) {
+            if kb.matches(ctrl, alt, shift, key) {
+                return Some(KeyAction::Paste);
+            }
+        }
+        if let Some(kb) = ParsedKeybinding::parse(&self.toggle_theme) {
+            if kb.matches(ctrl, alt, shift, key) {
+                return Some(KeyAction::ToggleTheme);
+            }
+        }
+        if let Some(kb) = ParsedKeybinding::parse(&self.reload_config) {
+            if kb.matches(ctrl, alt, shift, key) {
+                return Some(KeyAction::ReloadConfig);
+            }
+        }
+        if let Some(kb) = ParsedKeybinding::parse(&self.find) {
+            if kb.matches(ctrl, alt, shift, key) {
+                return Some(KeyAction::Find);
+            }
+        }
+        if let Some(kb) = ParsedKeybinding::parse(&self.zoom_in) {
+            if kb.matches(ctrl, alt, shift, key) {
+                return Some(KeyAction::ZoomIn);
+            }
+        }
+        if let Some(kb) = ParsedKeybinding::parse(&self.zoom_out) {
+            if kb.matches(ctrl, alt, shift, key) {
+                return Some(KeyAction::ZoomOut);
+            }
+        }
+        if let Some(kb) = ParsedKeybinding::parse(&self.zoom_reset) {
+            if kb.matches(ctrl, alt, shift, key) {
+                return Some(KeyAction::ZoomReset);
+            }
+        }
+        None
+    }
+}
+
 /// Terminal configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -112,6 +294,8 @@ pub struct Config {
     pub theme_file: Option<String>,
     #[serde(default)]
     pub colors: ColorScheme,
+    #[serde(default)]
+    pub keybindings: Keybindings,
     #[serde(default)]
     pub osc52_clipboard: bool,
     #[serde(default = "default_osc52_max_size")]
@@ -224,6 +408,7 @@ impl Default for Config {
             theme: ThemeName::Dark,
             theme_file: None,
             colors: ColorScheme::default(),
+            keybindings: Keybindings::default(),
             osc52_clipboard: false,
             osc52_max_size: default_osc52_max_size(),
             shell: None,
