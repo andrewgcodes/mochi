@@ -103,6 +103,8 @@ pub struct Config {
     #[serde(default)]
     pub theme: ThemeName,
     #[serde(default)]
+    pub theme_file: Option<String>,
+    #[serde(default)]
     pub colors: ColorScheme,
     #[serde(default)]
     pub osc52_clipboard: bool,
@@ -204,6 +206,7 @@ impl Default for Config {
             scrollback_lines: default_scrollback_lines(),
             dimensions: default_dimensions(),
             theme: ThemeName::Dark,
+            theme_file: None,
             colors: ColorScheme::default(),
             osc52_clipboard: false,
             osc52_max_size: default_osc52_max_size(),
@@ -216,6 +219,17 @@ impl Default for Config {
 
 impl Config {
     pub fn effective_colors(&self) -> ColorScheme {
+        // If a theme file is specified, try to load it
+        if let Some(ref theme_path) = self.theme_file {
+            match ColorScheme::load_from_file(theme_path) {
+                Ok(scheme) => return scheme,
+                Err(e) => {
+                    log::warn!("Failed to load theme file '{}': {}", theme_path, e);
+                    // Fall through to built-in themes
+                }
+            }
+        }
+
         match self.theme {
             ThemeName::Custom => self.colors.clone(),
             ThemeName::Dark => ColorScheme::dark(),
@@ -396,6 +410,33 @@ impl Config {
 }
 
 impl ColorScheme {
+    /// Load a color scheme from a TOML file
+    pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
+        let path = PathBuf::from(path);
+        
+        // Handle relative paths - look in themes directory
+        let full_path = if path.is_absolute() {
+            path
+        } else {
+            // Try XDG config dir first
+            if let Some(config_dir) = dirs::config_dir() {
+                let theme_path = config_dir.join("mochi").join("themes").join(&path);
+                if theme_path.exists() {
+                    theme_path
+                } else {
+                    path
+                }
+            } else {
+                path
+            }
+        };
+
+        let content = fs::read_to_string(&full_path).map_err(ConfigError::ReadError)?;
+        let scheme: ColorScheme = toml::from_str(&content).map_err(ConfigError::ParseError)?;
+        scheme.validate()?;
+        Ok(scheme)
+    }
+
     fn validate(&self) -> Result<(), ConfigError> {
         if Self::parse_hex(&self.foreground).is_none() {
             return Err(ConfigError::ValidationError(format!(
