@@ -784,7 +784,6 @@ impl Screen {
         let charset = parse_charset_designation(designation);
         self.charset.set_slot(slot, charset);
     }
-
 }
 
 #[cfg(test)]

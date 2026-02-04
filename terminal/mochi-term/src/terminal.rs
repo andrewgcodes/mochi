@@ -679,7 +679,10 @@ impl Terminal {
             OscAction::Clipboard { clipboard: _, data } => {
                 // OSC 52 clipboard - disabled by default for security
                 // This should be handled by the application layer with proper security checks
-                log::debug!("OSC 52 clipboard blocked: {} bytes (disabled by default)", data.len());
+                log::debug!(
+                    "OSC 52 clipboard blocked: {} bytes (disabled by default)",
+                    data.len()
+                );
             }
             OscAction::SetColor { index, color } => {
                 log::debug!("Set color {}: {}", index, color);
