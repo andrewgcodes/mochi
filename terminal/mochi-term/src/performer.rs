@@ -7,9 +7,14 @@ use log::{debug, trace};
 use mochi_core::{Attributes, Color, Screen};
 use mochi_parser::{action::c0, Action, Params};
 
+use std::collections::HashMap;
+
 pub struct Performer {
     current_hyperlink_id: Option<u32>,
     next_hyperlink_id: u32,
+    hyperlinks: HashMap<u32, String>,
+    osc52_enabled: bool,
+    osc52_max_size: usize,
 }
 
 impl Performer {
@@ -17,7 +22,25 @@ impl Performer {
         Performer {
             current_hyperlink_id: None,
             next_hyperlink_id: 1,
+            hyperlinks: HashMap::new(),
+            osc52_enabled: false,
+            osc52_max_size: 100_000,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn set_osc52_enabled(&mut self, enabled: bool) {
+        self.osc52_enabled = enabled;
+    }
+
+    #[allow(dead_code)]
+    pub fn get_hyperlink(&self, id: u32) -> Option<&String> {
+        self.hyperlinks.get(&id)
+    }
+
+    #[allow(dead_code)]
+    pub fn current_hyperlink_id(&self) -> Option<u32> {
+        self.current_hyperlink_id
     }
 
     pub fn perform(&mut self, screen: &mut Screen, action: Action) {
@@ -582,21 +605,93 @@ impl Performer {
                 debug!("Set title: {}", payload);
             }
             8 => {
-                if payload.is_empty() {
-                    self.current_hyperlink_id = None;
-                } else {
-                    self.current_hyperlink_id = Some(self.next_hyperlink_id);
-                    self.next_hyperlink_id += 1;
-                    debug!("Hyperlink: {}", payload);
-                }
+                // OSC 8 hyperlink format: OSC 8 ; params ; URI ST
+                // params can include id=xxx for explicit link IDs
+                // Empty URI ends the hyperlink
+                self.handle_osc8_hyperlink(payload);
             }
             52 => {
-                debug!(
-                    "OSC 52 clipboard operation (security-sensitive, not implemented by default)"
-                );
+                // OSC 52 clipboard format: OSC 52 ; Pc ; Pd ST
+                // Pc = clipboard selection (c = clipboard, p = primary, etc.)
+                // Pd = base64 encoded data (or ? to query)
+                self.handle_osc52_clipboard(payload);
             }
             _ => {
                 debug!("Unknown OSC command {}: {}", command, payload);
+            }
+        }
+    }
+
+    fn handle_osc8_hyperlink(&mut self, payload: &str) {
+        // Format: params;URI
+        // params can be empty or contain key=value pairs separated by :
+        // URI can be empty to end the hyperlink
+        let parts: Vec<&str> = payload.splitn(2, ';').collect();
+        let uri = if parts.len() == 2 { parts[1] } else { "" };
+
+        if uri.is_empty() {
+            // End hyperlink
+            self.current_hyperlink_id = None;
+            debug!("End hyperlink");
+        } else {
+            // Start new hyperlink
+            let id = self.next_hyperlink_id;
+            self.next_hyperlink_id += 1;
+            self.hyperlinks.insert(id, uri.to_string());
+            self.current_hyperlink_id = Some(id);
+            debug!("Start hyperlink id={}: {}", id, uri);
+        }
+    }
+
+    fn handle_osc52_clipboard(&mut self, payload: &str) {
+        // Format: selection;data
+        // selection: c=clipboard, p=primary, q=secondary, s=select, 0-7=cut buffers
+        // data: base64 encoded text, or ? to query
+
+        if !self.osc52_enabled {
+            debug!("OSC 52 clipboard operation blocked (disabled for security)");
+            return;
+        }
+
+        let parts: Vec<&str> = payload.splitn(2, ';').collect();
+        if parts.len() != 2 {
+            debug!("Invalid OSC 52 format");
+            return;
+        }
+
+        let _selection = parts[0];
+        let data = parts[1];
+
+        if data == "?" {
+            // Query clipboard - not supported for security reasons
+            debug!("OSC 52 clipboard query not supported");
+            return;
+        }
+
+        // Check size limit
+        if data.len() > self.osc52_max_size {
+            debug!(
+                "OSC 52 data too large ({} > {})",
+                data.len(),
+                self.osc52_max_size
+            );
+            return;
+        }
+
+        // Decode base64
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        match STANDARD.decode(data) {
+            Ok(decoded) => {
+                if let Ok(text) = String::from_utf8(decoded) {
+                    debug!("OSC 52 clipboard set: {} bytes", text.len());
+                    // Note: Actual clipboard setting would be done by the renderer
+                    // which has access to the clipboard. We just log here.
+                } else {
+                    debug!("OSC 52 data is not valid UTF-8");
+                }
+            }
+            Err(e) => {
+                debug!("OSC 52 base64 decode error: {}", e);
             }
         }
     }

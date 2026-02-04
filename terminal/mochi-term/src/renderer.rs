@@ -638,6 +638,7 @@ pub struct TerminalApp {
     pub scroll_offset: i64,
     pub mouse_col: u16,
     pub mouse_row: u16,
+    pub last_title: String,
 }
 
 impl ApplicationHandler for TerminalApp {
@@ -687,6 +688,14 @@ impl ApplicationHandler for TerminalApp {
             }
             WindowEvent::RedrawRequested => {
                 self.process_pty();
+
+                // Update window title if changed (OSC 0/2)
+                if self.screen.title != self.last_title {
+                    self.last_title = self.screen.title.clone();
+                    if let Some(window) = &self.renderer.window {
+                        window.set_title(&self.last_title);
+                    }
+                }
 
                 self.renderer.update_screen(&self.screen);
 
@@ -1111,6 +1120,7 @@ pub fn run_terminal(cols: usize, rows: usize) -> Result<(), Box<dyn std::error::
         scroll_offset: 0,
         mouse_col: 0,
         mouse_row: 0,
+        last_title: String::from("Mochi Terminal"),
     };
 
     event_loop.run_app(&mut app)?;

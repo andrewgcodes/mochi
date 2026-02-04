@@ -26,5 +26,6 @@ mochi-core = { path = "../mochi-core" }
 mochi-parser = { path = "../mochi-parser" }
 mochi-pty = { path = "../mochi-pty" }
 arboard = { version = "3.2", default-features = false }
+base64 = "0.21"
 
 [dev-dependencies]
