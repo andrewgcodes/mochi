@@ -1,0 +1,17 @@
+[package]
+name = "terminal-core"
+description = "Platform-independent terminal screen model and state management"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+unicode-width = "0.1"
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }

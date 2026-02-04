@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "terminal-core",
+    "terminal-parser",
+    "terminal-pty",
+    "mochi-term",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Mochi Terminal Contributors"]
+repository = "https://github.com/andrewgcodes/mochi"
+
+[workspace.dependencies]
+# Shared dependencies across workspace
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+log = "0.4"
+env_logger = "0.11"
+
+# Testing
+proptest = "1.4"
+criterion = "0.5"
+
+# Internal crates
+terminal-core = { path = "terminal-core" }
+terminal-parser = { path = "terminal-parser" }
+terminal-pty = { path = "terminal-pty" }
