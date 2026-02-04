@@ -350,6 +350,30 @@ impl App {
             }
         }
 
+        // Platform-specific copy: Cmd+C on macOS (only when there's a selection)
+        #[cfg(target_os = "macos")]
+        let platform_copy = super_key && !ctrl && !shift && !alt && key_str == "c";
+        #[cfg(not(target_os = "macos"))]
+        let platform_copy = false; // On Linux, Ctrl+C should pass through as interrupt
+        if platform_copy {
+            if let Some(terminal) = &self.terminal {
+                if terminal.screen().selection().active {
+                    self.handle_copy();
+                    return;
+                }
+            }
+        }
+
+        // Platform-specific paste: Cmd+V on macOS, Ctrl+V on Linux
+        #[cfg(target_os = "macos")]
+        let platform_paste = super_key && !ctrl && !shift && !alt && key_str == "v";
+        #[cfg(not(target_os = "macos"))]
+        let platform_paste = ctrl && !shift && !alt && !super_key && key_str == "v";
+        if platform_paste {
+            self.handle_paste();
+            return;
+        }
+
         // Legacy font zoom shortcuts (Cmd on macOS, Ctrl on Linux) for compatibility
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
