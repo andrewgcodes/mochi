@@ -140,6 +140,7 @@ impl Default for ColorScheme {
 
 /// Configuration error types
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum ConfigError {
     #[error("Failed to read config file: {0}")]
     ReadError(#[from] std::io::Error),
@@ -153,7 +154,6 @@ pub enum ConfigError {
     #[error("Invalid color format '{color}': expected hex color like #rrggbb")]
     InvalidColor { color: String },
 
-    #[allow(dead_code)]
     #[error("Invalid theme name '{name}': expected one of dark, light, solarized-dark, solarized-light, dracula, nord, custom")]
     InvalidTheme { name: String },
 
@@ -671,7 +671,10 @@ mod tests {
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::FontSizeOutOfRange { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::FontSizeOutOfRange { .. }
+        ));
     }
 
     #[test]
@@ -682,7 +685,10 @@ mod tests {
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::FontSizeOutOfRange { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::FontSizeOutOfRange { .. }
+        ));
     }
 
     #[test]
@@ -696,7 +702,10 @@ mod tests {
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::InvalidColor { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::InvalidColor { .. }
+        ));
     }
 
     #[test]
@@ -707,7 +716,10 @@ mod tests {
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::ValidationError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::ValidationError(_)
+        ));
     }
 
     #[test]
@@ -718,16 +730,28 @@ mod tests {
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::ValidationError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::ValidationError(_)
+        ));
     }
 
     #[test]
     fn test_cli_args_parse_theme_name() {
         assert_eq!(CliArgs::parse_theme_name("dark"), Some(ThemeName::Dark));
         assert_eq!(CliArgs::parse_theme_name("light"), Some(ThemeName::Light));
-        assert_eq!(CliArgs::parse_theme_name("solarized-dark"), Some(ThemeName::SolarizedDark));
-        assert_eq!(CliArgs::parse_theme_name("solarized-light"), Some(ThemeName::SolarizedLight));
-        assert_eq!(CliArgs::parse_theme_name("dracula"), Some(ThemeName::Dracula));
+        assert_eq!(
+            CliArgs::parse_theme_name("solarized-dark"),
+            Some(ThemeName::SolarizedDark)
+        );
+        assert_eq!(
+            CliArgs::parse_theme_name("solarized-light"),
+            Some(ThemeName::SolarizedLight)
+        );
+        assert_eq!(
+            CliArgs::parse_theme_name("dracula"),
+            Some(ThemeName::Dracula)
+        );
         assert_eq!(CliArgs::parse_theme_name("nord"), Some(ThemeName::Nord));
         assert_eq!(CliArgs::parse_theme_name("invalid"), None);
     }
@@ -768,33 +792,33 @@ ansi = [
 
     #[test]
     fn test_effective_colors_by_theme() {
+        // Test Dark theme
         let config_dark = Config {
             theme: ThemeName::Dark,
             ..Default::default()
         };
-        let colors = config_dark.effective_colors();
-        assert_eq!(colors.background, "#1e1e1e");
+        assert_eq!(config_dark.effective_colors().background, "#1e1e1e");
 
+        // Test Light theme
         let config_light = Config {
             theme: ThemeName::Light,
             ..Default::default()
         };
-        let colors = config_light.effective_colors();
-        assert_eq!(colors.background, "#ffffff");
+        assert_eq!(config_light.effective_colors().background, "#ffffff");
 
+        // Test Dracula theme
         let config_dracula = Config {
             theme: ThemeName::Dracula,
             ..Default::default()
         };
-        let colors = config_dracula.effective_colors();
-        assert_eq!(colors.background, "#282a36");
+        assert_eq!(config_dracula.effective_colors().background, "#282a36");
 
+        // Test Nord theme
         let config_nord = Config {
             theme: ThemeName::Nord,
             ..Default::default()
         };
-        let colors = config_nord.effective_colors();
-        assert_eq!(colors.background, "#2e3440");
+        assert_eq!(config_nord.effective_colors().background, "#2e3440");
     }
 
     #[test]
