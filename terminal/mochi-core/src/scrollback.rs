@@ -86,10 +86,10 @@ mod tests {
     fn test_push_and_len() {
         let mut sb = Scrollback::new(100);
         assert_eq!(sb.len(), 0);
-        
+
         sb.push(Line::new(80));
         assert_eq!(sb.len(), 1);
-        
+
         sb.push(Line::new(80));
         assert_eq!(sb.len(), 2);
     }
@@ -97,13 +97,13 @@ mod tests {
     #[test]
     fn test_max_lines_limit() {
         let mut sb = Scrollback::new(3);
-        
+
         for i in 0..5 {
             let mut line = Line::new(80);
-            line.set(0, crate::cell::Cell::new(('A' as u8 + i as u8) as char));
+            line.set(0, crate::cell::Cell::new((b'A' + i as u8) as char));
             sb.push(line);
         }
-        
+
         assert_eq!(sb.len(), 3);
         assert_eq!(sb.get(0).unwrap().get(0).unwrap().character, 'C');
         assert_eq!(sb.get(1).unwrap().get(0).unwrap().character, 'D');
@@ -115,7 +115,7 @@ mod tests {
         let mut sb = Scrollback::new(100);
         sb.push(Line::new(80));
         sb.push(Line::new(80));
-        
+
         assert_eq!(sb.len(), 2);
         sb.pop();
         assert_eq!(sb.len(), 1);
@@ -124,13 +124,13 @@ mod tests {
     #[test]
     fn test_get_from_end() {
         let mut sb = Scrollback::new(100);
-        
+
         for i in 0..5 {
             let mut line = Line::new(80);
-            line.set(0, crate::cell::Cell::new(('A' as u8 + i as u8) as char));
+            line.set(0, crate::cell::Cell::new((b'A' + i as u8) as char));
             sb.push(line);
         }
-        
+
         assert_eq!(sb.get_from_end(0).unwrap().get(0).unwrap().character, 'E');
         assert_eq!(sb.get_from_end(1).unwrap().get(0).unwrap().character, 'D');
         assert_eq!(sb.get_from_end(4).unwrap().get(0).unwrap().character, 'A');

@@ -3,7 +3,7 @@
 //! Applies parsed terminal actions to the screen model.
 //! This is the bridge between the parser and the screen.
 
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use mochi_core::{Attributes, Color, Screen};
 use mochi_parser::{action::c0, Action, Params};
 
@@ -240,8 +240,7 @@ impl Performer {
             _ => {
                 debug!(
                     "Unhandled CSI sequence: {:?} {}",
-                    params,
-                    final_byte as char
+                    params, final_byte as char
                 );
             }
         }
@@ -507,7 +506,10 @@ impl Performer {
             6 => {
                 let row = screen.cursor().row + 1;
                 let col = screen.cursor().col + 1;
-                debug!("DSR: Cursor position requested (would respond ESC[{};{}R)", row, col);
+                debug!(
+                    "DSR: Cursor position requested (would respond ESC[{};{}R)",
+                    row, col
+                );
             }
             _ => {
                 debug!("Unknown DSR mode: {}", mode);
@@ -557,8 +559,7 @@ impl Performer {
             _ => {
                 debug!(
                     "Unhandled ESC sequence: {:?} {}",
-                    intermediates,
-                    final_byte as char
+                    intermediates, final_byte as char
                 );
             }
         }
@@ -589,7 +590,9 @@ impl Performer {
                 }
             }
             52 => {
-                debug!("OSC 52 clipboard operation (security-sensitive, not implemented by default)");
+                debug!(
+                    "OSC 52 clipboard operation (security-sensitive, not implemented by default)"
+                );
             }
             _ => {
                 debug!("Unknown OSC command {}: {}", command, payload);
@@ -653,7 +656,7 @@ mod tests {
         let mut screen = Screen::new(80, 24);
         apply_sequence(&mut screen, b"\x1b[31m");
         assert_eq!(screen.fg, Color::Indexed(1));
-        
+
         apply_sequence(&mut screen, b"\x1b[42m");
         assert_eq!(screen.bg, Color::Indexed(2));
     }
@@ -679,7 +682,7 @@ mod tests {
         apply_sequence(&mut screen, b"\x1b[?1049h");
         assert!(screen.is_using_alternate());
         assert_eq!(screen.get_cell(0, 0).unwrap().character, ' ');
-        
+
         apply_sequence(&mut screen, b"\x1b[?1049l");
         assert!(!screen.is_using_alternate());
         assert_eq!(screen.get_cell(0, 0).unwrap().character, 'H');
@@ -699,7 +702,7 @@ mod tests {
         apply_sequence(&mut screen, b"\x1b[10;20H\x1b7");
         apply_sequence(&mut screen, b"\x1b[1;1H");
         assert_eq!(screen.cursor().row, 0);
-        
+
         apply_sequence(&mut screen, b"\x1b8");
         assert_eq!(screen.cursor().row, 9);
         assert_eq!(screen.cursor().col, 19);

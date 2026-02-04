@@ -4,17 +4,17 @@
 //! escape sequence handling with a modern GUI.
 
 use env_logger::Env;
-use log::{debug, error, info};
-use mochi_core::{Screen, Snapshot};
-use mochi_parser::{Action, Parser};
+use log::{error, info};
+use mochi_core::Screen;
+use mochi_parser::Parser;
 use mochi_pty::{Pty, PtySize};
 use std::io::{self, Write};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-mod performer;
 mod input;
+mod performer;
 
 use performer::Performer;
 

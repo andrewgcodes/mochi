@@ -3,9 +3,8 @@
 //! Used for golden tests and debugging. Provides a deterministic
 //! representation of the terminal state that can be compared across runs.
 
-use crate::cell::{Attributes, Cell};
+use crate::cell::Attributes;
 use crate::color::Color;
-use crate::cursor::Cursor;
 use crate::line::Line;
 use crate::screen::Screen;
 use serde::{Deserialize, Serialize};
@@ -40,13 +39,13 @@ pub struct CellSnapshot {
 impl Snapshot {
     pub fn from_screen(screen: &Screen) -> Self {
         let mut lines = Vec::with_capacity(screen.rows());
-        
+
         for row in 0..screen.rows() {
             if let Some(line) = screen.get_line(row) {
                 lines.push(LineSnapshot::from_line(line));
             }
         }
-        
+
         Snapshot {
             cols: screen.cols(),
             rows: screen.rows(),
@@ -84,7 +83,7 @@ impl LineSnapshot {
     pub fn from_line(line: &Line) -> Self {
         let mut text = String::new();
         let mut cells = Vec::with_capacity(line.len());
-        
+
         for cell in line.cells() {
             if !cell.is_wide_continuation() {
                 text.push(cell.character);
@@ -93,10 +92,10 @@ impl LineSnapshot {
                 char: cell.character,
                 fg: cell.fg,
                 bg: cell.bg,
-                attrs: cell.attrs.clone(),
+                attrs: cell.attrs,
             });
         }
-        
+
         LineSnapshot {
             text: text.trim_end().to_string(),
             cells,
@@ -112,9 +111,11 @@ impl PartialEq for Snapshot {
             && self.cursor_row == other.cursor_row
             && self.cursor_col == other.cursor_col
             && self.lines.len() == other.lines.len()
-            && self.lines.iter().zip(other.lines.iter()).all(|(a, b)| {
-                a.text == b.text && a.wrapped == b.wrapped
-            })
+            && self
+                .lines
+                .iter()
+                .zip(other.lines.iter())
+                .all(|(a, b)| a.text == b.text && a.wrapped == b.wrapped)
     }
 }
 
@@ -127,7 +128,7 @@ mod tests {
         let mut screen = Screen::new(80, 24);
         screen.put_char('H');
         screen.put_char('i');
-        
+
         let snapshot = Snapshot::from_screen(&screen);
         assert_eq!(snapshot.cols, 80);
         assert_eq!(snapshot.rows, 24);
@@ -142,11 +143,11 @@ mod tests {
         screen.put_char('e');
         screen.put_char('s');
         screen.put_char('t');
-        
+
         let snapshot = Snapshot::from_screen(&screen);
         let json = snapshot.to_json();
         let restored = Snapshot::from_json(&json).unwrap();
-        
+
         assert_eq!(snapshot, restored);
     }
 
@@ -157,7 +158,7 @@ mod tests {
         screen.linefeed();
         screen.carriage_return();
         screen.put_char('B');
-        
+
         let snapshot = Snapshot::from_screen(&screen);
         let text = snapshot.text_content();
         assert!(text.contains("A"));

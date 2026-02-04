@@ -155,7 +155,15 @@ mod tests {
 
     #[test]
     fn test_clear_cell() {
-        let mut cell = Cell::with_attrs('x', Color::RED, Color::BLUE, Attributes { bold: true, ..Default::default() });
+        let mut cell = Cell::with_attrs(
+            'x',
+            Color::RED,
+            Color::BLUE,
+            Attributes {
+                bold: true,
+                ..Default::default()
+            },
+        );
         cell.clear();
         assert_eq!(cell.character, ' ');
         assert_eq!(cell.fg, Color::Default);

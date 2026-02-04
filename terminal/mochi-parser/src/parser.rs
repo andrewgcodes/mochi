@@ -110,7 +110,7 @@ impl Parser {
             }
         }
 
-        if self.state == State::Ground && byte >= 0x80 && byte < 0xA0 {
+        if self.state == State::Ground && (0x80..0xA0).contains(&byte) {
             self.handle_c1(byte, callback);
             return;
         }
@@ -124,7 +124,7 @@ impl Parser {
                 0xF5..=0xFF => (0, false),
                 _ => (0, false),
             };
-            
+
             if valid && remaining > 0 {
                 self.utf8_buffer.clear();
                 self.utf8_buffer.push(byte);
@@ -152,7 +152,7 @@ impl Parser {
             State::DcsIgnore => self.dcs_ignore(byte, callback),
             State::SosPmApcString => self.sos_pm_apc_string(byte, callback),
         }
-        
+
         self.preceding_byte = Some(byte);
     }
 
@@ -480,13 +480,12 @@ impl Parser {
                 if self.preceding_byte == Some(c0::ESC) && byte == b'\\' {
                     self.osc_dispatch(callback);
                     self.state = State::Ground;
-                } else {
-                    if self.osc_payload.is_empty() && byte >= b'0' && byte <= b'9' {
-                        self.osc_command = self.osc_command * 10 + (byte - b'0') as u16;
-                    } else if self.osc_payload.is_empty() && byte == b';' {
-                    } else if self.osc_payload.len() < MAX_OSC_PAYLOAD {
-                        self.osc_payload.push(byte as char);
-                    }
+                } else if self.osc_payload.is_empty() && byte.is_ascii_digit() {
+                    self.osc_command = self.osc_command * 10 + (byte - b'0') as u16;
+                } else if self.osc_payload.is_empty() && byte == b';' {
+                    // Separator between command and payload, do nothing
+                } else if self.osc_payload.len() < MAX_OSC_PAYLOAD {
+                    self.osc_payload.push(byte as char);
                 }
             }
             c1::ST => {
@@ -497,7 +496,7 @@ impl Parser {
         }
     }
 
-    fn dcs_entry<F>(&mut self, byte: u8, callback: &mut F)
+    fn dcs_entry<F>(&mut self, byte: u8, _callback: &mut F)
     where
         F: FnMut(Action),
     {
@@ -795,7 +794,10 @@ mod tests {
     fn test_csi_cursor_up() {
         let actions = parse_all(b"\x1b[5A");
         assert_eq!(actions.len(), 1);
-        if let Action::CsiDispatch { params, final_byte, .. } = &actions[0] {
+        if let Action::CsiDispatch {
+            params, final_byte, ..
+        } = &actions[0]
+        {
             assert_eq!(*final_byte, b'A');
             assert_eq!(params.get(0), Some(5));
         } else {
@@ -807,7 +809,10 @@ mod tests {
     fn test_csi_cursor_position() {
         let actions = parse_all(b"\x1b[10;20H");
         assert_eq!(actions.len(), 1);
-        if let Action::CsiDispatch { params, final_byte, .. } = &actions[0] {
+        if let Action::CsiDispatch {
+            params, final_byte, ..
+        } = &actions[0]
+        {
             assert_eq!(*final_byte, b'H');
             assert_eq!(params.get(0), Some(10));
             assert_eq!(params.get(1), Some(20));
@@ -820,7 +825,13 @@ mod tests {
     fn test_csi_private_mode() {
         let actions = parse_all(b"\x1b[?25h");
         assert_eq!(actions.len(), 1);
-        if let Action::CsiDispatch { params, final_byte, private_marker, .. } = &actions[0] {
+        if let Action::CsiDispatch {
+            params,
+            final_byte,
+            private_marker,
+            ..
+        } = &actions[0]
+        {
             assert_eq!(*final_byte, b'h');
             assert_eq!(*private_marker, Some(b'?'));
             assert_eq!(params.get(0), Some(25));
@@ -833,7 +844,10 @@ mod tests {
     fn test_csi_sgr() {
         let actions = parse_all(b"\x1b[1;31;42m");
         assert_eq!(actions.len(), 1);
-        if let Action::CsiDispatch { params, final_byte, .. } = &actions[0] {
+        if let Action::CsiDispatch {
+            params, final_byte, ..
+        } = &actions[0]
+        {
             assert_eq!(*final_byte, b'm');
             assert_eq!(params.get(0), Some(1));
             assert_eq!(params.get(1), Some(31));
@@ -881,9 +895,16 @@ mod tests {
     #[test]
     fn test_utf8_basic() {
         let actions = parse_all("Hello 世界".as_bytes());
-        let chars: Vec<char> = actions.iter().filter_map(|a| {
-            if let Action::Print(c) = a { Some(*c) } else { None }
-        }).collect();
+        let chars: Vec<char> = actions
+            .iter()
+            .filter_map(|a| {
+                if let Action::Print(c) = a {
+                    Some(*c)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(chars, vec!['H', 'e', 'l', 'l', 'o', ' ', '世', '界']);
     }
 
@@ -891,17 +912,20 @@ mod tests {
     fn test_chunk_boundary() {
         let mut parser = Parser::new();
         let mut actions = Vec::new();
-        
+
         parser.parse(b"\x1b[", |a| actions.push(a));
         assert!(actions.is_empty());
-        
+
         parser.parse(b"5", |a| actions.push(a));
         assert!(actions.is_empty());
-        
+
         parser.parse(b"A", |a| actions.push(a));
         assert_eq!(actions.len(), 1);
-        
-        if let Action::CsiDispatch { params, final_byte, .. } = &actions[0] {
+
+        if let Action::CsiDispatch {
+            params, final_byte, ..
+        } = &actions[0]
+        {
             assert_eq!(*final_byte, b'A');
             assert_eq!(params.get(0), Some(5));
         }
@@ -910,9 +934,16 @@ mod tests {
     #[test]
     fn test_cancel_sequence() {
         let actions = parse_all(b"\x1b[\x18Hello");
-        let prints: Vec<char> = actions.iter().filter_map(|a| {
-            if let Action::Print(c) = a { Some(*c) } else { None }
-        }).collect();
+        let prints: Vec<char> = actions
+            .iter()
+            .filter_map(|a| {
+                if let Action::Print(c) = a {
+                    Some(*c)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(prints, vec!['H', 'e', 'l', 'l', 'o']);
     }
 
@@ -920,7 +951,10 @@ mod tests {
     fn test_empty_params() {
         let actions = parse_all(b"\x1b[;H");
         assert_eq!(actions.len(), 1);
-        if let Action::CsiDispatch { params, final_byte, .. } = &actions[0] {
+        if let Action::CsiDispatch {
+            params, final_byte, ..
+        } = &actions[0]
+        {
             assert_eq!(*final_byte, b'H');
             assert_eq!(params.get(0), Some(0));
         }

@@ -8,17 +8,12 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum CursorStyle {
+    #[default]
     Block,
     Underline,
     Bar,
-}
-
-impl Default for CursorStyle {
-    fn default() -> Self {
-        CursorStyle::Block
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,11 +88,18 @@ pub struct SavedCursor {
 }
 
 impl SavedCursor {
-    pub fn from_cursor(cursor: &Cursor, attrs: &crate::cell::Attributes, fg: crate::color::Color, bg: crate::color::Color, origin_mode: bool, autowrap: bool) -> Self {
+    pub fn from_cursor(
+        cursor: &Cursor,
+        attrs: &crate::cell::Attributes,
+        fg: crate::color::Color,
+        bg: crate::color::Color,
+        origin_mode: bool,
+        autowrap: bool,
+    ) -> Self {
         SavedCursor {
             row: cursor.row,
             col: cursor.col,
-            attrs: attrs.clone(),
+            attrs: *attrs,
             fg,
             bg,
             origin_mode,
@@ -136,7 +138,7 @@ mod tests {
     #[test]
     fn test_cursor_bounds() {
         let mut cursor = Cursor::new();
-        
+
         cursor.move_up(100);
         assert_eq!(cursor.row, 0);
 

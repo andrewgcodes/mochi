@@ -14,14 +14,12 @@
 use crate::error::PtyError;
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
 use nix::libc;
-use nix::pty::{grantpt, posix_openpt, ptsname, unlockpt, PtyMaster};
+use nix::pty::{grantpt, posix_openpt, ptsname, unlockpt};
 use nix::sys::signal::{self, Signal};
-use nix::sys::termios::{self, SetArg, Termios};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{close, dup2, execvp, fork, read, setsid, write, ForkResult, Pid};
 use std::ffi::CString;
-use std::fs::File;
-use std::io::{self, Read, Write as IoWrite};
+use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::PathBuf;
 
@@ -54,7 +52,7 @@ impl PtySize {
         }
     }
 
-    fn to_winsize(&self) -> libc::winsize {
+    fn to_winsize(self) -> libc::winsize {
         libc::winsize {
             ws_row: self.rows,
             ws_col: self.cols,
@@ -72,8 +70,7 @@ pub struct Pty {
 
 impl Pty {
     pub fn new() -> Result<Self, PtyError> {
-        let master = posix_openpt(OFlag::O_RDWR | OFlag::O_NOCTTY)
-            .map_err(PtyError::OpenMaster)?;
+        let master = posix_openpt(OFlag::O_RDWR | OFlag::O_NOCTTY).map_err(PtyError::OpenMaster)?;
 
         grantpt(&master).map_err(PtyError::GrantPty)?;
         unlockpt(&master).map_err(PtyError::UnlockPty)?;
@@ -156,8 +153,8 @@ impl Pty {
     }
 
     pub fn set_nonblocking(&self, nonblocking: bool) -> Result<(), PtyError> {
-        let flags = fcntl(self.master.as_raw_fd(), FcntlArg::F_GETFL)
-            .map_err(PtyError::SetNonBlocking)?;
+        let flags =
+            fcntl(self.master.as_raw_fd(), FcntlArg::F_GETFL).map_err(PtyError::SetNonBlocking)?;
 
         let flags = OFlag::from_bits_truncate(flags);
         let new_flags = if nonblocking {
@@ -183,7 +180,7 @@ impl Pty {
     pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
         match read(self.master.as_raw_fd(), buf) {
             Ok(n) => Ok(n),
-            Err(nix::Error::EAGAIN) | Err(nix::Error::EWOULDBLOCK) => {
+            Err(nix::Error::EAGAIN) => {
                 Err(io::Error::new(io::ErrorKind::WouldBlock, "would block"))
             }
             Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
@@ -193,7 +190,7 @@ impl Pty {
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
         match write(&self.master, buf) {
             Ok(n) => Ok(n),
-            Err(nix::Error::EAGAIN) | Err(nix::Error::EWOULDBLOCK) => {
+            Err(nix::Error::EAGAIN) => {
                 Err(io::Error::new(io::ErrorKind::WouldBlock, "would block"))
             }
             Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
@@ -224,7 +221,8 @@ impl Pty {
 
     pub fn signal_child(&self, signal: Signal) -> Result<(), PtyError> {
         if let Some(pid) = self.child_pid {
-            signal::kill(pid, signal).map_err(|e| PtyError::Io(io::Error::new(io::ErrorKind::Other, e)))?;
+            signal::kill(pid, signal)
+                .map_err(|e| PtyError::Io(io::Error::new(io::ErrorKind::Other, e)))?;
         }
         Ok(())
     }
@@ -284,7 +282,7 @@ mod tests {
 
         let mut buf = [0u8; 1024];
         let mut output = Vec::new();
-        
+
         for _ in 0..10 {
             match pty.read(&mut buf) {
                 Ok(n) if n > 0 => {

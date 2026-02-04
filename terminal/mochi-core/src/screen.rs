@@ -144,28 +144,28 @@ impl TabStops {
 pub struct Screen {
     cols: usize,
     rows: usize,
-    
+
     primary_grid: Vec<Line>,
     alternate_grid: Vec<Line>,
     using_alternate: bool,
-    
+
     scrollback: Scrollback,
-    
+
     cursor: Cursor,
     saved_cursor_primary: Option<SavedCursor>,
     saved_cursor_alternate: Option<SavedCursor>,
-    
+
     scroll_region: ScrollRegion,
-    
+
     pub attrs: Attributes,
     pub fg: Color,
     pub bg: Color,
-    
+
     pub modes: TerminalModes,
     tab_stops: TabStops,
-    
+
     pending_wrap: bool,
-    
+
     pub title: String,
     pub icon_name: String,
 }
@@ -174,7 +174,7 @@ impl Screen {
     pub fn new(cols: usize, rows: usize) -> Self {
         let primary_grid = (0..rows).map(|_| Line::new(cols)).collect();
         let alternate_grid = (0..rows).map(|_| Line::new(cols)).collect();
-        
+
         Screen {
             cols,
             rows,
@@ -263,35 +263,35 @@ impl Screen {
 
     pub fn put_char(&mut self, c: char) {
         use unicode_width::UnicodeWidthChar;
-        
+
         let char_width = c.width().unwrap_or(1);
-        
+
         if self.pending_wrap && self.modes.autowrap {
             self.pending_wrap = false;
             self.cursor.col = 0;
             self.linefeed();
         }
-        
+
         let cursor_row = self.cursor.row;
         let cursor_col = self.cursor.col;
         let cols = self.cols;
         let fg = self.fg;
         let bg = self.bg;
-        let attrs = self.attrs.clone();
+        let attrs = self.attrs;
         let insert_mode = self.modes.insert_mode;
-        
+
         if insert_mode && char_width > 0 {
             if let Some(line) = self.get_line_mut(cursor_row) {
                 line.insert_cells(cursor_col, char_width);
             }
         }
-        
+
         let cell = Cell::with_attrs(c, fg, bg, attrs);
-        
+
         if let Some(line) = self.get_line_mut(cursor_row) {
             if cursor_col < cols {
                 line.set(cursor_col, cell);
-                
+
                 if char_width == 2 && cursor_col + 1 < cols {
                     let mut cont = Cell::default();
                     cont.set_wide_continuation();
@@ -301,7 +301,7 @@ impl Screen {
                 }
             }
         }
-        
+
         let new_col = self.cursor.col + char_width;
         if new_col >= self.cols {
             self.cursor.col = self.cols - 1;
@@ -313,13 +313,13 @@ impl Screen {
 
     pub fn linefeed(&mut self) {
         self.pending_wrap = false;
-        
+
         if self.cursor.row == self.scroll_region.bottom {
             self.scroll_up(1);
         } else if self.cursor.row < self.rows - 1 {
             self.cursor.row += 1;
         }
-        
+
         if self.modes.linefeed_mode {
             self.cursor.col = 0;
         }
@@ -327,7 +327,7 @@ impl Screen {
 
     pub fn reverse_index(&mut self) {
         self.pending_wrap = false;
-        
+
         if self.cursor.row == self.scroll_region.top {
             self.scroll_down(1);
         } else if self.cursor.row > 0 {
@@ -371,13 +371,13 @@ impl Screen {
         let cols = self.cols;
         let bg = self.bg;
         let using_alternate = self.using_alternate;
-        
+
         if count == 0 || top > bottom {
             return;
         }
-        
+
         let count = count.min(bottom - top + 1);
-        
+
         // Push lines to scrollback before modifying grid
         // We need to clone the lines first to avoid borrow conflicts
         if !using_alternate && top == 0 {
@@ -388,7 +388,7 @@ impl Screen {
                 self.scrollback.push(line);
             }
         }
-        
+
         // Now modify the grid
         let grid = self.grid_mut();
         for i in top..=bottom {
@@ -406,15 +406,15 @@ impl Screen {
         let bottom = self.scroll_region.bottom;
         let cols = self.cols;
         let bg = self.bg;
-        
+
         if count == 0 || top > bottom {
             return;
         }
-        
+
         let count = count.min(bottom - top + 1);
-        
+
         let grid = self.grid_mut();
-        
+
         for i in (top..=bottom).rev() {
             if i >= top + count {
                 grid[i] = grid[i - count].clone();
@@ -427,19 +427,19 @@ impl Screen {
 
     pub fn move_cursor_to(&mut self, row: usize, col: usize) {
         self.pending_wrap = false;
-        
+
         let (min_row, max_row) = if self.modes.origin_mode {
             (self.scroll_region.top, self.scroll_region.bottom)
         } else {
             (0, self.rows - 1)
         };
-        
+
         let actual_row = if self.modes.origin_mode {
             (self.scroll_region.top + row).min(max_row)
         } else {
             row.min(max_row)
         };
-        
+
         self.cursor.row = actual_row.max(min_row);
         self.cursor.col = col.min(self.cols - 1);
     }
@@ -500,7 +500,7 @@ impl Screen {
         let cols = self.cols;
         let rows = self.rows;
         let bg = self.bg;
-        
+
         match mode {
             0 => {
                 if let Some(line) = self.get_line_mut(cursor_row) {
@@ -546,7 +546,7 @@ impl Screen {
         let cursor_col = self.cursor.col;
         let cols = self.cols;
         let bg = self.bg;
-        
+
         if let Some(line) = self.get_line_mut(cursor_row) {
             match mode {
                 0 => line.clear_range_with_bg(cursor_col, cols, bg),
@@ -562,7 +562,7 @@ impl Screen {
         let cursor_col = self.cursor.col;
         let cols = self.cols;
         let bg = self.bg;
-        
+
         if let Some(line) = self.get_line_mut(cursor_row) {
             let end = (cursor_col + count).min(cols);
             line.clear_range_with_bg(cursor_col, end, bg);
@@ -571,17 +571,17 @@ impl Screen {
 
     pub fn insert_lines(&mut self, count: usize) {
         self.pending_wrap = false;
-        
+
         let cursor_row = self.cursor.row;
         let scroll_bottom = self.scroll_region.bottom;
         let cols = self.cols;
-        
+
         if !self.scroll_region.contains(cursor_row) {
             return;
         }
-        
+
         let count = count.min(scroll_bottom - cursor_row + 1);
-        
+
         let grid = self.grid_mut();
         for _ in 0..count {
             if scroll_bottom < grid.len() {
@@ -593,18 +593,18 @@ impl Screen {
 
     pub fn delete_lines(&mut self, count: usize) {
         self.pending_wrap = false;
-        
+
         let cursor_row = self.cursor.row;
         let scroll_bottom = self.scroll_region.bottom;
         let cols = self.cols;
         let rows = self.rows;
-        
+
         if !self.scroll_region.contains(cursor_row) {
             return;
         }
-        
+
         let count = count.min(scroll_bottom - cursor_row + 1);
-        
+
         let grid = self.grid_mut();
         for _ in 0..count {
             if cursor_row < grid.len() {
@@ -620,7 +620,7 @@ impl Screen {
         self.pending_wrap = false;
         let cursor_row = self.cursor.row;
         let cursor_col = self.cursor.col;
-        
+
         if let Some(line) = self.get_line_mut(cursor_row) {
             line.insert_cells(cursor_col, count);
         }
@@ -630,7 +630,7 @@ impl Screen {
         self.pending_wrap = false;
         let cursor_row = self.cursor.row;
         let cursor_col = self.cursor.col;
-        
+
         if let Some(line) = self.get_line_mut(cursor_row) {
             line.delete_cells(cursor_col, count);
         }
@@ -639,7 +639,7 @@ impl Screen {
     pub fn set_scroll_region(&mut self, top: usize, bottom: usize) {
         let top = top.min(self.rows - 1);
         let bottom = bottom.min(self.rows - 1);
-        
+
         if top < bottom {
             self.scroll_region = ScrollRegion::new(top, bottom);
             self.move_cursor_to(0, 0);
@@ -659,7 +659,7 @@ impl Screen {
             self.modes.origin_mode,
             self.modes.autowrap,
         );
-        
+
         if self.using_alternate {
             self.saved_cursor_alternate = Some(saved);
         } else {
@@ -673,7 +673,7 @@ impl Screen {
         } else {
             self.saved_cursor_primary.clone()
         };
-        
+
         if let Some(saved) = saved {
             self.cursor.row = saved.row.min(self.rows - 1);
             self.cursor.col = saved.col.min(self.cols - 1);
@@ -683,7 +683,7 @@ impl Screen {
             self.modes.origin_mode = saved.origin_mode;
             self.modes.autowrap = saved.autowrap;
         }
-        
+
         self.pending_wrap = false;
     }
 
@@ -707,14 +707,14 @@ impl Screen {
         if new_cols == self.cols && new_rows == self.rows {
             return;
         }
-        
+
         for line in &mut self.primary_grid {
             line.resize(new_cols);
         }
         for line in &mut self.alternate_grid {
             line.resize(new_cols);
         }
-        
+
         while self.primary_grid.len() < new_rows {
             self.primary_grid.push(Line::new(new_cols));
         }
@@ -724,20 +724,20 @@ impl Screen {
                 self.scrollback.push(line);
             }
         }
-        
+
         while self.alternate_grid.len() < new_rows {
             self.alternate_grid.push(Line::new(new_cols));
         }
         while self.alternate_grid.len() > new_rows {
             self.alternate_grid.pop();
         }
-        
+
         self.cols = new_cols;
         self.rows = new_rows;
-        
+
         self.cursor.row = self.cursor.row.min(new_rows.saturating_sub(1));
         self.cursor.col = self.cursor.col.min(new_cols.saturating_sub(1));
-        
+
         self.scroll_region = ScrollRegion::full(new_rows);
         self.tab_stops.resize(new_cols);
         self.pending_wrap = false;
@@ -754,14 +754,14 @@ impl Screen {
         self.pending_wrap = false;
         self.saved_cursor_primary = None;
         self.saved_cursor_alternate = None;
-        
+
         for line in &mut self.primary_grid {
             line.clear();
         }
         for line in &mut self.alternate_grid {
             line.clear();
         }
-        
+
         self.using_alternate = false;
     }
 
@@ -818,7 +818,7 @@ mod tests {
     fn test_erase_in_display() {
         let mut screen = Screen::new(80, 24);
         for i in 0..10 {
-            screen.put_char(('A' as u8 + i as u8) as char);
+            screen.put_char((b'A' + i as u8) as char);
         }
         screen.cursor.col = 5;
         screen.erase_in_display(0);
@@ -832,10 +832,10 @@ mod tests {
         screen.move_cursor_to(10, 20);
         assert_eq!(screen.cursor().row, 10);
         assert_eq!(screen.cursor().col, 20);
-        
+
         screen.move_cursor_up(5);
         assert_eq!(screen.cursor().row, 5);
-        
+
         screen.move_cursor_down(10);
         assert_eq!(screen.cursor().row, 15);
     }
@@ -852,14 +852,14 @@ mod tests {
     fn test_alternate_screen() {
         let mut screen = Screen::new(80, 24);
         screen.put_char('A');
-        
+
         screen.enter_alternate_screen();
         assert!(screen.is_using_alternate());
         assert_eq!(screen.get_cell(0, 0).unwrap().character, ' ');
-        
+
         screen.put_char('B');
         assert_eq!(screen.get_cell(0, 0).unwrap().character, 'B');
-        
+
         screen.exit_alternate_screen();
         assert!(!screen.is_using_alternate());
         assert_eq!(screen.get_cell(0, 0).unwrap().character, 'A');
@@ -871,10 +871,10 @@ mod tests {
         screen.move_cursor_to(10, 20);
         screen.attrs.bold = true;
         screen.save_cursor();
-        
+
         screen.move_cursor_to(5, 5);
         screen.attrs.bold = false;
-        
+
         screen.restore_cursor();
         assert_eq!(screen.cursor().row, 10);
         assert_eq!(screen.cursor().col, 20);
@@ -905,7 +905,7 @@ mod tests {
     fn test_autowrap() {
         let mut screen = Screen::new(10, 5);
         for i in 0..15 {
-            screen.put_char(('A' as u8 + (i % 26) as u8) as char);
+            screen.put_char((b'A' + (i % 26) as u8) as char);
         }
         assert_eq!(screen.cursor().row, 1);
         assert_eq!(screen.cursor().col, 5);

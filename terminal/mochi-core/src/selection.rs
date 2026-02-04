@@ -93,7 +93,6 @@ impl Selection {
         }
 
         let (start, end) = self.normalized();
-        let point = SelectionPoint::new(row, col);
 
         match self.selection_type {
             SelectionType::Normal => {
@@ -115,9 +114,7 @@ impl Selection {
                 let max_col = start.col.max(end.col);
                 row >= start.row && row <= end.row && col >= min_col && col <= max_col
             }
-            SelectionType::Line => {
-                row >= start.row && row <= end.row
-            }
+            SelectionType::Line => row >= start.row && row <= end.row,
         }
     }
 

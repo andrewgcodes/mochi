@@ -130,7 +130,7 @@ mod tests {
         params.push(1);
         params.push(2);
         params.push(3);
-        
+
         assert_eq!(params.len(), 3);
         assert_eq!(params.get(0), Some(1));
         assert_eq!(params.get(1), Some(2));
@@ -160,7 +160,7 @@ mod tests {
         params.push_subparam(255);
         params.push_subparam(128);
         params.push_subparam(64);
-        
+
         assert_eq!(params.get(0), Some(38));
         let subs = params.get_subparams(0).unwrap();
         assert_eq!(subs, &[2, 255, 128, 64]);

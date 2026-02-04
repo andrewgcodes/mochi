@@ -170,7 +170,7 @@ mod tests {
     fn test_clear_range() {
         let mut line = Line::new(80);
         for i in 0..10 {
-            line.set(i, Cell::new(('A' as u8 + i as u8) as char));
+            line.set(i, Cell::new((b'A' + i as u8) as char));
         }
         line.clear_range(3, 7);
         assert_eq!(line.get(2).unwrap().character, 'C');
@@ -183,7 +183,7 @@ mod tests {
     fn test_insert_cells() {
         let mut line = Line::new(10);
         for i in 0..10 {
-            line.set(i, Cell::new(('A' as u8 + i as u8) as char));
+            line.set(i, Cell::new((b'A' + i as u8) as char));
         }
         line.insert_cells(3, 2);
         assert_eq!(line.get(2).unwrap().character, 'C');
@@ -197,7 +197,7 @@ mod tests {
     fn test_delete_cells() {
         let mut line = Line::new(10);
         for i in 0..10 {
-            line.set(i, Cell::new(('A' as u8 + i as u8) as char));
+            line.set(i, Cell::new((b'A' + i as u8) as char));
         }
         line.delete_cells(3, 2);
         assert_eq!(line.get(2).unwrap().character, 'C');

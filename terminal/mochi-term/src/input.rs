@@ -2,6 +2,11 @@
 //!
 //! Converts keyboard events into terminal escape sequences
 //! that can be sent to the PTY.
+//!
+//! Note: This module is not yet used in the main application but will be
+//! integrated when the GUI frontend is implemented.
+
+#![allow(dead_code)]
 
 use mochi_core::screen::MouseMode;
 
@@ -61,10 +66,10 @@ impl InputEncoder {
 
     fn encode_char(&self, c: char, modifiers: Modifiers) -> Vec<u8> {
         if modifiers.ctrl {
-            if c >= 'a' && c <= 'z' {
+            if c.is_ascii_lowercase() {
                 return vec![(c as u8) - b'a' + 1];
             }
-            if c >= 'A' && c <= 'Z' {
+            if c.is_ascii_uppercase() {
                 return vec![(c as u8) - b'A' + 1];
             }
             match c {
@@ -268,14 +273,23 @@ mod tests {
     #[test]
     fn test_encode_char() {
         let encoder = InputEncoder::new();
-        assert_eq!(encoder.encode_key(Key::Char('a'), Modifiers::default()), b"a");
-        assert_eq!(encoder.encode_key(Key::Char('A'), Modifiers::default()), b"A");
+        assert_eq!(
+            encoder.encode_key(Key::Char('a'), Modifiers::default()),
+            b"a"
+        );
+        assert_eq!(
+            encoder.encode_key(Key::Char('A'), Modifiers::default()),
+            b"A"
+        );
     }
 
     #[test]
     fn test_encode_ctrl_char() {
         let encoder = InputEncoder::new();
-        let mods = Modifiers { ctrl: true, ..Default::default() };
+        let mods = Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
         assert_eq!(encoder.encode_key(Key::Char('c'), mods), vec![3]);
         assert_eq!(encoder.encode_key(Key::Char('a'), mods), vec![1]);
         assert_eq!(encoder.encode_key(Key::Char('z'), mods), vec![26]);
@@ -284,7 +298,10 @@ mod tests {
     #[test]
     fn test_encode_alt_char() {
         let encoder = InputEncoder::new();
-        let mods = Modifiers { alt: true, ..Default::default() };
+        let mods = Modifiers {
+            alt: true,
+            ..Default::default()
+        };
         assert_eq!(encoder.encode_key(Key::Char('a'), mods), b"\x1ba");
     }
 
@@ -292,33 +309,66 @@ mod tests {
     fn test_encode_cursor_keys() {
         let encoder = InputEncoder::new();
         assert_eq!(encoder.encode_key(Key::Up, Modifiers::default()), b"\x1b[A");
-        assert_eq!(encoder.encode_key(Key::Down, Modifiers::default()), b"\x1b[B");
-        assert_eq!(encoder.encode_key(Key::Right, Modifiers::default()), b"\x1b[C");
-        assert_eq!(encoder.encode_key(Key::Left, Modifiers::default()), b"\x1b[D");
+        assert_eq!(
+            encoder.encode_key(Key::Down, Modifiers::default()),
+            b"\x1b[B"
+        );
+        assert_eq!(
+            encoder.encode_key(Key::Right, Modifiers::default()),
+            b"\x1b[C"
+        );
+        assert_eq!(
+            encoder.encode_key(Key::Left, Modifiers::default()),
+            b"\x1b[D"
+        );
     }
 
     #[test]
     fn test_encode_cursor_keys_with_modifiers() {
         let encoder = InputEncoder::new();
-        let mods = Modifiers { shift: true, ..Default::default() };
+        let mods = Modifiers {
+            shift: true,
+            ..Default::default()
+        };
         assert_eq!(encoder.encode_key(Key::Up, mods), b"\x1b[1;2A");
     }
 
     #[test]
     fn test_encode_function_keys() {
         let encoder = InputEncoder::new();
-        assert_eq!(encoder.encode_key(Key::F(1), Modifiers::default()), b"\x1b[11~");
-        assert_eq!(encoder.encode_key(Key::F(5), Modifiers::default()), b"\x1b[15~");
-        assert_eq!(encoder.encode_key(Key::F(12), Modifiers::default()), b"\x1b[24~");
+        assert_eq!(
+            encoder.encode_key(Key::F(1), Modifiers::default()),
+            b"\x1b[11~"
+        );
+        assert_eq!(
+            encoder.encode_key(Key::F(5), Modifiers::default()),
+            b"\x1b[15~"
+        );
+        assert_eq!(
+            encoder.encode_key(Key::F(12), Modifiers::default()),
+            b"\x1b[24~"
+        );
     }
 
     #[test]
     fn test_encode_special_keys() {
         let encoder = InputEncoder::new();
-        assert_eq!(encoder.encode_key(Key::Home, Modifiers::default()), b"\x1b[1~");
-        assert_eq!(encoder.encode_key(Key::End, Modifiers::default()), b"\x1b[4~");
-        assert_eq!(encoder.encode_key(Key::PageUp, Modifiers::default()), b"\x1b[5~");
-        assert_eq!(encoder.encode_key(Key::PageDown, Modifiers::default()), b"\x1b[6~");
+        assert_eq!(
+            encoder.encode_key(Key::Home, Modifiers::default()),
+            b"\x1b[1~"
+        );
+        assert_eq!(
+            encoder.encode_key(Key::End, Modifiers::default()),
+            b"\x1b[4~"
+        );
+        assert_eq!(
+            encoder.encode_key(Key::PageUp, Modifiers::default()),
+            b"\x1b[5~"
+        );
+        assert_eq!(
+            encoder.encode_key(Key::PageDown, Modifiers::default()),
+            b"\x1b[6~"
+        );
     }
 
     #[test]

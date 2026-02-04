@@ -8,41 +8,41 @@ use crate::params::Params;
 #[derive(Debug, Clone)]
 pub enum Action {
     Print(char),
-    
+
     Execute(u8),
-    
+
     CsiDispatch {
         params: Params,
         intermediates: Vec<u8>,
         final_byte: u8,
         private_marker: Option<u8>,
     },
-    
+
     EscDispatch {
         intermediates: Vec<u8>,
         final_byte: u8,
     },
-    
+
     OscDispatch {
         command: u16,
         payload: String,
     },
-    
+
     DcsDispatch {
         params: Params,
         intermediates: Vec<u8>,
         final_byte: u8,
         payload: Vec<u8>,
     },
-    
+
     ApcDispatch {
         payload: Vec<u8>,
     },
-    
+
     PmDispatch {
         payload: Vec<u8>,
     },
-    
+
     SosDispatch {
         payload: Vec<u8>,
     },
