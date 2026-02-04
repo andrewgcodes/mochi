@@ -7,6 +7,7 @@ use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
 
 /// OSC 52 clipboard request
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ClipboardRequest {
     /// Clipboard target (c = clipboard, p = primary, etc.)
     pub target: String,
@@ -78,6 +79,7 @@ impl Terminal {
     }
 
     /// Take pending clipboard request (if any)
+    #[allow(dead_code)]
     pub fn take_clipboard_request(&mut self) -> Option<ClipboardRequest> {
         self.clipboard_request.take()
     }

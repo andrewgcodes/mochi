@@ -153,6 +153,7 @@ pub enum ConfigError {
     #[error("Invalid color format '{color}': expected hex color like #rrggbb")]
     InvalidColor { color: String },
 
+    #[allow(dead_code)]
     #[error("Invalid theme name '{name}': expected one of dark, light, solarized-dark, solarized-light, dracula, nord, custom")]
     InvalidTheme { name: String },
 
@@ -405,6 +406,7 @@ impl Config {
     }
 
     /// Load configuration from file (legacy method for compatibility)
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         let config_path = Self::default_config_path()?;
 
@@ -663,8 +665,10 @@ mod tests {
 
     #[test]
     fn test_config_validation_font_size_too_small() {
-        let mut config = Config::default();
-        config.font_size = 2.0;
+        let config = Config {
+            font_size: 2.0,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ConfigError::FontSizeOutOfRange { .. }));
@@ -672,8 +676,10 @@ mod tests {
 
     #[test]
     fn test_config_validation_font_size_too_large() {
-        let mut config = Config::default();
-        config.font_size = 100.0;
+        let config = Config {
+            font_size: 100.0,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ConfigError::FontSizeOutOfRange { .. }));
@@ -681,8 +687,13 @@ mod tests {
 
     #[test]
     fn test_config_validation_invalid_color() {
-        let mut config = Config::default();
-        config.colors.foreground = "not-a-color".to_string();
+        let config = Config {
+            colors: ColorScheme {
+                foreground: "not-a-color".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ConfigError::InvalidColor { .. }));
@@ -690,8 +701,10 @@ mod tests {
 
     #[test]
     fn test_config_validation_zero_scrollback() {
-        let mut config = Config::default();
-        config.scrollback_lines = 0;
+        let config = Config {
+            scrollback_lines: 0,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ConfigError::ValidationError(_)));
@@ -699,8 +712,10 @@ mod tests {
 
     #[test]
     fn test_config_validation_small_dimensions() {
-        let mut config = Config::default();
-        config.dimensions = (5, 3);
+        let config = Config {
+            dimensions: (5, 3),
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ConfigError::ValidationError(_)));
@@ -753,22 +768,32 @@ ansi = [
 
     #[test]
     fn test_effective_colors_by_theme() {
-        let mut config = Config::default();
-
-        config.theme = ThemeName::Dark;
-        let colors = config.effective_colors();
+        let config_dark = Config {
+            theme: ThemeName::Dark,
+            ..Default::default()
+        };
+        let colors = config_dark.effective_colors();
         assert_eq!(colors.background, "#1e1e1e");
 
-        config.theme = ThemeName::Light;
-        let colors = config.effective_colors();
+        let config_light = Config {
+            theme: ThemeName::Light,
+            ..Default::default()
+        };
+        let colors = config_light.effective_colors();
         assert_eq!(colors.background, "#ffffff");
 
-        config.theme = ThemeName::Dracula;
-        let colors = config.effective_colors();
+        let config_dracula = Config {
+            theme: ThemeName::Dracula,
+            ..Default::default()
+        };
+        let colors = config_dracula.effective_colors();
         assert_eq!(colors.background, "#282a36");
 
-        config.theme = ThemeName::Nord;
-        let colors = config.effective_colors();
+        let config_nord = Config {
+            theme: ThemeName::Nord,
+            ..Default::default()
+        };
+        let colors = config_nord.effective_colors();
         assert_eq!(colors.background, "#2e3440");
     }
 
