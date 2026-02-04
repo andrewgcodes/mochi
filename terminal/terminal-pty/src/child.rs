@@ -100,8 +100,10 @@ impl Child {
                 let slave_raw = slave_fd.as_raw_fd();
 
                 // Set as controlling terminal
+                // Note: On macOS, TIOCSCTTY is u32 but ioctl expects c_ulong (u64),
+                // so we need to cast it explicitly for cross-platform compatibility
                 unsafe {
-                    if libc::ioctl(slave_raw, libc::TIOCSCTTY, 0) < 0 {
+                    if libc::ioctl(slave_raw, libc::TIOCSCTTY as libc::c_ulong, 0) < 0 {
                         std::process::exit(1);
                     }
                 }
