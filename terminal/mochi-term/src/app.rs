@@ -223,7 +223,26 @@ impl App {
             return;
         }
 
-        // Check for Ctrl+Shift shortcuts (terminal app shortcuts)
+        // Check for Cmd shortcuts on macOS (standard macOS keybindings)
+        #[cfg(target_os = "macos")]
+        if self.modifiers.super_key() && !self.modifiers.control_key() {
+            if let Key::Character(c) = &event.logical_key {
+                let c_lower = c.to_lowercase();
+                match c_lower.as_str() {
+                    "v" => {
+                        self.handle_paste();
+                        return;
+                    }
+                    "c" => {
+                        self.handle_copy();
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Check for Ctrl+Shift shortcuts (terminal app shortcuts - works on all platforms)
         if self.modifiers.control_key() && self.modifiers.shift_key() {
             if let Key::Character(c) = &event.logical_key {
                 let c_lower = c.to_lowercase();

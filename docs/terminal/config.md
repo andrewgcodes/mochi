@@ -116,16 +116,18 @@ Multiple modifiers can be combined: `ctrl+shift+c`
 
 #### Available Actions
 
-| Action | Default Binding | Description |
-|--------|-----------------|-------------|
-| `Copy` | `ctrl+shift+c` | Copy selected text to clipboard |
-| `Paste` | `ctrl+shift+v` | Paste from clipboard |
-| `Find` | `ctrl+shift+f` | Open search/find bar |
-| `ReloadConfig` | `ctrl+shift+r` | Reload configuration file |
-| `ToggleTheme` | `ctrl+shift+t` | Cycle through available themes |
-| `ZoomIn` | `ctrl+plus` | Increase font size |
-| `ZoomOut` | `ctrl+minus` | Decrease font size |
-| `ResetZoom` | `ctrl+0` | Reset font size to default |
+| Action | Linux Binding | macOS Binding | Description |
+|--------|---------------|---------------|-------------|
+| `Copy` | `ctrl+shift+c` | `cmd+c` or `ctrl+shift+c` | Copy selected text to clipboard |
+| `Paste` | `ctrl+shift+v` | `cmd+v` or `ctrl+shift+v` | Paste from clipboard |
+| `Find` | `ctrl+shift+f` | `ctrl+shift+f` | Open search/find bar |
+| `ReloadConfig` | `ctrl+shift+r` | `ctrl+shift+r` | Reload configuration file |
+| `ToggleTheme` | `ctrl+shift+t` | `ctrl+shift+t` | Cycle through available themes |
+| `ZoomIn` | `ctrl+plus` | `cmd+plus` | Increase font size |
+| `ZoomOut` | `ctrl+minus` | `cmd+minus` | Decrease font size |
+| `ResetZoom` | `ctrl+0` | `cmd+0` | Reset font size to default |
+
+**Note**: On macOS, standard Cmd+C and Cmd+V shortcuts work for copy/paste in addition to the Ctrl+Shift variants.
 
 ### Custom Colors
 
