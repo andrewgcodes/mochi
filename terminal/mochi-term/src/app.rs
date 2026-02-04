@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::{Config, ThemeName};
+use crate::config::{Action, Config, ThemeName};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -227,26 +227,82 @@ impl App {
             return;
         }
 
-        // Check for Ctrl+Shift shortcuts (app-level shortcuts)
-        if self.modifiers.control_key() && self.modifiers.shift_key() {
-            match &event.logical_key {
-                Key::Character(c) if c.to_lowercase() == "t" => {
-                    self.toggle_theme();
-                    return;
+        // Extract key string for keybinding lookup
+        let key_str = match &event.logical_key {
+            Key::Character(c) => c.to_string(),
+            Key::Named(NamedKey::ArrowUp) => "up".to_string(),
+            Key::Named(NamedKey::ArrowDown) => "down".to_string(),
+            Key::Named(NamedKey::ArrowLeft) => "left".to_string(),
+            Key::Named(NamedKey::ArrowRight) => "right".to_string(),
+            Key::Named(NamedKey::PageUp) => "pageup".to_string(),
+            Key::Named(NamedKey::PageDown) => "pagedown".to_string(),
+            Key::Named(NamedKey::Home) => "home".to_string(),
+            Key::Named(NamedKey::End) => "end".to_string(),
+            Key::Named(NamedKey::Escape) => "escape".to_string(),
+            _ => String::new(),
+        };
+
+        // Check for configured keybindings
+        if !key_str.is_empty() {
+            let ctrl = self.modifiers.control_key();
+            let shift = self.modifiers.shift_key();
+            let alt = self.modifiers.alt_key();
+
+            if let Some(action) = self.config.keybindings.find_action(&key_str, ctrl, shift, alt) {
+                match action {
+                    Action::Copy => {
+                        self.handle_copy();
+                        return;
+                    }
+                    Action::Paste => {
+                        self.handle_paste();
+                        return;
+                    }
+                    Action::ToggleTheme => {
+                        self.toggle_theme();
+                        return;
+                    }
+                    Action::ReloadConfig => {
+                        self.reload_config();
+                        return;
+                    }
+                    Action::Find => {
+                        log::info!("Find action triggered (not yet implemented)");
+                        return;
+                    }
+                    Action::FontSizeIncrease => {
+                        self.change_font_size(2.0);
+                        return;
+                    }
+                    Action::FontSizeDecrease => {
+                        self.change_font_size(-2.0);
+                        return;
+                    }
+                    Action::FontSizeReset => {
+                        self.reset_font_size();
+                        return;
+                    }
+                    Action::ScrollPageUp => {
+                        self.scroll_page(-1);
+                        return;
+                    }
+                    Action::ScrollPageDown => {
+                        self.scroll_page(1);
+                        return;
+                    }
+                    Action::ScrollToTop => {
+                        self.scroll_to_top();
+                        return;
+                    }
+                    Action::ScrollToBottom => {
+                        self.scroll_to_bottom();
+                        return;
+                    }
                 }
-                Key::Character(c) if c.to_lowercase() == "c" => {
-                    self.handle_copy();
-                    return;
-                }
-                Key::Character(c) if c.to_lowercase() == "v" => {
-                    self.handle_paste();
-                    return;
-                }
-                _ => {}
             }
         }
 
-        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
+        // Check for font zoom shortcuts with arrow keys (Cmd on macOS, Ctrl on Linux)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
@@ -254,18 +310,6 @@ impl App {
 
         if zoom_modifier {
             match &event.logical_key {
-                Key::Character(c) if c == "=" || c == "+" => {
-                    self.change_font_size(2.0);
-                    return;
-                }
-                Key::Character(c) if c == "-" => {
-                    self.change_font_size(-2.0);
-                    return;
-                }
-                Key::Character(c) if c == "0" => {
-                    self.reset_font_size();
-                    return;
-                }
                 Key::Named(NamedKey::ArrowUp) => {
                     self.change_font_size(2.0);
                     return;
@@ -679,5 +723,51 @@ impl App {
         } else {
             false
         }
+    }
+
+    /// Reload configuration from file
+    fn reload_config(&mut self) {
+        log::info!("Reloading configuration...");
+
+        // For now, just log that reload was requested
+        // Full implementation would re-read config file and apply changes
+        // This is a placeholder for M6 implementation
+        log::info!("Config reload not yet fully implemented");
+    }
+
+    /// Scroll by pages (negative = up, positive = down)
+    fn scroll_page(&mut self, direction: i32) {
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let rows = terminal.screen().rows();
+        let scrollback_len = terminal.screen().scrollback().len();
+
+        if direction < 0 {
+            // Scroll up (show older content)
+            self.scroll_offset = (self.scroll_offset + rows).min(scrollback_len);
+        } else {
+            // Scroll down (show newer content)
+            self.scroll_offset = self.scroll_offset.saturating_sub(rows);
+        }
+
+        self.needs_redraw = true;
+    }
+
+    /// Scroll to the top of scrollback
+    fn scroll_to_top(&mut self) {
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        self.scroll_offset = terminal.screen().scrollback().len();
+        self.needs_redraw = true;
+    }
+
+    /// Scroll to the bottom (current output)
+    fn scroll_to_bottom(&mut self) {
+        self.scroll_offset = 0;
+        self.needs_redraw = true;
     }
 }

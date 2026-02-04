@@ -75,6 +75,111 @@ impl ThemeName {
     }
 }
 
+/// Actions that can be bound to keybindings
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Action {
+    /// Copy selected text to clipboard
+    Copy,
+    /// Paste from clipboard
+    Paste,
+    /// Toggle theme (cycle through built-in themes)
+    ToggleTheme,
+    /// Reload configuration
+    ReloadConfig,
+    /// Open search/find bar
+    Find,
+    /// Increase font size
+    FontSizeIncrease,
+    /// Decrease font size
+    FontSizeDecrease,
+    /// Reset font size to default
+    FontSizeReset,
+    /// Scroll up one page
+    ScrollPageUp,
+    /// Scroll down one page
+    ScrollPageDown,
+    /// Scroll to top of scrollback
+    ScrollToTop,
+    /// Scroll to bottom (current output)
+    ScrollToBottom,
+}
+
+/// A keybinding configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBinding {
+    /// The key (e.g., "c", "v", "t", "f", "r")
+    pub key: String,
+    /// Modifier keys
+    #[serde(default)]
+    pub ctrl: bool,
+    #[serde(default)]
+    pub shift: bool,
+    #[serde(default)]
+    pub alt: bool,
+    /// The action to perform
+    pub action: Action,
+}
+
+impl KeyBinding {
+    /// Create a new keybinding
+    pub fn new(key: &str, ctrl: bool, shift: bool, alt: bool, action: Action) -> Self {
+        Self {
+            key: key.to_lowercase(),
+            ctrl,
+            shift,
+            alt,
+            action,
+        }
+    }
+
+    /// Check if this keybinding matches the given key and modifiers
+    pub fn matches(&self, key: &str, ctrl: bool, shift: bool, alt: bool) -> bool {
+        self.key == key.to_lowercase() && self.ctrl == ctrl && self.shift == shift && self.alt == alt
+    }
+}
+
+/// Keybindings configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Keybindings {
+    /// List of keybindings
+    #[serde(default = "Keybindings::default_bindings")]
+    pub bindings: Vec<KeyBinding>,
+}
+
+impl Default for Keybindings {
+    fn default() -> Self {
+        Self {
+            bindings: Self::default_bindings(),
+        }
+    }
+}
+
+impl Keybindings {
+    /// Get the default keybindings
+    pub fn default_bindings() -> Vec<KeyBinding> {
+        vec![
+            KeyBinding::new("c", true, true, false, Action::Copy),
+            KeyBinding::new("v", true, true, false, Action::Paste),
+            KeyBinding::new("t", true, true, false, Action::ToggleTheme),
+            KeyBinding::new("r", true, true, false, Action::ReloadConfig),
+            KeyBinding::new("f", true, true, false, Action::Find),
+            KeyBinding::new("=", true, false, false, Action::FontSizeIncrease),
+            KeyBinding::new("+", true, false, false, Action::FontSizeIncrease),
+            KeyBinding::new("-", true, false, false, Action::FontSizeDecrease),
+            KeyBinding::new("0", true, false, false, Action::FontSizeReset),
+        ]
+    }
+
+    /// Find the action for a given key combination
+    pub fn find_action(&self, key: &str, ctrl: bool, shift: bool, alt: bool) -> Option<Action> {
+        self.bindings
+            .iter()
+            .find(|b| b.matches(key, ctrl, shift, alt))
+            .map(|b| b.action)
+    }
+}
+
 /// Terminal configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -101,6 +206,9 @@ pub struct Config {
     pub cursor_style: String,
     /// Cursor blink
     pub cursor_blink: bool,
+    /// Keybindings
+    #[serde(default)]
+    pub keybindings: Keybindings,
 }
 
 /// Color scheme configuration
@@ -132,6 +240,7 @@ impl Default for Config {
             shell: None,
             cursor_style: "block".to_string(),
             cursor_blink: true,
+            keybindings: Keybindings::default(),
         }
     }
 }
@@ -882,5 +991,74 @@ mod tests {
                 theme
             );
         }
+    }
+
+    #[test]
+    fn test_keybinding_new() {
+        let binding = KeyBinding::new("c", true, true, false, Action::Copy);
+        assert_eq!(binding.key, "c");
+        assert!(binding.ctrl);
+        assert!(binding.shift);
+        assert!(!binding.alt);
+        assert_eq!(binding.action, Action::Copy);
+    }
+
+    #[test]
+    fn test_keybinding_matches() {
+        let binding = KeyBinding::new("c", true, true, false, Action::Copy);
+
+        // Should match exact combination
+        assert!(binding.matches("c", true, true, false));
+        assert!(binding.matches("C", true, true, false)); // Case insensitive
+
+        // Should not match different combinations
+        assert!(!binding.matches("c", true, false, false)); // Missing shift
+        assert!(!binding.matches("c", false, true, false)); // Missing ctrl
+        assert!(!binding.matches("v", true, true, false)); // Wrong key
+        assert!(!binding.matches("c", true, true, true)); // Extra alt
+    }
+
+    #[test]
+    fn test_keybindings_default() {
+        let keybindings = Keybindings::default();
+
+        // Should have default bindings
+        assert!(!keybindings.bindings.is_empty());
+
+        // Should include copy, paste, toggle theme
+        assert!(keybindings
+            .find_action("c", true, true, false)
+            .is_some_and(|a| a == Action::Copy));
+        assert!(keybindings
+            .find_action("v", true, true, false)
+            .is_some_and(|a| a == Action::Paste));
+        assert!(keybindings
+            .find_action("t", true, true, false)
+            .is_some_and(|a| a == Action::ToggleTheme));
+    }
+
+    #[test]
+    fn test_keybindings_find_action() {
+        let keybindings = Keybindings::default();
+
+        // Should find configured actions
+        assert_eq!(
+            keybindings.find_action("c", true, true, false),
+            Some(Action::Copy)
+        );
+        assert_eq!(
+            keybindings.find_action("=", true, false, false),
+            Some(Action::FontSizeIncrease)
+        );
+
+        // Should return None for unconfigured combinations
+        assert_eq!(keybindings.find_action("x", true, true, false), None);
+        assert_eq!(keybindings.find_action("c", false, false, false), None);
+    }
+
+    #[test]
+    fn test_config_has_default_keybindings() {
+        let config = Config::default();
+        assert!(!config.keybindings.bindings.is_empty());
     }
 }
