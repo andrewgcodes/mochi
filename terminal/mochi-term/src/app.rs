@@ -298,7 +298,7 @@ impl App {
         // 1. Check if the text field contains a control character (0x01-0x1A)
         // 2. Check if the logical_key is a letter and we can infer Ctrl is pressed
         // 3. Fall back to using self.modifiers with encode_key
-        
+
         // Method 1: Check the text field for control characters
         // On macOS, Ctrl+C might produce '\x03' directly in the text field
         if let Some(text) = &event.text {
