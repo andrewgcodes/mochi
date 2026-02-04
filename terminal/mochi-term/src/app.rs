@@ -1140,10 +1140,56 @@ impl App {
     fn reload_config(&mut self) {
         log::info!("Reloading configuration...");
 
-        // For now, just log that reload was requested
-        // Full implementation would re-read config file and apply changes
-        // This is a placeholder for M6 implementation
-        log::info!("Config reload not yet fully implemented");
+        // Try to reload the config from the default XDG path
+        let Some(config_path) = Config::config_path() else {
+            log::warn!("Could not determine config path");
+            return;
+        };
+
+        if !config_path.exists() {
+            log::info!("No config file found at {:?}, using defaults", config_path);
+            return;
+        }
+
+        match Config::load_from_path(&config_path) {
+            Ok(new_config) => {
+                // Apply theme changes
+                if new_config.theme != self.config.theme {
+                    self.current_theme = new_config.theme;
+                    if let Some(renderer) = &mut self.renderer {
+                        let colors = new_config.effective_colors();
+                        renderer.set_colors(colors);
+                    }
+                    log::info!("Theme changed to: {:?}", new_config.theme);
+                }
+
+                // Apply font changes
+                let font_changed = new_config.font_family != self.config.font_family
+                    || new_config.font_size != self.config.font_size;
+
+                if font_changed {
+                    if let Some(renderer) = &mut self.renderer {
+                        renderer.set_font_size(new_config.font_size);
+                        log::info!("Font size changed to: {}", new_config.font_size);
+                    }
+                }
+
+                // Update the stored config
+                self.config = new_config;
+                self.needs_redraw = true;
+
+                log::info!("Configuration reloaded successfully");
+
+                // Update window title to indicate reload
+                if let Some(window) = &self.window {
+                    window.set_title("Mochi Terminal - Config Reloaded");
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to reload config: {}", e);
+                // Keep the old config - don't crash
+            }
+        }
     }
 
     /// Scroll by pages (negative = up, positive = down)
