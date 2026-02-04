@@ -730,11 +730,7 @@ impl Screen {
             }
 
             let line = self.line(row_idx_usize);
-            let line_start = if row_idx == start.row {
-                start.col
-            } else {
-                0
-            };
+            let line_start = if row_idx == start.row { start.col } else { 0 };
             let line_end = if row_idx == end.row {
                 end.col.min(cols.saturating_sub(1))
             } else {
@@ -743,7 +739,7 @@ impl Screen {
 
             match selection.selection_type {
                 SelectionType::Line => {
-                    result.push_str(&line.text().trim_end());
+                    result.push_str(line.text().trim_end());
                 }
                 SelectionType::Block => {
                     let min_col = start.col.min(end.col);
@@ -768,10 +764,10 @@ impl Screen {
                 }
             }
 
-            if row_idx < end.row {
-                if selection.selection_type == SelectionType::Block || !line.wrapped {
-                    result.push('\n');
-                }
+            if row_idx < end.row
+                && (selection.selection_type == SelectionType::Block || !line.wrapped)
+            {
+                result.push('\n');
             }
         }
 
