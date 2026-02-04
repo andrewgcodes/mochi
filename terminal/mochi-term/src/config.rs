@@ -135,7 +135,10 @@ impl KeyBinding {
 
     /// Check if this keybinding matches the given key and modifiers
     pub fn matches(&self, key: &str, ctrl: bool, shift: bool, alt: bool) -> bool {
-        self.key == key.to_lowercase() && self.ctrl == ctrl && self.shift == shift && self.alt == alt
+        self.key == key.to_lowercase()
+            && self.ctrl == ctrl
+            && self.shift == shift
+            && self.alt == alt
     }
 }
 
