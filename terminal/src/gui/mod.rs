@@ -24,7 +24,7 @@ use crate::core::{EraseMode, Screen, TabClearMode};
 use crate::parser::{Action, ControlCode, CsiAction, EscAction, OscAction, Parser};
 use crate::pty::Pty;
 
-pub use input::InputEncoder;
+pub use input::{InputEncoder, MouseButton as InputMouseButton, MouseEventType};
 pub use renderer::Renderer;
 pub use selection::Selection;
 
@@ -234,6 +234,37 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 WindowEvent::MouseInput { state, button, .. } => {
+                    // Convert winit button to our input button type
+                    let input_button = match button {
+                        MouseButton::Left => Some(InputMouseButton::Left),
+                        MouseButton::Middle => Some(InputMouseButton::Middle),
+                        MouseButton::Right => Some(InputMouseButton::Right),
+                        MouseButton::Other(_) => None,
+                    };
+
+                    let event_type = if state == ElementState::Pressed {
+                        MouseEventType::Press
+                    } else {
+                        MouseEventType::Release
+                    };
+
+                    // Try to send mouse event to PTY if mouse tracking is enabled
+                    if let (Some(btn), Some((col, row))) = (input_button, last_mouse_pos) {
+                        if let Some(seq) = input_encoder.encode_mouse(
+                            btn,
+                            event_type,
+                            col,
+                            row,
+                            modifiers,
+                            &screen.modes,
+                        ) {
+                            let _ = pty.write(&seq);
+                            // Don't do selection when mouse tracking is enabled
+                            return;
+                        }
+                    }
+
+                    // Fall back to selection behavior when mouse tracking is disabled
                     match button {
                         MouseButton::Left => {
                             mouse_pressed = state == ElementState::Pressed;
@@ -278,8 +309,22 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     let (col, row) = renderer.pixel_to_cell(position.x, position.y);
                     last_mouse_pos = Some((col, row));
 
+                    // Send motion events if mouse tracking is enabled and button is pressed
                     if mouse_pressed {
-                        // Update selection
+                        if let Some(seq) = input_encoder.encode_mouse(
+                            InputMouseButton::Left,
+                            MouseEventType::Motion,
+                            col,
+                            row,
+                            modifiers,
+                            &screen.modes,
+                        ) {
+                            let _ = pty.write(&seq);
+                            // Don't do selection when mouse tracking is enabled
+                            return;
+                        }
+
+                        // Fall back to selection behavior
                         selection.update(col, row + scroll_offset);
                         needs_redraw = true;
                     }
@@ -291,6 +336,30 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                         MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as i32,
                     };
 
+                    // Send scroll events to PTY if mouse tracking is enabled
+                    if let Some((col, row)) = last_mouse_pos {
+                        let button = if lines > 0 {
+                            InputMouseButton::WheelUp
+                        } else {
+                            InputMouseButton::WheelDown
+                        };
+                        if let Some(seq) = input_encoder.encode_mouse(
+                            button,
+                            MouseEventType::Press,
+                            col,
+                            row,
+                            modifiers,
+                            &screen.modes,
+                        ) {
+                            // Send multiple scroll events for larger deltas
+                            for _ in 0..lines.unsigned_abs() {
+                                let _ = pty.write(&seq);
+                            }
+                            return;
+                        }
+                    }
+
+                    // Fall back to scrollback behavior when mouse tracking is disabled
                     use std::cmp::Ordering;
                     match lines.cmp(&0) {
                         Ordering::Greater => {
