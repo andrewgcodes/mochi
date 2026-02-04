@@ -380,7 +380,8 @@ impl App {
         let screen = terminal.screen();
         let selection = screen.selection();
         if selection.active {
-            if let Some(text) = screen.get_selected_text(selection) {
+            let text = screen.get_selected_text(selection);
+            if !text.is_empty() {
                 if let Err(e) = clipboard.set_text(&text) {
                     log::warn!("Failed to copy to clipboard: {}", e);
                 } else {
