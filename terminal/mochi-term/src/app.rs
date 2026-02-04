@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::Config;
+use crate::config::{Config, ThemeName};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -223,13 +223,42 @@ impl App {
             return;
         }
 
+        // Check for Ctrl+Shift shortcuts (app-level keybindings)
+        let ctrl_shift = self.modifiers.control_key() && self.modifiers.shift_key();
+
+        if ctrl_shift {
+            match &event.logical_key {
+                // Ctrl+Shift+T: Toggle theme
+                Key::Character(c) if c.to_uppercase() == "T" => {
+                    self.toggle_theme();
+                    return;
+                }
+                // Ctrl+Shift+R: Reload config
+                Key::Character(c) if c.to_uppercase() == "R" => {
+                    self.reload_config();
+                    return;
+                }
+                // Ctrl+Shift+C: Copy (placeholder for now)
+                Key::Character(c) if c.to_uppercase() == "C" => {
+                    self.copy_selection();
+                    return;
+                }
+                // Ctrl+Shift+V: Paste
+                Key::Character(c) if c.to_uppercase() == "V" => {
+                    self.handle_paste();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
         let zoom_modifier = self.modifiers.control_key();
 
-        if zoom_modifier {
+        if zoom_modifier && !self.modifiers.shift_key() {
             match &event.logical_key {
                 Key::Character(c) if c == "=" || c == "+" => {
                     self.change_font_size(2.0);
@@ -300,6 +329,120 @@ impl App {
         }
 
         self.needs_redraw = true;
+    }
+
+    /// Toggle to the next theme in the cycle
+    fn toggle_theme(&mut self) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+
+        // Cycle to next theme
+        let new_theme = self.config.theme.next();
+        self.config.theme = new_theme;
+
+        // Update renderer with new colors
+        let new_colors = self.config.effective_colors();
+        renderer.set_colors(new_colors);
+
+        log::info!("Theme switched to: {:?}", new_theme);
+        self.needs_redraw = true;
+    }
+
+    /// Reload configuration from file
+    fn reload_config(&mut self) {
+        use crate::config::CliArgs;
+
+        log::info!("Reloading configuration...");
+
+        // Create empty CLI args (we don't want CLI to override on reload)
+        let args = CliArgs {
+            config: None,
+            font_size: None,
+            theme: None,
+            shell: None,
+            scrollback: None,
+            cols: None,
+            rows: None,
+        };
+
+        match Config::load_with_args(&args) {
+            Ok(new_config) => {
+                // Apply theme changes
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.set_colors(new_config.effective_colors());
+                }
+
+                // Apply font size changes if different
+                if (new_config.font_size - self.config.font_size).abs() > 0.1 {
+                    if let Some(window) = &self.window {
+                        let scale_factor = window.scale_factor() as f32;
+                        let new_size = new_config.font_size * scale_factor;
+                        self.change_font_size(new_size - self.config.font_size * scale_factor);
+                    }
+                }
+
+                self.config = new_config;
+                self.needs_redraw = true;
+                log::info!("Configuration reloaded successfully");
+            }
+            Err(e) => {
+                log::error!("Failed to reload configuration: {}", e);
+            }
+        }
+    }
+
+    /// Copy selection to clipboard
+    fn copy_selection(&mut self) {
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if !selection.active {
+            return;
+        }
+
+        // Get selected text
+        let mut text = String::new();
+        let (start, end) = selection.bounds();
+        for row in start.row..=end.row {
+            if row < 0 || row >= screen.rows() as isize {
+                continue;
+            }
+            let line = screen.line(row as usize);
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col
+            } else {
+                line.cols().saturating_sub(1)
+            };
+
+            for col in start_col..=end_col {
+                if col < line.cols() {
+                    let cell = line.cell(col);
+                    if !cell.is_continuation() {
+                        text.push(cell.display_char());
+                    }
+                }
+            }
+            if row < end.row {
+                text.push('\n');
+            }
+        }
+
+        if !text.is_empty() {
+            if let Err(e) = clipboard.set_text(&text) {
+                log::error!("Failed to copy to clipboard: {}", e);
+            } else {
+                log::debug!("Copied {} characters to clipboard", text.len());
+            }
+        }
     }
 
     /// Reset font size to default (scaled for HiDPI)
