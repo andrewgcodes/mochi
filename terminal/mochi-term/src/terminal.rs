@@ -777,10 +777,7 @@ impl Terminal {
             OscAction::Clipboard { clipboard, data } => {
                 // OSC 52 clipboard security guards
                 if !self.security.osc52_enabled {
-                    log::debug!(
-                        "OSC 52 clipboard blocked (disabled): {} bytes",
-                        data.len()
-                    );
+                    log::debug!("OSC 52 clipboard blocked (disabled): {} bytes", data.len());
                     return;
                 }
 
