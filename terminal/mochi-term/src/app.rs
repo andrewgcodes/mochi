@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::Config;
+use crate::config::{Config, ThemeName};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -48,11 +48,14 @@ pub struct App {
     focused: bool,
     /// Scroll offset (number of lines scrolled back into history)
     scroll_offset: usize,
+    /// Current theme (for runtime switching)
+    current_theme: ThemeName,
 }
 
 impl App {
     /// Create a new application
     pub fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
+        let current_theme = config.theme;
         Ok(Self {
             config,
             window: None,
@@ -67,6 +70,7 @@ impl App {
             needs_redraw: true,
             focused: true,
             scroll_offset: 0,
+            current_theme,
         })
     }
 
@@ -223,6 +227,25 @@ impl App {
             return;
         }
 
+        // Check for Ctrl+Shift shortcuts (app-level shortcuts)
+        if self.modifiers.control_key() && self.modifiers.shift_key() {
+            match &event.logical_key {
+                Key::Character(c) if c.to_lowercase() == "t" => {
+                    self.toggle_theme();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.handle_copy();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
@@ -330,6 +353,106 @@ impl App {
         }
 
         self.needs_redraw = true;
+    }
+
+    /// Toggle to the next theme
+    fn toggle_theme(&mut self) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+        let Some(window) = &self.window else { return };
+
+        // Cycle to next theme
+        self.current_theme = self.current_theme.next();
+        let colors = self.current_theme.color_scheme();
+
+        // Update renderer colors
+        renderer.set_colors(colors);
+
+        // Update window title to show current theme
+        let base_title = window.title();
+        let title_without_theme = base_title
+            .split(" [Theme:")
+            .next()
+            .unwrap_or("Mochi Terminal");
+        window.set_title(&format!(
+            "{} [Theme: {}]",
+            title_without_theme,
+            self.current_theme.display_name()
+        ));
+
+        log::info!("Theme switched to: {}", self.current_theme.display_name());
+        self.needs_redraw = true;
+    }
+
+    /// Handle copy (Ctrl+Shift+C)
+    fn handle_copy(&mut self) {
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if selection.is_empty() {
+            log::debug!("No selection to copy");
+            return;
+        }
+
+        // Extract selected text from screen
+        let (start, end) = selection.bounds();
+        let mut text = String::new();
+
+        for row in start.row..=end.row {
+            if row < 0 {
+                // Scrollback - skip for now (would need scrollback access)
+                continue;
+            }
+            let row_idx = row as usize;
+            if row_idx >= screen.rows() {
+                continue;
+            }
+
+            let line = screen.line(row_idx);
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col
+            } else {
+                line.cols().saturating_sub(1)
+            };
+
+            for col in start_col..=end_col {
+                if col < line.cols() {
+                    let cell = line.cell(col);
+                    if !cell.is_continuation() {
+                        text.push(cell.display_char());
+                    }
+                }
+            }
+
+            // Add newline between rows (but not after the last row)
+            if row < end.row {
+                text.push('\n');
+            }
+        }
+
+        // Trim trailing whitespace from each line
+        let text: String = text
+            .lines()
+            .map(|l| l.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !text.is_empty() {
+            if let Err(e) = clipboard.set_text(text.clone()) {
+                log::warn!("Failed to copy to clipboard: {}", e);
+            } else {
+                log::debug!("Copied {} characters to clipboard", text.len());
+            }
+        }
     }
 
     /// Handle mouse input

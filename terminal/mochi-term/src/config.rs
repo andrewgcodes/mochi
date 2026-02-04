@@ -34,6 +34,47 @@ pub enum ThemeName {
     Custom,
 }
 
+impl ThemeName {
+    /// Get the next theme in the cycle (skips Custom)
+    pub fn next(self) -> Self {
+        match self {
+            ThemeName::Dark => ThemeName::Light,
+            ThemeName::Light => ThemeName::SolarizedDark,
+            ThemeName::SolarizedDark => ThemeName::SolarizedLight,
+            ThemeName::SolarizedLight => ThemeName::Dracula,
+            ThemeName::Dracula => ThemeName::Nord,
+            ThemeName::Nord => ThemeName::Dark,
+            ThemeName::Custom => ThemeName::Dark, // Custom cycles back to Dark
+        }
+    }
+
+    /// Get the display name for the theme
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ThemeName::Dark => "Dark",
+            ThemeName::Light => "Light",
+            ThemeName::SolarizedDark => "Solarized Dark",
+            ThemeName::SolarizedLight => "Solarized Light",
+            ThemeName::Dracula => "Dracula",
+            ThemeName::Nord => "Nord",
+            ThemeName::Custom => "Custom",
+        }
+    }
+
+    /// Get the color scheme for this theme
+    pub fn color_scheme(self) -> ColorScheme {
+        match self {
+            ThemeName::Dark => ColorScheme::dark(),
+            ThemeName::Light => ColorScheme::light(),
+            ThemeName::SolarizedDark => ColorScheme::solarized_dark(),
+            ThemeName::SolarizedLight => ColorScheme::solarized_light(),
+            ThemeName::Dracula => ColorScheme::dracula(),
+            ThemeName::Nord => ColorScheme::nord(),
+            ThemeName::Custom => ColorScheme::default(), // Custom uses config colors
+        }
+    }
+}
+
 /// Terminal configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -771,6 +812,75 @@ mod tests {
                     theme
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_theme_name_next_cycles_through_all() {
+        // Test that next() cycles through all built-in themes
+        let mut theme = ThemeName::Dark;
+        let mut visited = vec![theme];
+
+        for _ in 0..6 {
+            theme = theme.next();
+            if theme == ThemeName::Dark {
+                break;
+            }
+            visited.push(theme);
+        }
+
+        // Should have visited all 6 built-in themes
+        assert_eq!(visited.len(), 6);
+        assert!(visited.contains(&ThemeName::Dark));
+        assert!(visited.contains(&ThemeName::Light));
+        assert!(visited.contains(&ThemeName::SolarizedDark));
+        assert!(visited.contains(&ThemeName::SolarizedLight));
+        assert!(visited.contains(&ThemeName::Dracula));
+        assert!(visited.contains(&ThemeName::Nord));
+    }
+
+    #[test]
+    fn test_theme_name_custom_cycles_to_dark() {
+        // Custom theme should cycle back to Dark
+        let theme = ThemeName::Custom;
+        assert_eq!(theme.next(), ThemeName::Dark);
+    }
+
+    #[test]
+    fn test_theme_name_display_name() {
+        assert_eq!(ThemeName::Dark.display_name(), "Dark");
+        assert_eq!(ThemeName::Light.display_name(), "Light");
+        assert_eq!(ThemeName::SolarizedDark.display_name(), "Solarized Dark");
+        assert_eq!(ThemeName::SolarizedLight.display_name(), "Solarized Light");
+        assert_eq!(ThemeName::Dracula.display_name(), "Dracula");
+        assert_eq!(ThemeName::Nord.display_name(), "Nord");
+        assert_eq!(ThemeName::Custom.display_name(), "Custom");
+    }
+
+    #[test]
+    fn test_theme_name_color_scheme() {
+        // Each theme should return a distinct color scheme
+        let dark = ThemeName::Dark.color_scheme();
+        let light = ThemeName::Light.color_scheme();
+
+        // Dark and light should have different backgrounds
+        assert_ne!(dark.background, light.background);
+
+        // Verify each theme returns valid colors
+        for theme in [
+            ThemeName::Dark,
+            ThemeName::Light,
+            ThemeName::SolarizedDark,
+            ThemeName::SolarizedLight,
+            ThemeName::Dracula,
+            ThemeName::Nord,
+        ] {
+            let colors = theme.color_scheme();
+            assert!(
+                ColorScheme::parse_hex(&colors.background).is_some(),
+                "Invalid background for {:?}",
+                theme
+            );
         }
     }
 }
