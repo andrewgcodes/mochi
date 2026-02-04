@@ -8,7 +8,7 @@ fuzz_target!(|data: &[u8]| {
     let mut actions = Vec::new();
 
     // Feed the data to the parser - it should never panic
-    parser.advance(data, |action| {
+    parser.parse(data, |action| {
         actions.push(action);
     });
 

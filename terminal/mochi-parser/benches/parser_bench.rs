@@ -102,7 +102,7 @@ fn bench_parser_throughput(c: &mut Criterion) {
         group.bench_function(format!("plain_text_{size}"), |b| {
             b.iter(|| {
                 let mut parser = Parser::new();
-                parser.advance(black_box(&plain_text), |_action| {});
+                parser.parse(black_box(&plain_text), |_action| {});
             });
         });
 
@@ -110,7 +110,7 @@ fn bench_parser_throughput(c: &mut Criterion) {
         group.bench_function(format!("colored_text_{size}"), |b| {
             b.iter(|| {
                 let mut parser = Parser::new();
-                parser.advance(black_box(&colored_text), |_action| {});
+                parser.parse(black_box(&colored_text), |_action| {});
             });
         });
 
@@ -118,7 +118,7 @@ fn bench_parser_throughput(c: &mut Criterion) {
         group.bench_function(format!("cursor_movement_{size}"), |b| {
             b.iter(|| {
                 let mut parser = Parser::new();
-                parser.advance(black_box(&cursor_movement), |_action| {});
+                parser.parse(black_box(&cursor_movement), |_action| {});
             });
         });
 
@@ -126,7 +126,7 @@ fn bench_parser_throughput(c: &mut Criterion) {
         group.bench_function(format!("sgr_sequences_{size}"), |b| {
             b.iter(|| {
                 let mut parser = Parser::new();
-                parser.advance(black_box(&sgr_sequences), |_action| {});
+                parser.parse(black_box(&sgr_sequences), |_action| {});
             });
         });
 
@@ -134,7 +134,7 @@ fn bench_parser_throughput(c: &mut Criterion) {
         group.bench_function(format!("mixed_content_{size}"), |b| {
             b.iter(|| {
                 let mut parser = Parser::new();
-                parser.advance(black_box(&mixed_content), |_action| {});
+                parser.parse(black_box(&mixed_content), |_action| {});
             });
         });
     }
@@ -153,7 +153,7 @@ fn bench_chunk_boundaries(c: &mut Criterion) {
             b.iter(|| {
                 let mut parser = Parser::new();
                 for chunk in data.chunks(chunk_size) {
-                    parser.advance(black_box(chunk), |_action| {});
+                    parser.parse(black_box(chunk), |_action| {});
                 }
             });
         });
