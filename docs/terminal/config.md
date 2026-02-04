@@ -4,176 +4,136 @@ This document describes the configuration system for Mochi Terminal.
 
 ## Configuration File Location
 
-Mochi follows the XDG Base Directory Specification. The default configuration file location is:
+Mochi Terminal follows the XDG Base Directory specification for configuration file location:
 
-```
-~/.config/mochi/config.toml
-```
+1. If `XDG_CONFIG_HOME` is set: `$XDG_CONFIG_HOME/mochi/config.toml`
+2. Otherwise: `~/.config/mochi/config.toml`
 
-You can override this location using the `--config` CLI flag:
-
-```bash
-mochi --config /path/to/custom/config.toml
-```
+You can override the config file location using the `--config` CLI flag.
 
 ## Configuration Precedence
 
 Configuration values are loaded with the following precedence (highest to lowest):
 
-1. **CLI arguments** - Command-line flags override all other settings
-2. **Environment variables** - `MOCHI_*` environment variables
-3. **Configuration file** - Values from `config.toml`
+1. **CLI arguments** - Command line flags like `--theme`, `--font-size`
+2. **Environment variables** - Variables like `MOCHI_THEME`, `MOCHI_FONT_SIZE`
+3. **Config file** - The TOML configuration file
 4. **Built-in defaults** - Sensible defaults for all settings
 
 ## CLI Arguments
 
 ```
-USAGE:
-    mochi [OPTIONS]
+mochi [OPTIONS]
 
-OPTIONS:
-    -c, --config <FILE>       Path to configuration file
-        --font-family <FONT>  Font family name
-        --font-size <SIZE>    Font size in points
-    -t, --theme <THEME>       Theme name (dark, light, solarized-dark, solarized-light, dracula, nord)
-    -s, --shell <SHELL>       Shell command to run
-        --columns <COLS>      Initial columns
-        --rows <ROWS>         Initial rows
-        --scrollback <LINES>  Number of scrollback lines
-        --osc52-clipboard     Enable OSC 52 clipboard support
-    -h, --help                Print help
-    -V, --version             Print version
+Options:
+  -c, --config <FILE>      Path to configuration file
+  -t, --theme <THEME>      Theme to use (dark, light, solarized-dark, etc.)
+      --font-size <SIZE>   Font size in points
+      --font-family <NAME> Font family name
+  -s, --shell <COMMAND>    Shell command to run
+      --scrollback <LINES> Number of scrollback lines
+  -h, --help               Print help
+  -V, --version            Print version
 ```
 
 ## Environment Variables
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `MOCHI_FONT_FAMILY` | Font family name | `"JetBrains Mono"` |
-| `MOCHI_FONT_SIZE` | Font size in points | `16` |
-| `MOCHI_THEME` | Theme name | `dark`, `light`, `dracula` |
-| `MOCHI_SHELL` | Shell command | `/bin/zsh` |
-| `MOCHI_SCROLLBACK` | Scrollback lines | `50000` |
-| `MOCHI_COLUMNS` | Initial columns | `120` |
-| `MOCHI_ROWS` | Initial rows | `40` |
-| `MOCHI_OSC52_CLIPBOARD` | Enable OSC 52 | `true` or `1` |
+| `MOCHI_THEME` | Theme name | `MOCHI_THEME=dracula` |
+| `MOCHI_FONT_SIZE` | Font size in points | `MOCHI_FONT_SIZE=16` |
+| `MOCHI_FONT_FAMILY` | Font family name | `MOCHI_FONT_FAMILY="JetBrains Mono"` |
+| `MOCHI_SCROLLBACK` | Scrollback lines | `MOCHI_SCROLLBACK=50000` |
+| `MOCHI_SHELL` | Shell command | `MOCHI_SHELL=/bin/zsh` |
+| `MOCHI_OSC52_CLIPBOARD` | Enable OSC 52 clipboard | `MOCHI_OSC52_CLIPBOARD=true` |
 
-## Configuration Options
+## Configuration Schema
 
-### Font Settings
+### Top-Level Settings
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `font_family` | string | `"monospace"` | Font family name |
-| `font_size` | float | `14.0` | Font size in points (4.0 - 128.0) |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `theme` | string | `"dark"` | Color theme name |
+| `scrollback_lines` | integer | `10000` | Lines of scrollback history |
+| `dimensions` | [u16, u16] | `[80, 24]` | Initial window size (cols, rows) |
+| `shell` | string? | `null` | Shell command (null = use $SHELL) |
+| `cursor_style` | string | `"block"` | Cursor style: block, underline, bar |
+| `cursor_blink` | boolean | `true` | Enable cursor blinking |
+| `auto_reload` | boolean | `false` | Auto-reload config on file change |
 
-### Terminal Dimensions
+### Font Configuration (`[font]`)
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `dimensions` | [u16, u16] | `[80, 24]` | Initial [columns, rows] |
-| `scrollback_lines` | usize | `10000` | Lines in scrollback buffer (max 1,000,000) |
+| Key | Type | Default | Range | Description |
+|-----|------|---------|-------|-------------|
+| `family` | string | `"monospace"` | - | Font family name |
+| `size` | float | `14.0` | 4.0-144.0 | Font size in points |
+| `fallback` | [string] | `[]` | - | Fallback font families |
+| `line_height` | float | `1.2` | 0.5-3.0 | Line height multiplier |
+| `cell_padding` | [f32, f32] | `[0.0, 0.0]` | - | Cell padding (h, v) |
 
-### Theme
+### Keybindings (`[keybindings]`)
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `theme` | string | `"dark"` | Theme name (see below) |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `copy` | `"ctrl+shift+c"` | Copy selection to clipboard |
+| `paste` | `"ctrl+shift+v"` | Paste from clipboard |
+| `find` | `"ctrl+shift+f"` | Open find/search bar |
+| `reload_config` | `"ctrl+shift+r"` | Reload configuration |
+| `toggle_theme` | `"ctrl+shift+t"` | Toggle between themes |
+| `increase_font_size` | `"ctrl+plus"` | Increase font size |
+| `decrease_font_size` | `"ctrl+minus"` | Decrease font size |
+| `reset_font_size` | `"ctrl+0"` | Reset font size to default |
 
-Available themes:
-- `dark` - VS Code inspired dark theme
-- `light` - Light theme with dark text
-- `solarized-dark` - Solarized Dark color scheme
-- `solarized-light` - Solarized Light color scheme
-- `dracula` - Dracula color scheme
-- `nord` - Nord color scheme
-- `custom` - Use colors from `[colors]` section
+Keybinding format: `"modifier+modifier+key"` where modifiers can be `ctrl`, `shift`, `alt`, `super`.
 
-### Shell
+### Security Settings (`[security]`)
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `shell` | string | `$SHELL` | Shell command to run |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `osc52_clipboard` | boolean | `false` | Enable OSC 52 clipboard operations |
+| `osc52_max_size` | integer | `100000` | Max OSC 52 payload size (bytes) |
+| `clipboard_notification` | boolean | `true` | Show clipboard modification notification |
+| `max_title_length` | integer | `4096` | Maximum window title length |
+| `title_throttle_ms` | integer | `100` | Title update throttle (ms) |
 
-### Cursor
+### Custom Colors (`[colors]`)
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `cursor_style` | string | `"block"` | Cursor style: `block`, `underline`, `bar` |
-| `cursor_blink` | bool | `true` | Enable cursor blinking |
+Only used when `theme = "custom"`. All colors are hex strings in `#RRGGBB` format.
 
-### Security
+| Key | Description |
+|-----|-------------|
+| `foreground` | Default text color |
+| `background` | Background color |
+| `cursor` | Cursor color |
+| `selection` | Selection highlight color |
+| `ansi` | Array of 16 ANSI colors (0-7 normal, 8-15 bright) |
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `osc52_clipboard` | bool | `false` | Enable OSC 52 clipboard (disabled for security) |
-| `osc52_max_size` | usize | `100000` | Maximum OSC 52 payload size in bytes |
+## Available Themes
 
-### Custom Colors
-
-When `theme = "custom"`, the `[colors]` section defines the color scheme:
-
-```toml
-[colors]
-foreground = "#d4d4d4"
-background = "#1e1e1e"
-cursor = "#ffffff"
-selection = "#264f78"
-ansi = [
-    "#000000",  # 0: Black
-    "#cd3131",  # 1: Red
-    "#0dbc79",  # 2: Green
-    "#e5e510",  # 3: Yellow
-    "#2472c8",  # 4: Blue
-    "#bc3fbc",  # 5: Magenta
-    "#11a8cd",  # 6: Cyan
-    "#e5e5e5",  # 7: White
-    "#666666",  # 8: Bright Black
-    "#f14c4c",  # 9: Bright Red
-    "#23d18b",  # 10: Bright Green
-    "#f5f543",  # 11: Bright Yellow
-    "#3b8eea",  # 12: Bright Blue
-    "#d670d6",  # 13: Bright Magenta
-    "#29b8db",  # 14: Bright Cyan
-    "#ffffff",  # 15: Bright White
-]
-```
+| Theme | Description |
+|-------|-------------|
+| `dark` | VS Code-inspired dark theme (default) |
+| `light` | Light theme with dark text |
+| `solarized-dark` | Solarized dark color scheme |
+| `solarized-light` | Solarized light color scheme |
+| `dracula` | Dracula color scheme |
+| `nord` | Nord color scheme |
+| `gruvbox` | Gruvbox dark color scheme |
+| `onedark` | Atom One Dark color scheme |
+| `custom` | Use colors from `[colors]` section |
 
 ## Validation
 
-The configuration system validates all values and provides clear error messages:
+The configuration is validated on load. Invalid configurations will produce clear error messages:
 
-- Font size must be between 4.0 and 128.0
-- Columns must be between 10 and 1000
-- Rows must be between 5 and 500
+- Font size must be between 4.0 and 144.0
+- Line height must be between 0.5 and 3.0
 - Scrollback lines must not exceed 1,000,000
-- Theme name must be valid
-- Color values must be valid hex strings
-
-If validation fails, Mochi will display an error message and exit.
+- Column count must be between 10 and 1000
+- Row count must be between 5 and 500
+- Cursor style must be one of: block, underline, bar
+- All color values must be valid hex colors (#RRGGBB)
 
 ## Example Configuration
 
-See [config.example.toml](config.example.toml) for a complete example with all options documented.
-
-## Quick Start
-
-1. Create the config directory:
-   ```bash
-   mkdir -p ~/.config/mochi
-   ```
-
-2. Copy the example config:
-   ```bash
-   cp docs/terminal/config.example.toml ~/.config/mochi/config.toml
-   ```
-
-3. Edit to your preferences:
-   ```bash
-   $EDITOR ~/.config/mochi/config.toml
-   ```
-
-4. Run Mochi:
-   ```bash
-   mochi
-   ```
+See [config.example.toml](config.example.toml) for a fully commented example configuration file.

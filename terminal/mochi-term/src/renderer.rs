@@ -138,7 +138,6 @@ impl Renderer {
     }
 
     /// Get the current color scheme
-    #[allow(dead_code)]
     pub fn colors(&self) -> &ColorScheme {
         &self.colors
     }
@@ -556,5 +555,154 @@ impl Renderer {
     /// Convert RGB to pixel value (ARGB format)
     fn rgb_to_pixel(r: u8, g: u8, b: u8) -> u32 {
         0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+    }
+
+    /// Render the find bar overlay
+    pub fn render_find_bar(
+        &mut self,
+        query: &str,
+        match_count: usize,
+        current_match: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let width = self.width;
+        let height = self.height;
+
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+
+        // Find bar dimensions
+        let bar_height = (self.cell_size.height * 1.5) as i32;
+        let bar_y = 0; // Top of screen
+        let padding = 8;
+
+        // Colors for find bar
+        let bar_bg = (40, 44, 52); // Dark background
+        let bar_fg = (171, 178, 191); // Light text
+        let highlight_bg = (97, 175, 239); // Blue highlight for matches
+
+        // We need to get the buffer - but we can't call buffer_mut twice
+        // So we'll draw directly after the main render
+        // For now, let's cache the glyphs we need
+        let display_text = if query.is_empty() {
+            "Find: ".to_string()
+        } else if match_count > 0 {
+            format!("Find: {} ({}/{})", query, current_match + 1, match_count)
+        } else {
+            format!("Find: {} (no matches)", query)
+        };
+
+        for c in display_text.chars() {
+            if c != ' ' {
+                self.ensure_glyph_cached(c, false);
+            }
+        }
+
+        // Get buffer and draw
+        let mut buffer = self.surface.buffer_mut()?;
+
+        // Draw bar background
+        Self::fill_rect_static(
+            &mut buffer,
+            0,
+            bar_y,
+            width as i32,
+            bar_height,
+            bar_bg,
+            width,
+            height,
+        );
+
+        // Draw text
+        let mut x = padding;
+        let text_y = bar_y + (bar_height - self.cell_size.height as i32) / 2;
+
+        for c in display_text.chars() {
+            if c == ' ' {
+                x += self.cell_size.width as i32;
+                continue;
+            }
+
+            if let Some(glyph) = self.glyph_cache.get(&(c, false)) {
+                // Highlight the query portion
+                let is_query_char = x > padding + (6.0 * self.cell_size.width) as i32
+                    && x < padding + ((6 + query.len()) as f32 * self.cell_size.width) as i32;
+
+                let fg = if is_query_char && match_count > 0 {
+                    highlight_bg
+                } else {
+                    bar_fg
+                };
+
+                Self::draw_glyph_static(
+                    &mut buffer,
+                    x,
+                    text_y,
+                    glyph,
+                    fg,
+                    self.cell_size.baseline,
+                    width,
+                    height,
+                );
+            }
+            x += self.cell_size.width as i32;
+        }
+
+        buffer.present()?;
+        Ok(())
+    }
+
+    /// Calculate terminal dimensions (cols, rows) from pixel size and cell size
+    /// This is a pure function useful for testing and external calculations
+    pub fn calculate_dimensions(
+        pixel_width: u32,
+        pixel_height: u32,
+        cell_width: f32,
+        cell_height: f32,
+    ) -> (usize, usize) {
+        let cols = (pixel_width as f32 / cell_width) as usize;
+        let rows = (pixel_height as f32 / cell_height) as usize;
+        (cols.max(1), rows.max(1))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_dimensions() {
+        // Test basic calculation
+        let (cols, rows) = Renderer::calculate_dimensions(800, 600, 10.0, 20.0);
+        assert_eq!(cols, 80);
+        assert_eq!(rows, 30);
+    }
+
+    #[test]
+    fn test_calculate_dimensions_minimum() {
+        // Test that we always get at least 1x1
+        let (cols, rows) = Renderer::calculate_dimensions(5, 5, 10.0, 20.0);
+        assert_eq!(cols, 1);
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn test_calculate_dimensions_fractional() {
+        // Test fractional cell sizes
+        let (cols, rows) = Renderer::calculate_dimensions(800, 600, 8.5, 17.0);
+        assert_eq!(cols, 94); // 800 / 8.5 = 94.11
+        assert_eq!(rows, 35); // 600 / 17.0 = 35.29
+    }
+
+    #[test]
+    fn test_cell_size_struct() {
+        let cell = CellSize {
+            width: 10.0,
+            height: 20.0,
+            baseline: 15.0,
+        };
+        assert_eq!(cell.width, 10.0);
+        assert_eq!(cell.height, 20.0);
+        assert_eq!(cell.baseline, 15.0);
     }
 }

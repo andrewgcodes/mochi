@@ -1,50 +1,142 @@
-# Mochi Terminal Configuration Example
+# Mochi Terminal Configuration
 # 
-# This file shows all available configuration options with their default values.
+# This is an example configuration file for Mochi Terminal.
 # Copy this file to ~/.config/mochi/config.toml and customize as needed.
 #
 # Configuration precedence (highest to lowest):
-# 1. CLI arguments (e.g., --theme dark)
-# 2. Environment variables (e.g., MOCHI_THEME=dark)
+# 1. CLI arguments (--config, --theme, --font-size, etc.)
+# 2. Environment variables (MOCHI_THEME, MOCHI_FONT_SIZE, etc.)
 # 3. This config file
 # 4. Built-in defaults
 
-# Font settings
-font_family = "monospace"  # Font family name
-font_size = 14.0           # Font size in points (4.0 - 128.0)
-
-# Terminal dimensions
-dimensions = [80, 24]      # [columns, rows] (10-1000 cols, 5-500 rows)
-
-# Scrollback buffer
-scrollback_lines = 10000   # Number of lines to keep in scrollback (max 1,000,000)
-
-# Theme selection
-# Available themes: dark, light, solarized-dark, solarized-light, dracula, nord, custom
+# =============================================================================
+# THEME
+# =============================================================================
+# Available themes: dark, light, solarized-dark, solarized-light, 
+#                   dracula, nord, gruvbox, onedark, custom
+# Default: dark
 theme = "dark"
 
-# Shell command (optional - defaults to $SHELL environment variable)
+# =============================================================================
+# FONT CONFIGURATION
+# =============================================================================
+[font]
+# Font family name. Use a monospace font for best results.
+# Default: "monospace"
+family = "monospace"
+
+# Font size in points
+# Default: 14.0
+# Range: 4.0 - 144.0
+size = 14.0
+
+# Fallback fonts (tried in order if primary font is missing glyphs)
+# Default: []
+fallback = []
+
+# Line height multiplier (1.0 = normal spacing)
+# Default: 1.2
+# Range: 0.5 - 3.0
+line_height = 1.2
+
+# Cell padding (horizontal, vertical) in pixels
+# Default: [0.0, 0.0]
+cell_padding = [0.0, 0.0]
+
+# =============================================================================
+# TERMINAL SETTINGS
+# =============================================================================
+# Number of lines to keep in scrollback history
+# Default: 10000
+# Maximum: 1000000
+scrollback_lines = 10000
+
+# Initial window dimensions (columns, rows)
+# Default: [80, 24]
+dimensions = [80, 24]
+
+# Shell command to run (null = use $SHELL environment variable)
+# Default: null
 # shell = "/bin/bash"
 
-# Cursor settings
-cursor_style = "block"     # Options: block, underline, bar
-cursor_blink = true        # Enable cursor blinking
+# Cursor style: "block", "underline", or "bar"
+# Default: "block"
+cursor_style = "block"
 
-# Security settings
-osc52_clipboard = false    # Enable OSC 52 clipboard support (disabled by default for security)
-osc52_max_size = 100000    # Maximum OSC 52 payload size in bytes
+# Enable cursor blinking
+# Default: true
+cursor_blink = true
 
-# Custom color scheme (only used when theme = "custom")
-# All colors are specified as hex strings (with or without # prefix)
+# Auto-reload config file when it changes
+# Default: false
+auto_reload = false
+
+# =============================================================================
+# KEYBINDINGS
+# =============================================================================
+# Format: "modifier+modifier+key" (e.g., "ctrl+shift+c")
+# Available modifiers: ctrl, shift, alt, super
+[keybindings]
+# Copy selection to clipboard
+copy = "ctrl+shift+c"
+
+# Paste from clipboard
+paste = "ctrl+shift+v"
+
+# Open find/search bar
+find = "ctrl+shift+f"
+
+# Reload configuration
+reload_config = "ctrl+shift+r"
+
+# Toggle between themes
+toggle_theme = "ctrl+shift+t"
+
+# Font size controls
+increase_font_size = "ctrl+plus"
+decrease_font_size = "ctrl+minus"
+reset_font_size = "ctrl+0"
+
+# =============================================================================
+# SECURITY SETTINGS
+# =============================================================================
+[security]
+# Enable OSC 52 clipboard operations (allows programs to read/write clipboard)
+# WARNING: This can be a security risk. Only enable if you trust all programs
+# you run in the terminal.
+# Default: false
+osc52_clipboard = false
+
+# Maximum size of OSC 52 clipboard payload in bytes
+# Default: 100000
+osc52_max_size = 100000
+
+# Show notification when clipboard is modified by escape sequence
+# Default: true
+clipboard_notification = true
+
+# Maximum title length (to prevent DoS attacks)
+# Default: 4096
+max_title_length = 4096
+
+# Title update throttle in milliseconds
+# Default: 100
+title_throttle_ms = 100
+
+# =============================================================================
+# CUSTOM COLOR SCHEME
+# =============================================================================
+# Only used when theme = "custom"
+# All colors are in hex format: "#RRGGBB"
 [colors]
 foreground = "#d4d4d4"
 background = "#1e1e1e"
 cursor = "#ffffff"
 selection = "#264f78"
 
-# ANSI colors 0-15 (standard 16-color palette)
-# 0-7: Normal colors (black, red, green, yellow, blue, magenta, cyan, white)
-# 8-15: Bright colors
+# ANSI colors 0-15 (normal and bright variants)
+# 0-7: Black, Red, Green, Yellow, Blue, Magenta, Cyan, White
+# 8-15: Bright variants of the above
 ansi = [
     "#000000",  # 0: Black
     "#cd3131",  # 1: Red

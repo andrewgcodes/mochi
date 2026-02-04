@@ -1,341 +1,219 @@
 # Mochi Terminal Phase 2 - Architecture Notes
 
-This document captures the current architecture of the Mochi terminal emulator as understood during the Phase 2 reconnaissance phase.
+## Module Map
 
-## Overview
-
-Mochi is a Linux terminal emulator built from scratch in Rust. It does not wrap any existing terminal widget or library - all VT/xterm escape sequence parsing, screen model management, and rendering are implemented from first principles.
-
-## Crate Structure
-
-The project is organized as a Cargo workspace with 4 crates:
+The Mochi terminal emulator is organized into 4 crates within a Cargo workspace:
 
 ```
 terminal/
-├── Cargo.toml          # Workspace definition
-├── terminal-core/      # Screen model, grid, cells, selection
-├── terminal-parser/    # VT/xterm escape sequence parser
-├── terminal-pty/       # PTY management and child process
-└── mochi-term/         # GUI application (winit + softbuffer + fontdue)
+├── Cargo.toml           # Workspace configuration
+├── terminal-core/       # Platform-independent screen model
+├── terminal-parser/     # VT/xterm escape sequence parser
+├── terminal-pty/        # Linux PTY management
+└── mochi-term/          # GUI application (winit + softbuffer)
 ```
 
-### terminal-core
+### 1. terminal-core
 
-The core data structures for terminal state management.
+The core crate provides the terminal screen model and is designed to be deterministic and platform-independent.
 
-**Key Types:**
-- `Screen` - Complete terminal state (primary/alternate grids, cursor, scrollback, selection, modes)
-- `Grid` - 2D array of lines representing visible screen area
-- `Line` - Row of cells with wrap flag
-- `Cell` - Unicode content, attributes (colors, bold, italic, etc.), width, hyperlink_id
-- `Cursor` - Position, style (Block/Underline/Bar), visibility, blinking, attributes
-- `Scrollback` - Ring buffer of lines that scrolled off top (default 10,000 lines)
-- `Selection` - Text selection state (Normal, Word, Line, Block types)
-- `Modes` - Terminal mode flags (insert, auto-wrap, mouse tracking, bracketed paste, etc.)
-- `Color` - Default, Indexed(0-255), RGB
-- `Dimensions` - cols/rows tuple
-
-**Files:**
-- `lib.rs` - Module exports
-- `screen.rs` - Screen implementation (898 lines)
-- `grid.rs` - Grid implementation (364 lines)
-- `line.rs` - Line implementation (291 lines)
-- `cell.rs` - Cell and CellAttributes (255 lines)
-- `cursor.rs` - Cursor and SavedCursor (236 lines)
-- `color.rs` - Color enum and palette conversion (166 lines)
-- `scrollback.rs` - Ring buffer scrollback (301 lines)
-- `selection.rs` - Selection logic (270 lines)
-- `modes.rs` - Terminal modes (219 lines)
-- `charset.rs` - Character set handling (DEC special graphics)
+**Key modules:**
+- `cell.rs` - Cell and CellAttributes (character + styling)
+- `color.rs` - Color enum (Default, Indexed, Rgb)
+- `cursor.rs` - Cursor state and SavedCursor
+- `grid.rs` - 2D grid of cells
+- `line.rs` - Single line of cells
+- `screen.rs` - Complete terminal state (grids, cursor, scrollback, modes)
+- `scrollback.rs` - Ring buffer for scrollback history
+- `selection.rs` - Text selection state
+- `modes.rs` - Terminal mode flags (DEC modes, etc.)
+- `charset.rs` - Character set translation (G0-G3)
 - `snapshot.rs` - Screen state serialization
 
-### terminal-parser
+**Key types:**
+- `Screen` - Main interface, contains primary/alternate grids, cursor, scrollback, modes
+- `Cell` - Character + attributes + hyperlink_id
+- `CellAttributes` - Bold, italic, underline, colors, etc.
+- `Color` - Default | Indexed(u8) | Rgb(u8, u8, u8)
+- `Cursor` - Position, attributes, visibility, style
+- `Selection` - Start/end points, selection type
 
-State machine for parsing VT/xterm escape sequences.
+### 2. terminal-parser
 
-**Key Types:**
-- `Parser` - State machine with UTF-8 decoder
-- `ParserState` - Ground, Escape, CsiEntry, CsiParam, OscString, DcsPassthrough, etc.
-- `Action` - Print(char), Control(u8), Esc(EscAction), Csi(CsiAction), Osc(OscAction), etc.
-- `EscAction` - SaveCursor, RestoreCursor, Index, ReverseIndex, DesignateG0/G1/G2/G3, etc.
-- `CsiAction` - params, intermediates, final_byte, private flag
-- `OscAction` - SetTitle, SetColor, Hyperlink, Clipboard, etc.
-- `Params` - Parameter parsing with subparameter support
+Streaming parser for VT/xterm escape sequences.
 
-**Files:**
-- `lib.rs` - Module exports
-- `parser.rs` - Main parser state machine (934 lines)
-- `action.rs` - Action types (187 lines)
-- `params.rs` - Parameter parsing
+**Key modules:**
+- `parser.rs` - State machine parser
+- `action.rs` - Semantic actions produced by parser
+- `params.rs` - CSI parameter parsing
 - `utf8.rs` - UTF-8 decoder
 
-### terminal-pty
+**Key types:**
+- `Parser` - State machine with parse() method
+- `Action` - Print, Control, Esc, Csi, Osc, Dcs, etc.
+- `CsiAction` - CSI sequence with params, intermediates, final byte
+- `OscAction` - OSC commands (title, hyperlink, clipboard, etc.)
+- `EscAction` - ESC sequences (save/restore cursor, index, etc.)
 
-PTY management and child process handling.
+### 3. terminal-pty
 
-**Key Types:**
-- `Pty` - Pseudoterminal file descriptor wrapper
-- `Child` - Child process with PTY
-- `WindowSize` - Terminal dimensions in chars and pixels
+Linux PTY management using nix crate.
 
-**Files:**
-- `lib.rs` - Module exports
-- `pty.rs` - PTY creation and management
-- `child.rs` - Child process spawning
-- `size.rs` - Window size handling
+**Key modules:**
+- `pty.rs` - PTY creation and configuration
+- `child.rs` - Child process spawning and management
+- `size.rs` - Window size (cols, rows, pixels)
 
-### mochi-term
+**Key types:**
+- `Pty` - PTY file descriptor wrapper
+- `Child` - Spawned child process
+- `WindowSize` - Terminal dimensions
 
-The GUI application that ties everything together.
+### 4. mochi-term
 
-**Key Types:**
-- `App` - Main application state, event loop, window management
-- `Config` - Configuration with font, colors, themes, security settings
-- `Terminal` - Integrates parser and screen, handles escape sequence actions
-- `Renderer` - CPU-based rendering with softbuffer + fontdue
-- `ColorScheme` - Theme colors (foreground, background, cursor, selection, ANSI 16)
-- `ThemeName` - Dark, Light, SolarizedDark, SolarizedLight, Dracula, Nord, Custom
+GUI application using winit for windowing and softbuffer for CPU-based rendering.
 
-**Files:**
+**Key modules:**
 - `main.rs` - Entry point, config loading
-- `app.rs` - Application event loop (561 lines)
-- `config.rs` - Configuration types and loading (382 lines)
-- `terminal.rs` - Terminal integration (806 lines)
-- `renderer.rs` - CPU rendering (550 lines)
-- `input.rs` - Keyboard/mouse encoding (372 lines)
-- `event.rs` - Custom events
+- `app.rs` - Application state and event loop
+- `config.rs` - Configuration loading and theme definitions
+- `renderer.rs` - CPU-based rendering with fontdue
+- `terminal.rs` - Terminal state integrating parser and screen
+- `input.rs` - Keyboard and mouse input encoding
+- `event.rs` - Event types
+
+**Key types:**
+- `App` - Main application state
+- `Config` - Configuration with themes, fonts, etc.
+- `Renderer` - Rendering context with glyph cache
+- `Terminal` - Parser + Screen integration
 
 ## Data Flow
 
+### Input Flow
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         User Input                               │
-│  (keyboard, mouse, paste)                                        │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      App (mochi-term)                            │
-│  - Handles window events via winit                               │
-│  - Encodes input to terminal escape sequences (input.rs)         │
-│  - Manages clipboard via arboard                                 │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      PTY (terminal-pty)                          │
-│  - Writes encoded input to PTY master                            │
-│  - Reads output from child process                               │
-│  - Handles window resize (TIOCSWINSZ)                            │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Parser (terminal-parser)                      │
-│  - Parses byte stream into Actions                               │
-│  - Handles UTF-8 decoding                                        │
-│  - State machine for escape sequences                            │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Terminal (mochi-term)                          │
-│  - Dispatches Actions to Screen                                  │
-│  - Handles CSI, OSC, ESC sequences                               │
-│  - Manages title, bell, hyperlinks                               │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Screen (terminal-core)                        │
-│  - Updates grid cells                                            │
-│  - Manages cursor position                                       │
-│  - Handles scrollback                                            │
-│  - Manages selection                                             │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Renderer (mochi-term)                          │
-│  - Rasterizes glyphs via fontdue                                 │
-│  - Draws cells to pixel buffer                                   │
-│  - Displays via softbuffer                                       │
-└─────────────────────────────────────────────────────────────────┘
+Keyboard/Mouse Event (winit)
+    → App::handle_key_input() / handle_mouse_input()
+    → input::encode_key() / encode_mouse()
+    → PTY write (Child::write())
+    → Shell/Application
 ```
 
-## Current Configuration System
-
-The existing config system (`mochi-term/src/config.rs`) provides:
-
-**Config struct fields:**
-- `font_family: String` - Font family name (default: "DejaVu Sans Mono")
-- `font_size: f32` - Font size in points (default: 14.0)
-- `scrollback_lines: usize` - Scrollback buffer size (default: 10000)
-- `dimensions: Option<(u16, u16)>` - Initial cols/rows
-- `theme: ThemeName` - Selected theme
-- `colors: Option<ColorScheme>` - Custom color overrides
-- `osc52_clipboard: bool` - OSC 52 clipboard support (default: false)
-- `osc52_max_size: usize` - Max clipboard payload (default: 100KB)
-- `shell: Option<String>` - Shell to run
-- `cursor_style: CursorStyle` - Block/Underline/Bar
-- `cursor_blink: bool` - Cursor blinking
-
-**Built-in themes:**
-- Dark (default)
-- Light
-- SolarizedDark
-- SolarizedLight
-- Dracula
-- Nord
-- Custom (user-defined)
-
-**Config loading:**
-- Path: `~/.config/mochi/config.toml` (via `dirs` crate)
-- Format: TOML
-- No CLI argument support currently
-- No environment variable support currently
-- No config precedence system
+### Output Flow
+```
+PTY read (Child::read())
+    → App::poll_pty()
+    → Terminal::process()
+    → Parser::parse() → Actions
+    → Terminal::handle_action()
+    → Screen mutations
+    → App::render()
+    → Renderer::render()
+    → softbuffer display
+```
 
 ## Where to Add Phase 2 Features
 
 ### M1: Config System Foundation
 
-**Changes needed:**
-1. Add CLI argument parsing to `main.rs` (use `clap` crate)
-2. Add environment variable support to `config.rs`
-3. Implement config precedence: CLI > env > file > defaults
-4. Add config validation with clear error messages
-5. Create example config file
+**Location:** `mochi-term/src/config.rs`
 
-**Files to modify:**
-- `mochi-term/src/main.rs` - Add CLI parsing
-- `mochi-term/src/config.rs` - Add env vars, validation, precedence
-- `mochi-term/Cargo.toml` - Add clap dependency
+The config system already exists but needs enhancement:
+- Add CLI argument parsing in `main.rs` (use `clap` or manual parsing)
+- Add environment variable support in `Config::load()`
+- Add proper XDG path handling (already uses `dirs` crate)
+- Add config validation with clear error messages
+- Add `--config` flag override
+
+**Layering:** Config is loaded once at startup and passed to App. No changes to core/parser/pty needed.
 
 ### M2: Themes + Light/Dark Mode
 
-**Changes needed:**
-1. Add runtime theme switching via keybinding
-2. Add theme file loading from external paths
-3. Ensure theme applies to all rendering (already mostly done)
-4. Add 2 more built-in themes (already have 6, need 4 total per spec)
+**Location:** `mochi-term/src/config.rs` (theme definitions), `mochi-term/src/app.rs` (runtime switching)
 
-**Files to modify:**
-- `mochi-term/src/app.rs` - Add theme toggle keybinding
-- `mochi-term/src/config.rs` - Add theme file loading
-- `mochi-term/src/renderer.rs` - Ensure theme applies everywhere
+The theme system already exists with 6 built-in themes. Need to add:
+- Runtime theme switching via keybinding in `App::handle_key_input()`
+- Custom theme file loading
+- Theme format documentation
 
-### M3: Font Customization + Layout
+**Layering:** Themes only affect the renderer. No changes to core/parser/pty needed.
 
-**Changes needed:**
-1. Implement font family selection (currently hardcoded to bundled font)
-2. Add font fallback list support
-3. Add cell padding/line height configuration
-4. Implement runtime font reload
-5. Ensure font changes trigger PTY resize
+### M3: Font Customization
 
-**Files to modify:**
-- `mochi-term/src/renderer.rs` - Font loading, fallback, cell size
-- `mochi-term/src/app.rs` - Font reload, PTY resize
-- `mochi-term/src/config.rs` - Font configuration options
+**Location:** `mochi-term/src/renderer.rs`, `mochi-term/src/config.rs`
+
+Current state:
+- Uses bundled DejaVuSansMono fonts
+- Font size can be changed at runtime (Ctrl+/-)
+- No configurable font family
+
+Need to add:
+- System font loading (fontconfig or manual path)
+- Fallback fonts list
+- Cell padding / line height configuration
+- Proper PTY resize when font metrics change
+
+**Layering:** Font changes affect renderer and require PTY resize. Changes in:
+- `config.rs` - Font configuration
+- `renderer.rs` - Font loading and cell size calculation
+- `app.rs` - PTY resize on font change
 
 ### M4: Keybinding Customization
 
-**Changes needed:**
-1. Add keybinding configuration to config file
-2. Implement keybinding parser
-3. Add default keybindings for copy/paste/find/reload/toggle-theme
-4. Ensure keybindings don't interfere with terminal input
+**Location:** `mochi-term/src/config.rs` (keybinding config), `mochi-term/src/app.rs` (keybinding handling)
 
-**Files to modify:**
-- `mochi-term/src/config.rs` - Keybinding configuration
-- `mochi-term/src/app.rs` - Keybinding handling
-- New file: `mochi-term/src/keybindings.rs` - Keybinding system
+Need to add:
+- Keybinding configuration structure
+- Keybinding parsing
+- Action dispatch in `App::handle_key_input()`
+
+**Layering:** Keybindings only affect the app layer. No changes to core/parser/pty needed.
 
 ### M5: UX Polish
 
-**Changes needed:**
-1. Implement word/line selection (double/triple click)
-2. Add scrollback search UI (find bar overlay)
-3. Improve hyperlink UX (hover, ctrl+click)
-
-**Files to modify:**
-- `mochi-term/src/app.rs` - Click handling, search UI
+**Selection improvements:**
 - `terminal-core/src/selection.rs` - Word/line selection logic
+- `mochi-term/src/app.rs` - Double/triple click handling
+
+**Scrollback search:**
+- `mochi-term/src/app.rs` - Search state and UI overlay
 - `mochi-term/src/renderer.rs` - Search highlight rendering
+
+**Hyperlink UX:**
+- `mochi-term/src/app.rs` - Hyperlink click handling
+- `mochi-term/src/renderer.rs` - Hyperlink styling
+
+**Layering:** Selection logic is in core, but search UI and hyperlink handling are in mochi-term.
 
 ### M6: Config Reload + Security
 
-**Changes needed:**
-1. Add config reload keybinding
-2. Add file watcher (optional, use `notify` crate)
-3. Handle reload failures gracefully
-4. Add clipboard OSC security (already partially implemented)
-5. Add title update throttling
+**Location:** `mochi-term/src/app.rs` (reload handling), `mochi-term/src/config.rs` (validation)
 
-**Files to modify:**
-- `mochi-term/src/app.rs` - Reload handling, file watcher
-- `mochi-term/src/config.rs` - Reload logic
-- `mochi-term/src/terminal.rs` - Title throttling
+Need to add:
+- Config reload keybinding
+- Optional file watcher (inotify)
+- Error handling on reload failure
+- Security documentation
 
-### M7: No Regressions
+**Layering:** Config reload affects app layer only.
 
-**Changes needed:**
-1. Run vttest and document results
-2. Fix any regressions introduced by Phase 2
-3. Ensure all existing tests pass
+## Existing Features to Preserve
 
-## Threading Model
+- UTF-8 support
+- 16/256/truecolor support
+- Cursor styles (block, underline, bar)
+- Alternate screen buffer
+- Scroll regions
+- Scrollback buffer (10,000 lines default)
+- Bracketed paste mode
+- Mouse reporting (SGR format)
+- OSC sequences (title, hyperlink, clipboard)
+- Selection and clipboard (arboard)
+- Font zoom (Ctrl+/-)
 
-Currently single-threaded. The main event loop in `App::run()`:
-1. Polls winit events
-2. Polls PTY for output
-3. Renders frame
-4. Repeats
+## Testing Strategy
 
-This is simple but may need adjustment for file watching or async operations.
-
-## Memory Considerations
-
-- Scrollback: Bounded ring buffer (default 10,000 lines)
-- Glyph cache: HashMap keyed by (char, bold) - unbounded but practical
-- Parser buffers: Fixed size (MAX_OSC_LEN = 65536)
-
-## Test Coverage
-
-Current test count: 139 tests across all crates
-- terminal-core: 76 tests
-- terminal-parser: 33 tests
-- terminal-pty: 11 tests
-- mochi-term: 19 tests
-
-Tests cover:
-- Cell/line/grid operations
-- Cursor movement
-- Selection logic
-- Scrollback ring buffer
-- Parser state machine
-- UTF-8 decoding
-- PTY creation
-- Input encoding
-- Config parsing
-
-## Dependencies
-
-Key dependencies (from Cargo.toml files):
-- `winit` - Window creation and event loop
-- `softbuffer` - CPU-based pixel buffer display
-- `fontdue` - Font rasterization
-- `nix` - Unix system calls (PTY)
-- `arboard` - Clipboard access
-- `serde` + `toml` - Configuration parsing
-- `dirs` - XDG directory paths
-- `unicode-width` - Character width calculation
-- `env_logger` - Logging
-
-## CI/CD
-
-GitHub Actions workflow (`.github/workflows/ci.yml`):
-- Runs on: ubuntu-latest, macos-latest
-- Jobs: build, test, clippy, fmt
-- All must pass for PR merge
+- Unit tests: Already exist in each crate
+- Integration tests: Can add PTY-based tests
+- Golden tests: Can add screen snapshot tests
+- Manual tests: Run terminal and verify visually
