@@ -514,8 +514,8 @@ impl App {
                 if let Some(line) = screen.scrollback().get_from_end(scrollback_idx) {
                     let line_text = line.text();
                     let chars: Vec<char> = line_text.chars().collect();
-                    for col in start_col..end_col.min(chars.len()) {
-                        text.push(chars[col]);
+                    for ch in chars.iter().take(end_col.min(chars.len())).skip(start_col) {
+                        text.push(*ch);
                     }
                 }
             } else if (row as usize) < screen.grid().rows() {
@@ -523,8 +523,8 @@ impl App {
                 let line = screen.line(row as usize);
                 let line_text = line.text();
                 let chars: Vec<char> = line_text.chars().collect();
-                for col in start_col..end_col.min(chars.len()) {
-                    text.push(chars[col]);
+                for ch in chars.iter().take(end_col.min(chars.len())).skip(start_col) {
+                    text.push(*ch);
                 }
             }
 

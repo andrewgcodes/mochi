@@ -94,6 +94,7 @@ impl ThemeName {
     }
 
     /// Get all available theme names
+    #[allow(dead_code)] // Will be used for theme listing UI
     pub fn all_names() -> &'static [&'static str] {
         &[
             "dark",
@@ -121,6 +122,7 @@ impl ThemeName {
 }
 
 /// Keybinding action
+#[allow(dead_code)] // Will be used when keybinding parsing is implemented
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum KeyAction {
@@ -142,6 +144,7 @@ pub enum KeyAction {
 }
 
 /// Keybinding configuration
+#[allow(dead_code)] // Will be used when keybinding parsing is implemented
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keybinding {
     /// Key combination (e.g., "ctrl+shift+c")
@@ -710,6 +713,7 @@ impl Config {
     }
 
     // Legacy accessors for backwards compatibility
+    #[allow(dead_code)] // Will be used when font rendering is updated
     pub fn font_family(&self) -> &str {
         &self.font.family
     }
@@ -718,10 +722,12 @@ impl Config {
         self.font.size
     }
 
+    #[allow(dead_code)] // Will be used when OSC 52 handling is implemented
     pub fn osc52_clipboard(&self) -> bool {
         self.security.osc52_clipboard
     }
 
+    #[allow(dead_code)] // Will be used when OSC 52 handling is implemented
     pub fn osc52_max_size(&self) -> usize {
         self.security.osc52_max_size
     }
