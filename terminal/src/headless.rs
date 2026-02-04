@@ -164,7 +164,7 @@ fn main() -> io::Result<()> {
     } else {
         snapshot
             .to_json()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+            .map_err(io::Error::other)?
     };
 
     if let Some(path) = &args.output {
