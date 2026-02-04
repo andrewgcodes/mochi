@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::Config;
+use crate::config::{CliArgs, Config, KeyAction};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -23,6 +23,8 @@ use crate::terminal::Terminal;
 pub struct App {
     /// Configuration
     config: Config,
+    /// CLI arguments (for config reload)
+    cli_args: CliArgs,
     /// Window (created on resume)
     window: Option<Rc<Window>>,
     /// Renderer
@@ -32,7 +34,6 @@ pub struct App {
     /// Child process
     child: Option<Child>,
     /// Clipboard
-    #[allow(dead_code)]
     clipboard: Option<Clipboard>,
     /// Current modifiers state
     modifiers: ModifiersState,
@@ -52,9 +53,10 @@ pub struct App {
 
 impl App {
     /// Create a new application
-    pub fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(config: Config, cli_args: CliArgs) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             config,
+            cli_args,
             window: None,
             renderer: None,
             terminal: None,
@@ -163,7 +165,7 @@ impl App {
         // Create renderer with effective colors based on theme
         let renderer = Renderer::new(
             window.clone(),
-            self.config.font_size,
+            self.config.font_size(),
             self.config.effective_colors(),
         )?;
 
@@ -223,7 +225,58 @@ impl App {
             return;
         }
 
-        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
+        // Get key name for keybinding matching
+        let key_name = match &event.logical_key {
+            Key::Character(c) => c.to_string(),
+            Key::Named(named) => format!("{:?}", named).to_lowercase(),
+            _ => return,
+        };
+
+        // Check for configurable keybindings
+        let ctrl = self.modifiers.control_key();
+        let alt = self.modifiers.alt_key();
+        let shift = self.modifiers.shift_key();
+        let super_key = self.modifiers.super_key();
+
+        if let Some(action) = self.config.keybindings.get_action(ctrl, alt, shift, super_key, &key_name) {
+            match action {
+                KeyAction::Copy => {
+                    self.handle_copy();
+                    return;
+                }
+                KeyAction::Paste => {
+                    self.handle_paste();
+                    return;
+                }
+                KeyAction::Find => {
+                    self.toggle_search();
+                    return;
+                }
+                KeyAction::ReloadConfig => {
+                    self.reload_config();
+                    return;
+                }
+                KeyAction::ToggleTheme => {
+                    self.toggle_theme();
+                    return;
+                }
+                KeyAction::FontSizeIncrease => {
+                    self.change_font_size(2.0);
+                    return;
+                }
+                KeyAction::FontSizeDecrease => {
+                    self.change_font_size(-2.0);
+                    return;
+                }
+                KeyAction::FontSizeReset => {
+                    self.reset_font_size();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // Legacy font zoom shortcuts (Cmd on macOS, Ctrl on Linux) for compatibility
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
@@ -231,18 +284,6 @@ impl App {
 
         if zoom_modifier {
             match &event.logical_key {
-                Key::Character(c) if c == "=" || c == "+" => {
-                    self.change_font_size(2.0);
-                    return;
-                }
-                Key::Character(c) if c == "-" => {
-                    self.change_font_size(-2.0);
-                    return;
-                }
-                Key::Character(c) if c == "0" => {
-                    self.reset_font_size();
-                    return;
-                }
                 Key::Named(NamedKey::ArrowUp) => {
                     self.change_font_size(2.0);
                     return;
@@ -266,6 +307,66 @@ impl App {
         {
             let _ = child.write_all(&data);
         }
+    }
+
+    /// Handle copy to clipboard
+    fn handle_copy(&mut self) {
+        let Some(clipboard) = &mut self.clipboard else {
+            log::warn!("Clipboard not available");
+            return;
+        };
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+        if selection.active {
+            if let Some(text) = screen.get_selected_text(selection) {
+                if let Err(e) = clipboard.set_text(&text) {
+                    log::warn!("Failed to copy to clipboard: {}", e);
+                } else {
+                    log::debug!("Copied {} characters to clipboard", text.len());
+                }
+            }
+        }
+    }
+
+    /// Toggle search UI
+    fn toggle_search(&mut self) {
+        log::info!("Search toggled (not yet implemented)");
+        // TODO: Implement search UI in M5
+    }
+
+    /// Reload configuration
+    fn reload_config(&mut self) {
+        log::info!("Reloading configuration...");
+        match self.config.reload(&self.cli_args) {
+            Ok(()) => {
+                log::info!("Configuration reloaded successfully");
+                // Apply new theme colors to renderer
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.set_colors(self.config.effective_colors());
+                }
+                self.needs_redraw = true;
+            }
+            Err(e) => {
+                log::error!("Failed to reload configuration: {}", e);
+            }
+        }
+    }
+
+    /// Toggle between themes
+    fn toggle_theme(&mut self) {
+        let new_theme = self.config.theme.next();
+        log::info!("Switching theme to {:?}", new_theme);
+        self.config.theme = new_theme;
+        
+        // Apply new theme colors to renderer
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_colors(self.config.effective_colors());
+        }
+        self.needs_redraw = true;
     }
 
     /// Change font size by delta
@@ -314,7 +415,7 @@ impl App {
         let Some(window) = &self.window else { return };
 
         let scale_factor = window.scale_factor() as f32;
-        let default_size = self.config.font_size * scale_factor;
+        let default_size = self.config.font_size() * scale_factor;
 
         renderer.set_font_size(default_size);
 
@@ -451,8 +552,7 @@ impl App {
         }
     }
 
-    /// Handle paste
-    #[allow(dead_code)]
+    /// Handle paste from clipboard
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
             return;
