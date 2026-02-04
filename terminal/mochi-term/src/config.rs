@@ -100,6 +100,21 @@ impl ThemeName {
             ThemeName::Custom => "Custom",
         }
     }
+
+    /// Convert theme name to its corresponding color scheme
+    pub fn to_color_scheme(self) -> ColorScheme {
+        match self {
+            ThemeName::Dark => ColorScheme::default(),
+            ThemeName::Light => ColorScheme::light(),
+            ThemeName::SolarizedDark => ColorScheme::solarized_dark(),
+            ThemeName::SolarizedLight => ColorScheme::solarized_light(),
+            ThemeName::Dracula => ColorScheme::dracula(),
+            ThemeName::Nord => ColorScheme::nord(),
+            ThemeName::Gruvbox => ColorScheme::gruvbox(),
+            ThemeName::OneDark => ColorScheme::onedark(),
+            ThemeName::Custom => ColorScheme::default(), // Custom uses default as fallback
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
