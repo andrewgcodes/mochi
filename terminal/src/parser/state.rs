@@ -1,7 +1,7 @@
 //! Parser state machine
 //!
 //! Implements a VT500-series compatible parser based on:
-//! https://vt100.net/emu/dec_ansi_parser
+//! <https://vt100.net/emu/dec_ansi_parser>
 //!
 //! The parser is designed to:
 //! - Handle arbitrary chunk boundaries (streaming)

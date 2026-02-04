@@ -24,7 +24,7 @@ pub enum TerminalAction {
     Execute(u8),
 
     /// CSI (Control Sequence Introducer) dispatch
-    /// Format: ESC [ [params] [intermediates] final
+    /// Format: ESC \[ \[params\] \[intermediates\] final
     CsiDispatch {
         /// Numeric parameters separated by semicolons
         /// Empty parameters are represented as 0
@@ -45,7 +45,7 @@ pub enum TerminalAction {
     },
 
     /// ESC dispatch (non-CSI escape sequences)
-    /// Format: ESC [intermediates] final
+    /// Format: ESC \[intermediates\] final
     EscDispatch {
         /// Intermediate bytes (0x20-0x2F)
         intermediates: Vec<u8>,
