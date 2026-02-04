@@ -96,7 +96,11 @@ impl Pty {
                 setsid().expect("setsid failed");
 
                 // Set slave as controlling terminal
+                // On macOS, TIOCSCTTY is u32 but ioctl expects u64, so we cast
                 unsafe {
+                    #[cfg(target_os = "macos")]
+                    libc::ioctl(slave.as_raw_fd(), libc::TIOCSCTTY as libc::c_ulong, 0);
+                    #[cfg(not(target_os = "macos"))]
                     libc::ioctl(slave.as_raw_fd(), libc::TIOCSCTTY, 0);
                 }
 
@@ -181,12 +185,24 @@ impl Pty {
         self.size.ws_col = cols;
         self.size.ws_row = rows;
 
+        // On macOS, TIOCSWINSZ is u32 but ioctl expects u64, so we cast
         let result = unsafe {
-            libc::ioctl(
-                self.master.as_raw_fd(),
-                libc::TIOCSWINSZ,
-                &self.size as *const Winsize,
-            )
+            #[cfg(target_os = "macos")]
+            {
+                libc::ioctl(
+                    self.master.as_raw_fd(),
+                    libc::TIOCSWINSZ as libc::c_ulong,
+                    &self.size as *const Winsize,
+                )
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                libc::ioctl(
+                    self.master.as_raw_fd(),
+                    libc::TIOCSWINSZ,
+                    &self.size as *const Winsize,
+                )
+            }
         };
 
         if result < 0 {
