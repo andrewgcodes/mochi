@@ -1,0 +1,137 @@
+# Mochi Terminal Configuration
+# 
+# This is an example configuration file for Mochi Terminal.
+# Copy this file to ~/.config/mochi/config.toml to customize your terminal.
+#
+# Configuration precedence (highest to lowest):
+# 1. CLI arguments (--theme, --font-size, etc.)
+# 2. Environment variables (MOCHI_THEME, MOCHI_FONT_SIZE, etc.)
+# 3. This config file
+# 4. Built-in defaults
+
+# =============================================================================
+# FONT SETTINGS
+# =============================================================================
+
+# Font family name (default: "DejaVu Sans Mono")
+# The terminal ships with DejaVu Sans Mono bundled, but you can specify
+# any monospace font installed on your system.
+font_family = "DejaVu Sans Mono"
+
+# Font size in points (default: 14.0)
+font_size = 14.0
+
+# =============================================================================
+# THEME SETTINGS
+# =============================================================================
+
+# Theme name (default: "dark")
+# Available built-in themes:
+#   - dark (mochi-dark)      - Dark theme with comfortable contrast
+#   - light (mochi-light)    - Light theme for bright environments
+#   - solarized-dark         - Solarized dark color scheme
+#   - solarized-light        - Solarized light color scheme
+#   - dracula                - Popular dark theme with vibrant colors
+#   - nord                   - Arctic, north-bluish color palette
+#   - custom                 - Use the [colors] section below
+theme = "dark"
+
+# =============================================================================
+# TERMINAL SETTINGS
+# =============================================================================
+
+# Number of scrollback lines to keep (default: 10000)
+# Set to 0 to disable scrollback
+scrollback_lines = 10000
+
+# Initial terminal dimensions [columns, rows] (default: [80, 24])
+dimensions = [80, 24]
+
+# Shell command to run (default: uses $SHELL environment variable)
+# Uncomment to override:
+# shell = "/bin/bash"
+
+# Cursor style: "block", "underline", or "bar" (default: "block")
+cursor_style = "block"
+
+# Enable cursor blinking (default: true)
+cursor_blink = true
+
+# =============================================================================
+# SECURITY SETTINGS
+# =============================================================================
+
+# Enable OSC 52 clipboard access (default: false)
+# WARNING: When enabled, applications can read/write your clipboard via
+# escape sequences. Only enable if you trust all applications you run.
+osc52_clipboard = false
+
+# Maximum OSC 52 payload size in bytes (default: 100000)
+# Limits the amount of data that can be transferred via clipboard sequences.
+osc52_max_size = 100000
+
+# =============================================================================
+# KEYBINDINGS
+# =============================================================================
+
+# Keybindings can be customized in the [keybindings] section.
+# Format: { key = "modifier+key", action = "ActionName" }
+#
+# Available modifiers: ctrl, shift, alt, super
+# Available actions:
+#   - Copy          - Copy selected text to clipboard
+#   - Paste         - Paste from clipboard
+#   - Find          - Open search/find bar
+#   - ReloadConfig  - Reload configuration file
+#   - ToggleTheme   - Cycle through available themes
+#   - ZoomIn        - Increase font size
+#   - ZoomOut       - Decrease font size
+#   - ResetZoom     - Reset font size to default
+
+[keybindings]
+bindings = [
+    { key = "ctrl+shift+c", action = "Copy" },
+    { key = "ctrl+shift+v", action = "Paste" },
+    { key = "ctrl+shift+f", action = "Find" },
+    { key = "ctrl+shift+r", action = "ReloadConfig" },
+    { key = "ctrl+shift+t", action = "ToggleTheme" },
+    { key = "ctrl+plus", action = "ZoomIn" },
+    { key = "ctrl+minus", action = "ZoomOut" },
+    { key = "ctrl+0", action = "ResetZoom" },
+]
+
+# =============================================================================
+# CUSTOM COLORS (only used when theme = "custom")
+# =============================================================================
+
+# To use custom colors, set theme = "custom" above and customize the
+# colors below. All colors are specified as hex strings (#RRGGBB).
+
+[colors]
+# Main colors
+foreground = "#d4d4d4"
+background = "#1e1e1e"
+cursor = "#ffffff"
+selection = "#264f78"
+
+# ANSI 16-color palette
+# Colors 0-7: Normal colors
+# Colors 8-15: Bright colors
+ansi = [
+    "#1e1e1e",  # 0: Black
+    "#f44747",  # 1: Red
+    "#6a9955",  # 2: Green
+    "#dcdcaa",  # 3: Yellow
+    "#569cd6",  # 4: Blue
+    "#c586c0",  # 5: Magenta
+    "#4ec9b0",  # 6: Cyan
+    "#d4d4d4",  # 7: White
+    "#808080",  # 8: Bright Black
+    "#f44747",  # 9: Bright Red
+    "#6a9955",  # 10: Bright Green
+    "#dcdcaa",  # 11: Bright Yellow
+    "#569cd6",  # 12: Bright Blue
+    "#c586c0",  # 13: Bright Magenta
+    "#4ec9b0",  # 14: Bright Cyan
+    "#ffffff",  # 15: Bright White
+]
