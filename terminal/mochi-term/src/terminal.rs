@@ -34,6 +34,7 @@ impl Default for SecurityConfig {
 }
 
 /// Clipboard event from OSC 52
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ClipboardEvent {
     /// The clipboard data (base64 decoded)
@@ -79,6 +80,7 @@ impl Terminal {
     }
 
     /// Create a new terminal with security configuration
+    #[allow(dead_code)]
     pub fn with_security(cols: usize, rows: usize, security: SecurityConfig) -> Self {
         Self {
             screen: Screen::new(Dimensions::new(cols, rows)),
@@ -94,11 +96,13 @@ impl Terminal {
     }
 
     /// Update security configuration
+    #[allow(dead_code)]
     pub fn set_security(&mut self, security: SecurityConfig) {
         self.security = security;
     }
 
     /// Take pending clipboard event
+    #[allow(dead_code)]
     pub fn take_clipboard_event(&mut self) -> Option<ClipboardEvent> {
         self.clipboard_event.take()
     }

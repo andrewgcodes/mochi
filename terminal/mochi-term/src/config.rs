@@ -69,6 +69,7 @@ impl ThemeName {
         }
     }
 
+    #[allow(dead_code)]
     pub fn all_names() -> &'static [&'static str] {
         &["dark", "light", "solarized-dark", "solarized-light", "dracula", "nord", "gruvbox", "onedark", "custom"]
     }
@@ -117,6 +118,7 @@ impl ThemeName {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KeyAction {
@@ -407,6 +409,7 @@ impl Config {
         Ok(config)
     }
 
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         Self::load_with_overrides(None, CliOverrides::default()).ok()
     }
@@ -460,6 +463,7 @@ impl Config {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn reload(&mut self, config_path: Option<PathBuf>) -> Result<(), ConfigError> {
         let new_config = Self::load_with_overrides(config_path, CliOverrides::default())?;
         *self = new_config;
@@ -484,7 +488,9 @@ impl Config {
 
     pub fn font_family(&self) -> &str { &self.font.family }
     pub fn font_size(&self) -> f32 { self.font.size }
+    #[allow(dead_code)]
     pub fn osc52_clipboard(&self) -> bool { self.security.osc52_clipboard }
+    #[allow(dead_code)]
     pub fn osc52_max_size(&self) -> usize { self.security.osc52_max_size }
 }
 

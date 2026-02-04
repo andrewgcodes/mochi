@@ -78,7 +78,7 @@ pub struct SearchState {
 impl App {
     /// Create a new application
     pub fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
-        let current_theme = config.theme.clone();
+        let current_theme = config.theme;
         Ok(Self {
             config,
             current_theme,
@@ -432,7 +432,7 @@ impl App {
             Ok(new_config) => {
                 // Apply theme change if different
                 if new_config.theme != self.config.theme {
-                    self.current_theme = new_config.theme.clone();
+                    self.current_theme = new_config.theme;
                     if let Some(renderer) = &mut self.renderer {
                         let colors = self.current_theme.to_color_scheme();
                         renderer.set_colors(colors);
@@ -1129,6 +1129,7 @@ impl App {
     }
 
     /// Get search state for rendering
+    #[allow(dead_code)]
     pub fn search_state(&self) -> &SearchState {
         &self.search_state
     }
