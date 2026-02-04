@@ -625,7 +625,11 @@ impl App {
     /// Handle toggle theme (Ctrl+Shift+T)
     fn handle_toggle_theme(&mut self) {
         let new_theme = self.config.theme.next();
-        log::info!("Switching theme from {:?} to {:?}", self.config.theme, new_theme);
+        log::info!(
+            "Switching theme from {:?} to {:?}",
+            self.config.theme,
+            new_theme
+        );
 
         self.config.theme = new_theme;
 
