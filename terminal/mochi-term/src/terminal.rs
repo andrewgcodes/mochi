@@ -2,8 +2,45 @@
 //!
 //! Integrates the parser and screen model to handle terminal emulation.
 
+use std::time::Instant;
 use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
+
+/// Security configuration for terminal
+#[derive(Debug, Clone)]
+pub struct SecurityConfig {
+    /// Whether OSC 52 clipboard is enabled
+    pub osc52_clipboard: bool,
+    /// Maximum size for OSC 52 clipboard data
+    pub osc52_max_size: usize,
+    /// Whether to show notification when clipboard is modified
+    pub clipboard_notification: bool,
+    /// Maximum title length
+    pub max_title_length: usize,
+    /// Minimum time between title updates (ms)
+    pub title_throttle_ms: u64,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            osc52_clipboard: false, // Disabled by default for security
+            osc52_max_size: 100_000,
+            clipboard_notification: true,
+            max_title_length: 4096,
+            title_throttle_ms: 100,
+        }
+    }
+}
+
+/// Clipboard event from OSC 52
+#[derive(Debug, Clone)]
+pub struct ClipboardEvent {
+    /// The clipboard data (base64 decoded)
+    pub data: String,
+    /// Whether notification should be shown
+    pub show_notification: bool,
+}
 
 /// Terminal emulator state
 pub struct Terminal {
@@ -17,6 +54,12 @@ pub struct Terminal {
     title_changed: bool,
     /// Bell triggered
     bell: bool,
+    /// Security configuration
+    security: SecurityConfig,
+    /// Last title update time for throttling
+    last_title_update: Instant,
+    /// Pending clipboard event
+    clipboard_event: Option<ClipboardEvent>,
 }
 
 impl Terminal {
@@ -28,7 +71,36 @@ impl Terminal {
             title: String::new(),
             title_changed: false,
             bell: false,
+            security: SecurityConfig::default(),
+            // Initialize to a time in the past to allow immediate first title update
+            last_title_update: Instant::now() - std::time::Duration::from_secs(1),
+            clipboard_event: None,
         }
+    }
+
+    /// Create a new terminal with security configuration
+    pub fn with_security(cols: usize, rows: usize, security: SecurityConfig) -> Self {
+        Self {
+            screen: Screen::new(Dimensions::new(cols, rows)),
+            parser: Parser::new(),
+            title: String::new(),
+            title_changed: false,
+            bell: false,
+            security,
+            // Initialize to a time in the past to allow immediate first title update
+            last_title_update: Instant::now() - std::time::Duration::from_secs(1),
+            clipboard_event: None,
+        }
+    }
+
+    /// Update security configuration
+    pub fn set_security(&mut self, security: SecurityConfig) {
+        self.security = security;
+    }
+
+    /// Take pending clipboard event
+    pub fn take_clipboard_event(&mut self) -> Option<ClipboardEvent> {
+        self.clipboard_event.take()
     }
 
     /// Get screen reference
@@ -651,9 +723,30 @@ impl Terminal {
     fn handle_osc(&mut self, osc: OscAction) {
         match osc {
             OscAction::SetIconAndTitle(title) | OscAction::SetTitle(title) => {
-                self.title = title.clone();
-                self.screen.set_title(&title);
+                // Security: Apply title throttling
+                let now = Instant::now();
+                let elapsed = now.duration_since(self.last_title_update);
+                if elapsed.as_millis() < self.security.title_throttle_ms as u128 {
+                    log::debug!("Title update throttled ({}ms since last)", elapsed.as_millis());
+                    return;
+                }
+
+                // Security: Truncate title to max length
+                let truncated_title = if title.len() > self.security.max_title_length {
+                    log::warn!(
+                        "Title truncated from {} to {} bytes",
+                        title.len(),
+                        self.security.max_title_length
+                    );
+                    title[..self.security.max_title_length].to_string()
+                } else {
+                    title.clone()
+                };
+
+                self.title = truncated_title.clone();
+                self.screen.set_title(&truncated_title);
                 self.title_changed = true;
+                self.last_title_update = now;
             }
             OscAction::SetIconName(_) => {
                 // Icon name is typically ignored in modern terminals
@@ -669,8 +762,43 @@ impl Terminal {
                 }
             }
             OscAction::Clipboard { clipboard: _, data } => {
-                // OSC 52 clipboard - handled by the application layer
-                log::debug!("OSC 52 clipboard: {} bytes", data.len());
+                // Security: OSC 52 clipboard handling
+                if !self.security.osc52_clipboard {
+                    log::warn!("OSC 52 clipboard blocked (disabled in security config)");
+                    return;
+                }
+
+                // Security: Check payload size
+                if data.len() > self.security.osc52_max_size {
+                    log::warn!(
+                        "OSC 52 clipboard blocked: payload {} bytes exceeds max {} bytes",
+                        data.len(),
+                        self.security.osc52_max_size
+                    );
+                    return;
+                }
+
+                // Decode base64 data
+                use base64::{Engine as _, engine::general_purpose::STANDARD};
+                match STANDARD.decode(&data) {
+                    Ok(decoded) => {
+                        match String::from_utf8(decoded) {
+                            Ok(text) => {
+                                log::info!("OSC 52 clipboard: {} bytes accepted", text.len());
+                                self.clipboard_event = Some(ClipboardEvent {
+                                    data: text,
+                                    show_notification: self.security.clipboard_notification,
+                                });
+                            }
+                            Err(e) => {
+                                log::warn!("OSC 52 clipboard: invalid UTF-8: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("OSC 52 clipboard: invalid base64: {}", e);
+                    }
+                }
             }
             OscAction::SetColor { index, color } => {
                 log::debug!("Set color {}: {}", index, color);
