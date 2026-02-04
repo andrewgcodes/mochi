@@ -1,0 +1,157 @@
+# Mochi Terminal Configuration
+# 
+# This is an example configuration file for Mochi Terminal.
+# Copy this file to ~/.config/mochi/config.toml and customize as needed.
+#
+# Configuration precedence (highest to lowest):
+# 1. CLI arguments (--config, --theme, --font-size, etc.)
+# 2. Environment variables (MOCHI_THEME, MOCHI_FONT_SIZE, etc.)
+# 3. This config file
+# 4. Built-in defaults
+
+# =============================================================================
+# THEME
+# =============================================================================
+# Available themes: dark, light, solarized-dark, solarized-light, 
+#                   dracula, nord, gruvbox, onedark, custom
+# Default: dark
+theme = "dark"
+
+# =============================================================================
+# FONT CONFIGURATION
+# =============================================================================
+[font]
+# Font family name. Use a monospace font for best results.
+# Default: "monospace"
+family = "monospace"
+
+# Font size in points
+# Default: 14.0
+# Range: 4.0 - 144.0
+size = 14.0
+
+# Fallback fonts (tried in order if primary font is missing glyphs)
+# Default: []
+fallback = []
+
+# Line height multiplier (1.0 = normal spacing)
+# Default: 1.2
+# Range: 0.5 - 3.0
+line_height = 1.2
+
+# Cell padding (horizontal, vertical) in pixels
+# Default: [0.0, 0.0]
+cell_padding = [0.0, 0.0]
+
+# =============================================================================
+# TERMINAL SETTINGS
+# =============================================================================
+# Number of lines to keep in scrollback history
+# Default: 10000
+# Maximum: 1000000
+scrollback_lines = 10000
+
+# Initial window dimensions (columns, rows)
+# Default: [80, 24]
+dimensions = [80, 24]
+
+# Shell command to run (null = use $SHELL environment variable)
+# Default: null
+# shell = "/bin/bash"
+
+# Cursor style: "block", "underline", or "bar"
+# Default: "block"
+cursor_style = "block"
+
+# Enable cursor blinking
+# Default: true
+cursor_blink = true
+
+# Auto-reload config file when it changes
+# Default: false
+auto_reload = false
+
+# =============================================================================
+# KEYBINDINGS
+# =============================================================================
+# Format: "modifier+modifier+key" (e.g., "ctrl+shift+c")
+# Available modifiers: ctrl, shift, alt, super
+[keybindings]
+# Copy selection to clipboard
+copy = "ctrl+shift+c"
+
+# Paste from clipboard
+paste = "ctrl+shift+v"
+
+# Open find/search bar
+find = "ctrl+shift+f"
+
+# Reload configuration
+reload_config = "ctrl+shift+r"
+
+# Toggle between themes
+toggle_theme = "ctrl+shift+t"
+
+# Font size controls
+increase_font_size = "ctrl+plus"
+decrease_font_size = "ctrl+minus"
+reset_font_size = "ctrl+0"
+
+# =============================================================================
+# SECURITY SETTINGS
+# =============================================================================
+[security]
+# Enable OSC 52 clipboard operations (allows programs to read/write clipboard)
+# WARNING: This can be a security risk. Only enable if you trust all programs
+# you run in the terminal.
+# Default: false
+osc52_clipboard = false
+
+# Maximum size of OSC 52 clipboard payload in bytes
+# Default: 100000
+osc52_max_size = 100000
+
+# Show notification when clipboard is modified by escape sequence
+# Default: true
+clipboard_notification = true
+
+# Maximum title length (to prevent DoS attacks)
+# Default: 4096
+max_title_length = 4096
+
+# Title update throttle in milliseconds
+# Default: 100
+title_throttle_ms = 100
+
+# =============================================================================
+# CUSTOM COLOR SCHEME
+# =============================================================================
+# Only used when theme = "custom"
+# All colors are in hex format: "#RRGGBB"
+[colors]
+foreground = "#d4d4d4"
+background = "#1e1e1e"
+cursor = "#ffffff"
+selection = "#264f78"
+
+# ANSI colors 0-15 (normal and bright variants)
+# 0-7: Black, Red, Green, Yellow, Blue, Magenta, Cyan, White
+# 8-15: Bright variants of the above
+ansi = [
+    "#000000",  # 0: Black
+    "#cd3131",  # 1: Red
+    "#0dbc79",  # 2: Green
+    "#e5e510",  # 3: Yellow
+    "#2472c8",  # 4: Blue
+    "#bc3fbc",  # 5: Magenta
+    "#11a8cd",  # 6: Cyan
+    "#e5e5e5",  # 7: White
+    "#666666",  # 8: Bright Black
+    "#f14c4c",  # 9: Bright Red
+    "#23d18b",  # 10: Bright Green
+    "#f5f543",  # 11: Bright Yellow
+    "#3b8eea",  # 12: Bright Blue
+    "#d670d6",  # 13: Bright Magenta
+    "#29b8db",  # 14: Bright Cyan
+    "#ffffff",  # 15: Bright White
+]
