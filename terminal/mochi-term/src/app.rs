@@ -238,6 +238,10 @@ impl App {
                     self.handle_paste();
                     return;
                 }
+                Key::Character(c) if c.to_lowercase() == "r" => {
+                    self.reload_config();
+                    return;
+                }
                 _ => {}
             }
         }
@@ -485,6 +489,73 @@ impl App {
         // Update renderer colors
         renderer.set_colors(new_colors);
         self.needs_redraw = true;
+    }
+
+    /// Reload configuration from file
+    fn reload_config(&mut self) {
+        use crate::config::CliArgs;
+
+        log::info!("Reloading configuration...");
+
+        // Create empty CLI args (we only reload from file, not CLI)
+        let args = CliArgs {
+            config: None,
+            font_size: None,
+            theme: None,
+            shell: None,
+            scrollback: None,
+            osc52_clipboard: false,
+            cols: None,
+            rows: None,
+        };
+
+        match crate::config::Config::load_with_args(&args) {
+            Ok(new_config) => {
+                log::info!("Configuration reloaded successfully (theme: {})", new_config.theme);
+
+                // Apply theme changes
+                if let Some(renderer) = &mut self.renderer {
+                    let new_colors = new_config.effective_colors();
+                    renderer.set_colors(new_colors);
+                }
+
+                // Apply font size changes if different
+                if (new_config.font_size - self.config.font_size).abs() > 0.1 {
+                    if let Some(renderer) = &mut self.renderer {
+                        if let Some(window) = &self.window {
+                            let scale_factor = window.scale_factor() as f32;
+                            let scaled_size = new_config.font_size * scale_factor;
+                            renderer.set_font_size(scaled_size);
+
+                            // Recalculate terminal dimensions
+                            let size = window.inner_size();
+                            let cell_size = renderer.cell_size();
+                            let cols = (size.width as f32 / cell_size.width) as usize;
+                            let rows = (size.height as f32 / cell_size.height) as usize;
+
+                            if cols > 0 && rows > 0 {
+                                if let Some(terminal) = &mut self.terminal {
+                                    terminal.resize(cols, rows);
+                                }
+                                if let Some(child) = &self.child {
+                                    let _ = child.resize(terminal_pty::WindowSize::new(
+                                        cols as u16,
+                                        rows as u16,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                self.config = new_config;
+                self.needs_redraw = true;
+            }
+            Err(e) => {
+                log::error!("Failed to reload configuration: {}", e);
+                log::info!("Keeping previous configuration");
+            }
+        }
     }
 
     /// Handle copy (copy selection to clipboard)

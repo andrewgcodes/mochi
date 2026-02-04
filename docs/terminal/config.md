@@ -160,6 +160,7 @@ Mochi Terminal provides the following built-in keyboard shortcuts:
 | `Ctrl+Shift+T` | Toggle theme (cycle through available themes) |
 | `Ctrl+Shift+C` | Copy selection to clipboard |
 | `Ctrl+Shift+V` | Paste from clipboard |
+| `Ctrl+Shift+R` | Reload configuration from file |
 
 ### Font Size Shortcuts
 
