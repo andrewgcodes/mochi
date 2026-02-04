@@ -162,9 +162,7 @@ fn main() -> io::Result<()> {
     let output_data = if args.text {
         snapshot.to_text()
     } else {
-        snapshot
-            .to_json()
-            .map_err(io::Error::other)?
+        snapshot.to_json().map_err(io::Error::other)?
     };
 
     if let Some(path) = &args.output {
