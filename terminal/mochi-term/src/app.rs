@@ -46,6 +46,8 @@ pub struct App {
     needs_redraw: bool,
     /// Is focused
     focused: bool,
+    /// Scroll offset (number of lines scrolled back into history)
+    scroll_offset: usize,
 }
 
 impl App {
@@ -64,6 +66,7 @@ impl App {
             last_render: Instant::now(),
             needs_redraw: true,
             focused: true,
+            scroll_offset: 0,
         })
     }
 
@@ -407,23 +410,24 @@ impl App {
         let Some(terminal) = &self.terminal else {
             return;
         };
-        let Some(child) = &mut self.child else { return };
 
         let modes = terminal.screen().modes();
-        if !modes.mouse_tracking_enabled() {
+        let lines = match delta {
+            MouseScrollDelta::LineDelta(_, y) => y as i32,
+            MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as i32,
+        };
+
+        if lines == 0 {
             return;
         }
 
-        let lines = match delta {
-            MouseScrollDelta::LineDelta(_, y) => y as i8,
-            MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as i8,
-        };
-
-        if lines != 0 {
+        // If mouse tracking is enabled or in alternate screen, send to PTY
+        if modes.mouse_tracking_enabled() || modes.alternate_screen {
+            let Some(child) = &mut self.child else { return };
             let event = MouseEvent::Scroll {
                 x: self.mouse_cell.0,
                 y: self.mouse_cell.1,
-                delta: lines,
+                delta: lines as i8,
             };
             if let Some(data) = encode_mouse(
                 event,
@@ -433,6 +437,17 @@ impl App {
             ) {
                 let _ = child.write_all(&data);
             }
+        } else {
+            // Scroll the viewport through scrollback history
+            let scrollback_len = terminal.screen().scrollback().len();
+            if lines > 0 {
+                // Scroll up (show older content)
+                self.scroll_offset = (self.scroll_offset + lines as usize).min(scrollback_len);
+            } else {
+                // Scroll down (show newer content)
+                self.scroll_offset = self.scroll_offset.saturating_sub((-lines) as usize);
+            }
+            self.needs_redraw = true;
         }
     }
 
@@ -480,6 +495,7 @@ impl App {
         };
 
         let mut buf = [0u8; 65536];
+        let mut received_output = false;
 
         loop {
             match child.pty_mut().try_read(&mut buf) {
@@ -487,10 +503,16 @@ impl App {
                 Ok(n) => {
                     terminal.process(&buf[..n]);
                     self.needs_redraw = true;
+                    received_output = true;
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(_) => break,
             }
+        }
+
+        // Reset scroll offset when new output arrives (auto-scroll to bottom)
+        if received_output && self.scroll_offset > 0 {
+            self.scroll_offset = 0;
         }
 
         // Check for title change
@@ -519,7 +541,7 @@ impl App {
         let screen = terminal.screen();
         let selection = screen.selection();
 
-        if let Err(e) = renderer.render(screen, selection) {
+        if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
             log::warn!("Render error: {:?}", e);
         }
 

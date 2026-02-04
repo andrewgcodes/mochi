@@ -143,6 +143,7 @@ impl Renderer {
         &mut self,
         screen: &Screen,
         selection: &Selection,
+        scroll_offset: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let width = self.width;
         let height = self.height;
@@ -166,11 +167,43 @@ impl Renderer {
         let cell_height_px = self.cell_size.height;
         let baseline = self.cell_size.baseline;
 
-        // Pre-cache all glyphs we'll need
         let cols = screen.cols();
         let rows = screen.rows();
+        let scrollback = screen.scrollback();
+        let scrollback_len = scrollback.len();
+
+        // Pre-cache all glyphs we'll need (from both screen and scrollback if scrolled)
         for row in 0..rows {
-            let line = screen.line(row);
+            let line = if scroll_offset > 0 {
+                // Calculate which line to show
+                let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                if scrollback_row < scrollback_len {
+                    // This row comes from scrollback
+                    if let Some(sb_line) = scrollback.get(scrollback_row) {
+                        for col in 0..cols.min(sb_line.cols()) {
+                            let cell = sb_line.cell(col);
+                            if !cell.is_continuation() && !cell.is_empty() {
+                                let c = cell.display_char();
+                                if c != ' ' {
+                                    self.ensure_glyph_cached(c, cell.attrs.bold);
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                } else {
+                    // This row comes from screen
+                    let screen_row = scrollback_row - scrollback_len;
+                    if screen_row < rows {
+                        screen.line(screen_row)
+                    } else {
+                        continue;
+                    }
+                }
+            } else {
+                screen.line(row)
+            };
+
             for col in 0..cols {
                 let cell = line.cell(col);
                 if !cell.is_continuation() && !cell.is_empty() {
@@ -192,9 +225,30 @@ impl Renderer {
 
         // Render each cell
         for row in 0..rows {
-            let line = screen.line(row);
+            // Calculate which line to render based on scroll offset
+            let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
+                let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                if scrollback_row < scrollback_len {
+                    // This row comes from scrollback
+                    if let Some(sb_line) = scrollback.get(scrollback_row) {
+                        (sb_line, true, None)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    // This row comes from screen
+                    let screen_row = scrollback_row - scrollback_len;
+                    if screen_row < rows {
+                        (screen.line(screen_row), false, Some(screen_row))
+                    } else {
+                        continue;
+                    }
+                }
+            } else {
+                (screen.line(row), false, Some(row))
+            };
 
-            for col in 0..cols {
+            for col in 0..cols.min(line.cols()) {
                 let cell = line.cell(col);
 
                 // Skip continuation cells
@@ -207,7 +261,11 @@ impl Renderer {
 
                 // Determine colors
                 let is_selected = selection.contains(col, row as isize);
-                let is_cursor = cursor.visible && cursor.row == row && cursor.col == col;
+                let is_cursor = !is_from_scrollback
+                    && scroll_offset == 0
+                    && cursor.visible
+                    && actual_screen_row == Some(cursor.row)
+                    && cursor.col == col;
 
                 let (fg, bg) = if is_selected {
                     (fg_color, sel_color)
@@ -255,10 +313,84 @@ impl Renderer {
             }
         }
 
+        // Draw scrollbar if there's scrollback content
+        if scrollback_len > 0 {
+            Self::draw_scrollbar_static(
+                &mut buffer,
+                scroll_offset,
+                scrollback_len,
+                rows,
+                width,
+                height,
+            );
+        }
+
         // Present
         buffer.present()?;
 
         Ok(())
+    }
+
+    /// Draw a scrollbar on the right side of the terminal (static version)
+    fn draw_scrollbar_static(
+        buffer: &mut [u32],
+        scroll_offset: usize,
+        scrollback_len: usize,
+        visible_rows: usize,
+        buf_width: u32,
+        buf_height: u32,
+    ) {
+        let scrollbar_width = 8;
+        let scrollbar_x = buf_width.saturating_sub(scrollbar_width) as i32;
+        let scrollbar_height = buf_height as i32;
+
+        // Total content = scrollback + visible screen
+        let total_lines = scrollback_len + visible_rows;
+
+        // Calculate thumb size (proportional to visible content)
+        let thumb_height =
+            ((visible_rows as f32 / total_lines as f32) * scrollbar_height as f32).max(20.0) as i32;
+
+        // Calculate thumb position
+        // When scroll_offset = 0, thumb is at bottom
+        // When scroll_offset = scrollback_len, thumb is at top
+        let scroll_range = scrollbar_height - thumb_height;
+        let thumb_y = if scrollback_len > 0 {
+            ((scrollback_len - scroll_offset) as f32 / scrollback_len as f32 * scroll_range as f32)
+                as i32
+        } else {
+            scroll_range
+        };
+
+        // Draw scrollbar track (semi-transparent dark)
+        let track_color = (40, 40, 40);
+        Self::fill_rect_static(
+            buffer,
+            scrollbar_x,
+            0,
+            scrollbar_width as i32,
+            scrollbar_height,
+            track_color,
+            buf_width,
+            buf_height,
+        );
+
+        // Draw scrollbar thumb
+        let thumb_color = if scroll_offset > 0 {
+            (120, 120, 120) // Brighter when scrolled
+        } else {
+            (80, 80, 80) // Dimmer at bottom
+        };
+        Self::fill_rect_static(
+            buffer,
+            scrollbar_x + 1,
+            thumb_y,
+            scrollbar_width as i32 - 2,
+            thumb_height,
+            thumb_color,
+            buf_width,
+            buf_height,
+        );
     }
 
     /// Ensure a glyph is cached
