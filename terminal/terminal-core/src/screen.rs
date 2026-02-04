@@ -708,6 +708,63 @@ impl Screen {
         let charset = parse_charset_designation(designation);
         self.charset.set_slot(slot, charset);
     }
+
+    /// Get the text content of the current selection
+    pub fn get_selected_text(&self, selection: &Selection) -> Option<String> {
+        if !selection.active || selection.is_empty() {
+            return None;
+        }
+
+        let (start, end) = selection.bounds();
+        let mut result = String::new();
+        let cols = self.cols();
+
+        for row in start.row..=end.row {
+            if row < 0 {
+                // Scrollback - not implemented yet
+                continue;
+            }
+
+            let row_idx = row as usize;
+            if row_idx >= self.rows() {
+                continue;
+            }
+
+            let line = self.line(row_idx);
+            let line_cols = line.cols().min(cols);
+
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col.min(line_cols.saturating_sub(1))
+            } else {
+                line_cols.saturating_sub(1)
+            };
+
+            for col in start_col..=end_col {
+                if col >= line_cols {
+                    break;
+                }
+                let cell = line.cell(col);
+                if !cell.is_continuation() {
+                    let c = cell.display_char();
+                    if c != '\0' {
+                        result.push(c);
+                    }
+                }
+            }
+
+            // Add newline between lines (but not after the last line)
+            if row < end.row && !line.wrapped {
+                result.push('\n');
+            }
+        }
+
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
+    }
 }
 
 #[cfg(test)]
