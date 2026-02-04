@@ -163,7 +163,7 @@ impl App {
         // Create renderer with effective colors based on theme
         let renderer = Renderer::new(
             window.clone(),
-            self.config.font_size,
+            self.config.font_size(),
             self.config.effective_colors(),
         )?;
 
@@ -314,7 +314,7 @@ impl App {
         let Some(window) = &self.window else { return };
 
         let scale_factor = window.scale_factor() as f32;
-        let default_size = self.config.font_size * scale_factor;
+        let default_size = self.config.font_size() * scale_factor;
 
         renderer.set_font_size(default_size);
 
