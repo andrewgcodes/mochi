@@ -27,9 +27,6 @@ pub enum KeyAction {
     Paste,
     ToggleTheme,
     ReloadConfig,
-    ZoomIn,
-    ZoomOut,
-    ZoomReset,
 }
 
 /// Application state
@@ -326,9 +323,6 @@ impl App {
             KeyAction::Paste => self.handle_paste(),
             KeyAction::ToggleTheme => self.toggle_theme(),
             KeyAction::ReloadConfig => self.reload_config(),
-            KeyAction::ZoomIn => self.change_font_size(2.0),
-            KeyAction::ZoomOut => self.change_font_size(-2.0),
-            KeyAction::ZoomReset => self.reset_font_size(),
         }
     }
 

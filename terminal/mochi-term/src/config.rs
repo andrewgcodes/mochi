@@ -397,6 +397,7 @@ impl Config {
     }
 
     /// Load configuration from file (simple version)
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         let config_path = Self::default_config_path()?;
 
