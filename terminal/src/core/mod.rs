@@ -12,10 +12,16 @@ mod grid;
 mod screen;
 mod scrollback;
 
+// Re-exports for library users - some may appear unused in binary crates
+#[allow(unused_imports)]
 pub use cell::{Cell, Color, Hyperlink, Style};
+#[allow(unused_imports)]
 pub use cursor::{Cursor, CursorStyle};
+#[allow(unused_imports)]
 pub use grid::Grid;
+#[allow(unused_imports)]
 pub use screen::{EraseMode, Screen, ScreenSnapshot, TabClearMode};
+#[allow(unused_imports)]
 pub use scrollback::Scrollback;
 
 /// Terminal modes that can be set/reset via escape sequences

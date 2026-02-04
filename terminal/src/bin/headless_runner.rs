@@ -335,11 +335,8 @@ fn set_mode(screen: &mut Screen, mode: u16, enable: bool) {
 }
 
 fn apply_osc(screen: &mut Screen, osc: OscAction) {
-    match osc {
-        OscAction::SetTitle(title) => {
-            screen.title = title;
-        }
-        _ => {}
+    if let OscAction::SetTitle(title) = osc {
+        screen.title = title;
     }
 }
 

@@ -4,7 +4,7 @@
 //! Used for testing PTY functionality without the GUI.
 
 use std::io::{self, Read, Write};
-use std::os::unix::io::{AsFd, AsRawFd};
+use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use mochi_term::pty::Pty;
@@ -123,7 +123,7 @@ impl RawModeGuard {
     fn new() -> io::Result<Self> {
         use nix::sys::termios::{self, LocalFlags, SetArg};
 
-        let original = termios::tcgetattr(&io::stdin())
+        let original = termios::tcgetattr(io::stdin())
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         let mut raw = original.clone();
@@ -138,7 +138,7 @@ impl RawModeGuard {
         raw.control_chars[nix::sys::termios::SpecialCharacterIndices::VMIN as usize] = 1;
         raw.control_chars[nix::sys::termios::SpecialCharacterIndices::VTIME as usize] = 0;
 
-        termios::tcsetattr(&io::stdin(), SetArg::TCSANOW, &raw)
+        termios::tcsetattr(io::stdin(), SetArg::TCSANOW, &raw)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         Ok(Self { original })
@@ -148,6 +148,6 @@ impl RawModeGuard {
 impl Drop for RawModeGuard {
     fn drop(&mut self) {
         use nix::sys::termios::{self, SetArg};
-        let _ = termios::tcsetattr(&io::stdin(), SetArg::TCSANOW, &self.original);
+        let _ = termios::tcsetattr(io::stdin(), SetArg::TCSANOW, &self.original);
     }
 }

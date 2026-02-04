@@ -93,9 +93,10 @@ impl Cell {
 }
 
 /// Color representation supporting indexed and RGB colors
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Color {
     /// Default terminal color (foreground or background)
+    #[default]
     Default,
     /// Standard 16-color palette (0-15)
     Indexed(u8),
@@ -103,11 +104,6 @@ pub enum Color {
     Rgb(u8, u8, u8),
 }
 
-impl Default for Color {
-    fn default() -> Self {
-        Color::Default
-    }
-}
 
 impl Color {
     /// Standard ANSI colors (0-7)
@@ -169,6 +165,7 @@ impl Color {
     }
 
     /// Convert this color to RGB, using defaults for Default color
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_rgb(&self, is_foreground: bool) -> (u8, u8, u8) {
         match self {
             Color::Default => {
@@ -266,8 +263,10 @@ mod tests {
         let cell = Cell::new('A');
         assert_eq!(cell.width(), 1);
 
-        let mut wide_cell = Cell::default();
-        wide_cell.content = "中".to_string();
+        let wide_cell = Cell {
+            content: "中".to_string(),
+            ..Default::default()
+        };
         assert_eq!(wide_cell.width(), 2);
     }
 }

@@ -8,6 +8,9 @@
 //! - `pty`: Linux PTY management
 //! - `gui`: GUI rendering (optional feature)
 
+// Allow dead code during scaffolding phase - these will be used as features are implemented
+#![allow(dead_code)]
+
 pub mod core;
 pub mod parser;
 pub mod pty;

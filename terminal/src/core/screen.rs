@@ -610,6 +610,7 @@ impl Screen {
 
 /// Erase mode for ED and EL commands
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum EraseMode {
     /// Erase from cursor to end
     ToEnd,
@@ -789,7 +790,7 @@ mod tests {
         for r in 0..5 {
             screen.cursor.row = r;
             screen.cursor.col = 0;
-            screen.print(('A' as u8 + r as u8) as char);
+            screen.print((b'A' + r as u8) as char);
         }
 
         screen.cursor.row = 2;

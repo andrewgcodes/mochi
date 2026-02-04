@@ -8,23 +8,37 @@ mod input;
 mod renderer;
 mod selection;
 
+// These imports will be used when the GUI is fully implemented
+#[allow(unused_imports)]
 use std::sync::Arc;
+#[allow(unused_imports)]
 use std::time::{Duration, Instant};
 
+#[allow(unused_imports)]
 use log::{debug, error, info, warn};
+#[allow(unused_imports)]
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
+#[allow(unused_imports)]
 use winit::event::{
     ElementState, Event, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
 };
+#[allow(unused_imports)]
 use winit::event_loop::{ControlFlow, EventLoop};
+#[allow(unused_imports)]
 use winit::window::{Window, WindowBuilder};
 
+#[allow(unused_imports)]
 use crate::core::{EraseMode, MouseEncoding, MouseMode, Screen, TabClearMode};
+#[allow(unused_imports)]
 use crate::parser::{Action, ControlCode, CsiAction, EscAction, OscAction, Parser};
+#[allow(unused_imports)]
 use crate::pty::Pty;
 
+#[allow(unused_imports)]
 pub use font::FontRenderer;
+#[allow(unused_imports)]
 pub use input::InputEncoder;
+#[allow(unused_imports)]
 pub use renderer::Renderer;
 pub use selection::Selection;
 

@@ -117,12 +117,17 @@ impl Grid {
         }
 
         // Add or remove rows
-        if rows > self.num_rows {
-            for _ in self.num_rows..rows {
-                self.rows.push(Row::new(cols));
+        use std::cmp::Ordering;
+        match rows.cmp(&self.num_rows) {
+            Ordering::Greater => {
+                for _ in self.num_rows..rows {
+                    self.rows.push(Row::new(cols));
+                }
             }
-        } else if rows < self.num_rows {
-            self.rows.truncate(rows);
+            Ordering::Less => {
+                self.rows.truncate(rows);
+            }
+            Ordering::Equal => {}
         }
 
         self.cols = cols;
@@ -256,8 +261,10 @@ impl Grid {
             for _ in 0..n {
                 if col < r.cells.len() {
                     r.cells.pop();
-                    let mut cell = Cell::default();
-                    cell.bg = bg;
+                    let cell = Cell {
+                        bg,
+                        ..Default::default()
+                    };
                     r.cells.insert(col, cell);
                 }
             }
@@ -270,8 +277,10 @@ impl Grid {
             for _ in 0..n {
                 if col < r.cells.len() {
                     r.cells.remove(col);
-                    let mut cell = Cell::default();
-                    cell.bg = bg;
+                    let cell = Cell {
+                        bg,
+                        ..Default::default()
+                    };
                     r.cells.push(cell);
                 }
             }

@@ -2,6 +2,9 @@
 //!
 //! A terminal emulator built from scratch.
 
+// Allow dead code during scaffolding phase - these will be used as features are implemented
+#![allow(dead_code)]
+
 use std::process::ExitCode;
 
 use log::{error, info};

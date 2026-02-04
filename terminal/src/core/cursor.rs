@@ -95,9 +95,10 @@ impl Cursor {
 }
 
 /// Cursor visual style
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CursorStyle {
     /// Filled block cursor
+    #[default]
     Block,
     /// Underline cursor
     Underline,
@@ -105,11 +106,6 @@ pub enum CursorStyle {
     Bar,
 }
 
-impl Default for CursorStyle {
-    fn default() -> Self {
-        CursorStyle::Block
-    }
-}
 
 /// Current text attributes that will be applied to new characters
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
