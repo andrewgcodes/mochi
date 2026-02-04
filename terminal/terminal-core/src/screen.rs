@@ -147,6 +147,52 @@ impl Screen {
         &mut self.selection
     }
 
+    /// Get the text content of the current selection
+    pub fn get_selected_text(&self, selection: &Selection) -> String {
+        if selection.is_empty() {
+            return String::new();
+        }
+
+        let (start, end) = selection.bounds();
+        let mut result = String::new();
+
+        for row in start.row..=end.row {
+            if row < 0 {
+                continue;
+            }
+            let row_idx = row as usize;
+            if row_idx >= self.rows() {
+                break;
+            }
+
+            let line = self.line(row_idx);
+            let line_cols = line.cols();
+
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row {
+                end.col.min(line_cols)
+            } else {
+                line_cols
+            };
+
+            for col in start_col..end_col {
+                let cell = line.cell(col);
+                if !cell.is_continuation() {
+                    let c = cell.display_char();
+                    if c != '\0' {
+                        result.push(c);
+                    }
+                }
+            }
+
+            if row < end.row && !line.wrapped {
+                result.push('\n');
+            }
+        }
+
+        result
+    }
+
     /// Get window title
     pub fn title(&self) -> &str {
         &self.title
