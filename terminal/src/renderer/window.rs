@@ -464,8 +464,8 @@ mod tests {
         assert_eq!(renderer.buffer[idx + 1], 255); // G
         assert_eq!(renderer.buffer[idx + 2], 0); // B
 
-        // Check pixel outside rect
-        let idx = ((0 * 10 + 0) * 4) as usize;
+        // Check pixel outside rect (at position 0,0)
+        let idx = 0_usize;
         assert_eq!(renderer.buffer[idx], 0); // R
         assert_eq!(renderer.buffer[idx + 1], 0); // G
         assert_eq!(renderer.buffer[idx + 2], 0); // B

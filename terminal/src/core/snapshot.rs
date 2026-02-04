@@ -360,9 +360,11 @@ mod tests {
 
     #[test]
     fn test_style_snapshot() {
-        let mut style = Style::default();
-        style.bold = true;
-        style.underline = true;
+        let style = Style {
+            bold: true,
+            underline: true,
+            ..Default::default()
+        };
 
         let snapshot = StyleSnapshot::from(&style);
         assert!(snapshot.bold);
