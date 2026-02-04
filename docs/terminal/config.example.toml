@@ -1,0 +1,125 @@
+# Mochi Terminal Configuration
+# 
+# This is an example configuration file for Mochi Terminal.
+# Copy this file to ~/.config/mochi/config.toml and customize as needed.
+#
+# Configuration precedence (highest to lowest):
+# 1. CLI arguments (e.g., --theme dark)
+# 2. Environment variables (e.g., MOCHI_THEME=dark)
+# 3. This config file
+# 4. Built-in defaults
+
+# =============================================================================
+# Font Settings
+# =============================================================================
+
+# Font family name (system font or bundled font)
+# Default: "monospace"
+font_family = "monospace"
+
+# Font size in points
+# Valid range: 6.0 - 128.0
+# Default: 14.0
+font_size = 14.0
+
+# =============================================================================
+# Terminal Dimensions
+# =============================================================================
+
+# Initial window dimensions as [columns, rows]
+# Columns valid range: 10 - 1000
+# Rows valid range: 5 - 500
+# Default: [80, 24]
+dimensions = [80, 24]
+
+# Number of lines to keep in scrollback buffer
+# Valid range: 0 - 1,000,000
+# Default: 10000
+scrollback_lines = 10000
+
+# =============================================================================
+# Theme Settings
+# =============================================================================
+
+# Theme name
+# Available built-in themes:
+#   - "dark" (default) - VS Code inspired dark theme
+#   - "light" - Clean light theme
+#   - "solarized-dark" - Solarized dark palette
+#   - "solarized-light" - Solarized light palette
+#   - "dracula" - Dracula theme
+#   - "nord" - Nord theme
+#   - "monokai" - Monokai theme
+#   - "gruvbox-dark" - Gruvbox dark theme
+#   - "custom" - Use the [colors] section below
+theme = "dark"
+
+# =============================================================================
+# Custom Color Scheme (only used when theme = "custom")
+# =============================================================================
+
+[colors]
+# All colors are specified as hex strings (#RRGGBB)
+
+# Main colors
+foreground = "#d4d4d4"
+background = "#1e1e1e"
+cursor = "#ffffff"
+selection = "#264f78"
+
+# ANSI 16-color palette
+# Colors 0-7: Normal colors
+# Colors 8-15: Bright colors
+ansi = [
+    "#000000",  # 0: Black
+    "#cd3131",  # 1: Red
+    "#0dbc79",  # 2: Green
+    "#e5e510",  # 3: Yellow
+    "#2472c8",  # 4: Blue
+    "#bc3fbc",  # 5: Magenta
+    "#11a8cd",  # 6: Cyan
+    "#e5e5e5",  # 7: White
+    "#666666",  # 8: Bright Black
+    "#f14c4c",  # 9: Bright Red
+    "#23d18b",  # 10: Bright Green
+    "#f5f543",  # 11: Bright Yellow
+    "#3b8eea",  # 12: Bright Blue
+    "#d670d6",  # 13: Bright Magenta
+    "#29b8db",  # 14: Bright Cyan
+    "#ffffff",  # 15: Bright White
+]
+
+# =============================================================================
+# Cursor Settings
+# =============================================================================
+
+# Cursor style: "block", "underline", or "bar"
+# Default: "block"
+cursor_style = "block"
+
+# Enable cursor blinking
+# Default: true
+cursor_blink = true
+
+# =============================================================================
+# Shell Settings
+# =============================================================================
+
+# Shell command to run (optional)
+# If not specified, uses the SHELL environment variable
+# shell = "/bin/bash"
+
+# =============================================================================
+# Security Settings
+# =============================================================================
+
+# Enable OSC 52 clipboard support
+# WARNING: This allows applications to read/write your clipboard via escape sequences.
+# This is disabled by default for security reasons.
+# Default: false
+osc52_clipboard = false
+
+# Maximum size (in bytes) for OSC 52 clipboard payloads
+# This limits the amount of data that can be copied via escape sequences.
+# Default: 100000
+osc52_max_size = 100000
