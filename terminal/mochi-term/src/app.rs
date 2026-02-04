@@ -225,34 +225,31 @@ impl App {
 
         // Check for Ctrl+Shift shortcuts (terminal app shortcuts)
         if self.modifiers.control_key() && self.modifiers.shift_key() {
-            match &event.logical_key {
-                Key::Character(c) => {
-                    let c_lower = c.to_lowercase();
-                    match c_lower.as_str() {
-                        "v" => {
-                            self.handle_paste();
-                            return;
-                        }
-                        "c" => {
-                            self.handle_copy();
-                            return;
-                        }
-                        "t" => {
-                            self.handle_toggle_theme();
-                            return;
-                        }
-                        "r" => {
-                            self.handle_reload_config();
-                            return;
-                        }
-                        "f" => {
-                            self.handle_find();
-                            return;
-                        }
-                        _ => {}
+            if let Key::Character(c) = &event.logical_key {
+                let c_lower = c.to_lowercase();
+                match c_lower.as_str() {
+                    "v" => {
+                        self.handle_paste();
+                        return;
                     }
+                    "c" => {
+                        self.handle_copy();
+                        return;
+                    }
+                    "t" => {
+                        self.handle_toggle_theme();
+                        return;
+                    }
+                    "r" => {
+                        self.handle_reload_config();
+                        return;
+                    }
+                    "f" => {
+                        self.handle_find();
+                        return;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
 

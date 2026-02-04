@@ -425,7 +425,7 @@ impl Config {
 
         if let Ok(font_size) = env::var("MOCHI_FONT_SIZE") {
             if let Ok(size) = font_size.parse::<f32>() {
-                if size >= 6.0 && size <= 72.0 {
+                if (6.0..=72.0).contains(&size) {
                     self.font_size = size;
                 } else {
                     log::warn!("MOCHI_FONT_SIZE out of range (6-72): {}", size);
@@ -460,7 +460,7 @@ impl Config {
         }
 
         if let Some(font_size) = args.font_size {
-            if font_size < 6.0 || font_size > 72.0 {
+            if !(6.0..=72.0).contains(&font_size) {
                 return Err(ConfigError::InvalidValue(format!(
                     "Font size must be between 6 and 72, got {}",
                     font_size
