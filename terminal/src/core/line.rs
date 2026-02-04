@@ -178,6 +178,10 @@ impl Line {
     pub fn text(&self) -> String {
         let mut result = String::new();
         for cell in &self.cells {
+            // Skip continuation cells (width 0) - they are part of a wide character
+            if cell.width() == 0 {
+                continue;
+            }
             let content = cell.content();
             if content.is_empty() {
                 result.push(' ');

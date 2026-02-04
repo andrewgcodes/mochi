@@ -58,6 +58,8 @@ const MAX_DCS_LEN: usize = 65536;
 pub struct Parser {
     /// Current parser state
     state: State,
+    /// Previous state (for ST handling)
+    prev_state: State,
     /// Intermediate bytes collected
     intermediates: Vec<u8>,
     /// Parameters collected
@@ -89,6 +91,7 @@ impl Parser {
     pub fn new() -> Self {
         Self {
             state: State::Ground,
+            prev_state: State::Ground,
             intermediates: Vec::with_capacity(4),
             params: Vec::with_capacity(MAX_PARAMS),
             current_param: 0,
@@ -104,6 +107,7 @@ impl Parser {
     /// Reset the parser to initial state
     pub fn reset(&mut self) {
         self.state = State::Ground;
+        self.prev_state = State::Ground;
         self.intermediates.clear();
         self.params.clear();
         self.current_param = 0;
@@ -167,6 +171,8 @@ impl Parser {
             },
             0x1B => {
                 // ESC - start escape sequence
+                // Save previous state for ST handling (OSC/DCS terminated by ESC \)
+                self.prev_state = self.state;
                 self.clear_params();
                 self.state = State::Escape;
                 return;
@@ -273,8 +279,20 @@ impl Parser {
             0x5F => {
                 self.state = State::SosPmApcString;
             },
-            // ST - ESC \ (string terminator, ignore if not in string)
+            // ST - ESC \ (string terminator)
+            // If we came from OSC state, dispatch the OSC before going to ground
             0x5C => {
+                match self.prev_state {
+                    State::OscString => {
+                        self.dispatch_osc(actions);
+                    },
+                    State::DcsPassthrough => {
+                        // DCS unhook would go here
+                        actions.push(TerminalAction::DcsUnhook);
+                    },
+                    _ => {},
+                }
+                self.prev_state = State::Ground;
                 self.transition_to_ground();
             },
             // Final bytes - dispatch ESC sequence
@@ -978,5 +996,26 @@ mod tests {
             },
             _ => panic!("Expected CsiDispatch"),
         }
+    }
+
+    #[test]
+    fn test_parser_utf8_chunked() {
+        let mut parser = Parser::new();
+
+        // "世" is \xe4\xb8\x96 in UTF-8 (3-byte sequence)
+        // Feed one byte at a time
+        let actions1 = parser.feed(&[0xe4]);
+        assert!(actions1.is_empty(), "Lead byte should not produce action");
+
+        let actions2 = parser.feed(&[0xb8]);
+        assert!(actions2.is_empty(), "Second byte should not produce action");
+
+        let actions3 = parser.feed(&[0x96]);
+        assert_eq!(
+            actions3.len(),
+            1,
+            "Third byte should complete the character"
+        );
+        assert_eq!(actions3[0], TerminalAction::Print('世'));
     }
 }
