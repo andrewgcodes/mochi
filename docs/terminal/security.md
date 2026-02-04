@@ -73,11 +73,19 @@ When bracketed paste is enabled (CSI ? 2004 h):
 Applications can set the window title via OSC 0/2. Malicious titles could:
 - Impersonate other applications
 - Display misleading information
+- Cause denial of service via rapid updates
 
 ### Security Controls
 
-1. **Length limits**: Title length is bounded.
-2. **Character filtering**: Control characters are stripped.
+1. **Rate limiting**: Title updates are throttled to prevent rapid updates (default: 100ms minimum interval between updates). This prevents DoS attacks that could overwhelm the window manager.
+
+2. **Length limits**: Title length is bounded.
+
+3. **Character filtering**: Control characters are stripped.
+
+### Configuration
+
+Title throttling uses a default interval of 100ms. Rapid title updates within this interval are silently dropped and counted for debugging purposes.
 
 ## Denial of Service
 
