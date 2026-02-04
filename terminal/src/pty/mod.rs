@@ -1,8 +1,8 @@
 //! PTY (Pseudo-Terminal) Module
 //!
-//! Handles creation and management of pseudo-terminals on Linux.
-//! This module provides the interface between the terminal emulator
-//! and child processes (shells, programs).
+//! Handles creation and management of pseudo-terminals on Unix systems
+//! (Linux and macOS). This module provides the interface between the
+//! terminal emulator and child processes (shells, programs).
 //!
 //! # Overview
 //!
@@ -13,11 +13,11 @@
 //! Data written to the master appears as input to the slave, and
 //! output from the slave can be read from the master.
 
-#[cfg(target_os = "linux")]
-mod linux;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod unix;
 
-#[cfg(target_os = "linux")]
-pub use linux::{Pty, PtyError, WindowSize};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use unix::{Pty, PtyError, WindowSize};
 
-#[cfg(not(target_os = "linux"))]
-compile_error!("This terminal emulator only supports Linux");
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+compile_error!("This terminal emulator only supports Linux and macOS");

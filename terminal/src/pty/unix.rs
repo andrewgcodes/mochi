@@ -1,12 +1,14 @@
-//! Linux PTY Implementation
+//! Unix PTY Implementation (Linux and macOS)
 //!
 //! Uses POSIX PTY functions to create and manage pseudo-terminals.
+//! This implementation works on both Linux and macOS.
 //!
 //! # References
 //!
 //! - posix_openpt(3): https://man7.org/linux/man-pages/man3/posix_openpt.3.html
 //! - grantpt(3), unlockpt(3), ptsname(3)
 //! - tty_ioctl(4): https://man7.org/linux/man-pages/man4/tty_ioctl.4.html
+//! - macOS pty(4): https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man4/pty.4.html
 
 use std::ffi::CString;
 use std::io;

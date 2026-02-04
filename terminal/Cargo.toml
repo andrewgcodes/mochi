@@ -3,7 +3,7 @@ name = "mochi-term"
 version = "0.1.0"
 edition = "2021"
 authors = ["Mochi Terminal Contributors"]
-description = "A real Linux terminal emulator built from scratch"
+description = "A real terminal emulator built from scratch for Linux and macOS"
 license = "MIT"
 repository = "https://github.com/andrewgcodes/mochi"
 keywords = ["terminal", "emulator", "vt100", "xterm", "pty"]
@@ -32,7 +32,7 @@ fontdue = "0.7"
 unicode-width = "0.1"
 unicode-segmentation = "1.10"
 
-# System/PTY (Linux)
+# System/PTY (Unix - Linux and macOS)
 libc = "0.2"
 nix = { version = "0.27", features = ["term", "signal", "poll", "process", "fs"] }
 
