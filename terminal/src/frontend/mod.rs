@@ -6,4 +6,11 @@
 // Input handling is always available (no GUI dependency)
 pub mod input;
 
+// GUI renderer (requires gui feature)
+#[cfg(feature = "gui")]
+pub mod renderer;
+
 pub use input::*;
+
+#[cfg(feature = "gui")]
+pub use renderer::*;

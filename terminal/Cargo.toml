@@ -43,15 +43,23 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Error handling
 thiserror = "1.0"
 
-# Clipboard integration will be added in a later PR when implementing the GUI
-# arboard requires image crate which has Rust 1.85+ requirements in latest versions
+# Window creation and event handling (GUI)
+winit = { version = "0.29", optional = true }
 
-# Window creation and event handling (GUI only)
-# Note: GUI dependencies will be added in a later PR when implementing the renderer
-# winit = { version = "0.29", optional = true }
-# wgpu = { version = "0.19", optional = true }
-# fontdue = { version = "0.8", optional = true }
-# pollster = { version = "0.3", optional = true }
+# GPU rendering
+wgpu = { version = "0.19", optional = true }
+
+# Font rasterization (simple, no complex shaping - we handle terminal rules)
+fontdue = { version = "0.8", optional = true }
+
+# Safe transmutation for GPU buffers
+bytemuck = { version = "1.14", features = ["derive"], optional = true }
+
+# Block on async for wgpu initialization
+pollster = { version = "0.3", optional = true }
+
+# Clipboard integration (using older version compatible with Rust 1.83)
+copypasta = { version = "0.8", optional = true }
 
 [dev-dependencies]
 # Property-based testing
@@ -65,8 +73,7 @@ tempfile = "3.8"
 
 [features]
 default = []
-# GUI feature will be enabled in a later PR when implementing the renderer
-# gui = ["winit", "wgpu", "fontdue", "pollster"]
+gui = ["winit", "wgpu", "fontdue", "pollster", "copypasta", "bytemuck"]
 
 [[bench]]
 name = "parser"
