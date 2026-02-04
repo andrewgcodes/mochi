@@ -1,8 +1,16 @@
 //! Configuration for Mochi Terminal
+//!
+//! Configuration is loaded with the following precedence (highest to lowest):
+//! 1. CLI flags (--config, --font-size, --theme, etc.)
+//! 2. Environment variables (MOCHI_CONFIG, MOCHI_FONT_SIZE, MOCHI_THEME, etc.)
+//! 3. Config file (~/.config/mochi/config.toml or XDG_CONFIG_HOME/mochi/config.toml)
+//! 4. Built-in defaults
 
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs;
 use std::path::PathBuf;
+use thiserror::Error;
 
 /// Available theme names
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -130,10 +138,275 @@ impl Default for ColorScheme {
     }
 }
 
+/// Configuration error types
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("Failed to read config file: {0}")]
+    ReadError(#[from] std::io::Error),
+
+    #[error("Failed to parse config file: {0}")]
+    ParseError(#[from] toml::de::Error),
+
+    #[error("Invalid configuration: {0}")]
+    ValidationError(String),
+
+    #[error("Invalid color format '{color}': expected hex color like #rrggbb")]
+    InvalidColor { color: String },
+
+    #[error("Invalid theme name '{name}': expected one of dark, light, solarized-dark, solarized-light, dracula, nord, custom")]
+    InvalidTheme { name: String },
+
+    #[error("Font size {size} is out of range: must be between {min} and {max}")]
+    FontSizeOutOfRange { size: f32, min: f32, max: f32 },
+}
+
+/// CLI arguments for the terminal
+#[derive(Debug, Default)]
+pub struct CliArgs {
+    /// Custom config file path
+    pub config_path: Option<PathBuf>,
+    /// Override font size
+    pub font_size: Option<f32>,
+    /// Override theme
+    pub theme: Option<ThemeName>,
+    /// Override shell command
+    pub shell: Option<String>,
+    /// Show help
+    pub help: bool,
+    /// Show version
+    pub version: bool,
+}
+
+impl CliArgs {
+    /// Parse command line arguments
+    pub fn parse() -> Self {
+        let args: Vec<String> = env::args().collect();
+        let mut cli = CliArgs::default();
+        let mut i = 1;
+
+        while i < args.len() {
+            match args[i].as_str() {
+                "-c" | "--config" => {
+                    if i + 1 < args.len() {
+                        cli.config_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 1;
+                    }
+                }
+                "--font-size" => {
+                    if i + 1 < args.len() {
+                        if let Ok(size) = args[i + 1].parse() {
+                            cli.font_size = Some(size);
+                        }
+                        i += 1;
+                    }
+                }
+                "-t" | "--theme" => {
+                    if i + 1 < args.len() {
+                        cli.theme = Self::parse_theme_name(&args[i + 1]);
+                        i += 1;
+                    }
+                }
+                "-e" | "--shell" => {
+                    if i + 1 < args.len() {
+                        cli.shell = Some(args[i + 1].clone());
+                        i += 1;
+                    }
+                }
+                "-h" | "--help" => {
+                    cli.help = true;
+                }
+                "-v" | "--version" => {
+                    cli.version = true;
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        cli
+    }
+
+    fn parse_theme_name(s: &str) -> Option<ThemeName> {
+        match s.to_lowercase().as_str() {
+            "dark" => Some(ThemeName::Dark),
+            "light" => Some(ThemeName::Light),
+            "solarized-dark" | "solarizeddark" => Some(ThemeName::SolarizedDark),
+            "solarized-light" | "solarizedlight" => Some(ThemeName::SolarizedLight),
+            "dracula" => Some(ThemeName::Dracula),
+            "nord" => Some(ThemeName::Nord),
+            "custom" => Some(ThemeName::Custom),
+            _ => None,
+        }
+    }
+
+    /// Print help message
+    pub fn print_help() {
+        println!(
+            r#"Mochi Terminal - A modern VT/xterm-compatible terminal emulator
+
+USAGE:
+    mochi [OPTIONS]
+
+OPTIONS:
+    -c, --config <PATH>     Use custom config file path
+    --font-size <SIZE>      Override font size (e.g., 14.0)
+    -t, --theme <THEME>     Override theme (dark, light, solarized-dark,
+                            solarized-light, dracula, nord)
+    -e, --shell <COMMAND>   Override shell command
+    -h, --help              Print help information
+    -v, --version           Print version information
+
+ENVIRONMENT VARIABLES:
+    MOCHI_CONFIG            Path to config file
+    MOCHI_FONT_SIZE         Font size override
+    MOCHI_THEME             Theme override
+
+CONFIG FILE:
+    Default location: ~/.config/mochi/config.toml
+    Or: $XDG_CONFIG_HOME/mochi/config.toml
+
+For more information, see: https://github.com/andrewgcodes/mochi"#
+        );
+    }
+
+    /// Print version
+    pub fn print_version() {
+        println!("mochi {}", env!("CARGO_PKG_VERSION"));
+    }
+}
+
 impl Config {
-    /// Load configuration from file
+    /// Load configuration with full precedence handling
+    ///
+    /// Precedence (highest to lowest):
+    /// 1. CLI flags
+    /// 2. Environment variables
+    /// 3. Config file
+    /// 4. Built-in defaults
+    pub fn load_with_args(cli: &CliArgs) -> Result<Self, ConfigError> {
+        let mut config = Self::default();
+
+        let config_path = cli
+            .config_path
+            .clone()
+            .or_else(|| env::var("MOCHI_CONFIG").ok().map(PathBuf::from))
+            .or_else(Self::default_config_path);
+
+        if let Some(path) = config_path {
+            if path.exists() {
+                let content = fs::read_to_string(&path)?;
+                config = toml::from_str(&content)?;
+                log::info!("Loaded config from: {}", path.display());
+            } else if cli.config_path.is_some() {
+                return Err(ConfigError::ReadError(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Config file not found: {}", path.display()),
+                )));
+            }
+        }
+
+        Self::apply_env_overrides(&mut config);
+
+        Self::apply_cli_overrides(&mut config, cli);
+
+        config.validate()?;
+
+        Ok(config)
+    }
+
+    /// Apply environment variable overrides
+    fn apply_env_overrides(config: &mut Config) {
+        if let Ok(size) = env::var("MOCHI_FONT_SIZE") {
+            if let Ok(size) = size.parse() {
+                config.font_size = size;
+            }
+        }
+
+        if let Ok(theme) = env::var("MOCHI_THEME") {
+            if let Some(theme) = CliArgs::parse_theme_name(&theme) {
+                config.theme = theme;
+            }
+        }
+
+        if let Ok(shell) = env::var("MOCHI_SHELL") {
+            config.shell = Some(shell);
+        }
+    }
+
+    /// Apply CLI argument overrides
+    fn apply_cli_overrides(config: &mut Config, cli: &CliArgs) {
+        if let Some(size) = cli.font_size {
+            config.font_size = size;
+        }
+
+        if let Some(theme) = cli.theme {
+            config.theme = theme;
+        }
+
+        if let Some(ref shell) = cli.shell {
+            config.shell = Some(shell.clone());
+        }
+    }
+
+    /// Validate configuration values
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        const MIN_FONT_SIZE: f32 = 6.0;
+        const MAX_FONT_SIZE: f32 = 72.0;
+
+        if self.font_size < MIN_FONT_SIZE || self.font_size > MAX_FONT_SIZE {
+            return Err(ConfigError::FontSizeOutOfRange {
+                size: self.font_size,
+                min: MIN_FONT_SIZE,
+                max: MAX_FONT_SIZE,
+            });
+        }
+
+        Self::validate_color(&self.colors.foreground)?;
+        Self::validate_color(&self.colors.background)?;
+        Self::validate_color(&self.colors.cursor)?;
+        Self::validate_color(&self.colors.selection)?;
+
+        for color in &self.colors.ansi {
+            Self::validate_color(color)?;
+        }
+
+        if self.scrollback_lines == 0 {
+            return Err(ConfigError::ValidationError(
+                "scrollback_lines must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.dimensions.0 < 10 || self.dimensions.1 < 5 {
+            return Err(ConfigError::ValidationError(
+                "dimensions must be at least 10x5".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Validate a hex color string
+    fn validate_color(color: &str) -> Result<(), ConfigError> {
+        if ColorScheme::parse_hex(color).is_none() {
+            return Err(ConfigError::InvalidColor {
+                color: color.to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Get the default config file path (XDG compliant)
+    pub fn default_config_path() -> Option<PathBuf> {
+        if let Ok(xdg_config) = env::var("XDG_CONFIG_HOME") {
+            return Some(PathBuf::from(xdg_config).join("mochi").join("config.toml"));
+        }
+
+        dirs::config_dir().map(|p| p.join("mochi").join("config.toml"))
+    }
+
+    /// Load configuration from file (legacy method for compatibility)
     pub fn load() -> Option<Self> {
-        let config_path = Self::config_path()?;
+        let config_path = Self::default_config_path()?;
 
         if !config_path.exists() {
             return None;
@@ -146,7 +419,7 @@ impl Config {
     /// Save configuration to file
     #[allow(dead_code)]
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let config_path = Self::config_path().ok_or("Could not determine config path")?;
+        let config_path = Self::default_config_path().ok_or("Could not determine config path")?;
 
         if let Some(parent) = config_path.parent() {
             fs::create_dir_all(parent)?;
@@ -158,9 +431,12 @@ impl Config {
         Ok(())
     }
 
-    /// Get the configuration file path
-    fn config_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("mochi").join("config.toml"))
+    /// Reload configuration from file
+    pub fn reload(&mut self) -> Result<(), ConfigError> {
+        let cli = CliArgs::default();
+        let new_config = Self::load_with_args(&cli)?;
+        *self = new_config;
+        Ok(())
     }
 }
 
@@ -377,5 +653,148 @@ mod tests {
     fn test_color_scheme_default() {
         let scheme = ColorScheme::default();
         assert_eq!(scheme.ansi.len(), 16);
+    }
+
+    #[test]
+    fn test_config_validation_valid() {
+        let config = Config::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validation_font_size_too_small() {
+        let mut config = Config::default();
+        config.font_size = 2.0;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ConfigError::FontSizeOutOfRange { .. }));
+    }
+
+    #[test]
+    fn test_config_validation_font_size_too_large() {
+        let mut config = Config::default();
+        config.font_size = 100.0;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ConfigError::FontSizeOutOfRange { .. }));
+    }
+
+    #[test]
+    fn test_config_validation_invalid_color() {
+        let mut config = Config::default();
+        config.colors.foreground = "not-a-color".to_string();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ConfigError::InvalidColor { .. }));
+    }
+
+    #[test]
+    fn test_config_validation_zero_scrollback() {
+        let mut config = Config::default();
+        config.scrollback_lines = 0;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ConfigError::ValidationError(_)));
+    }
+
+    #[test]
+    fn test_config_validation_small_dimensions() {
+        let mut config = Config::default();
+        config.dimensions = (5, 3);
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ConfigError::ValidationError(_)));
+    }
+
+    #[test]
+    fn test_cli_args_parse_theme_name() {
+        assert_eq!(CliArgs::parse_theme_name("dark"), Some(ThemeName::Dark));
+        assert_eq!(CliArgs::parse_theme_name("light"), Some(ThemeName::Light));
+        assert_eq!(CliArgs::parse_theme_name("solarized-dark"), Some(ThemeName::SolarizedDark));
+        assert_eq!(CliArgs::parse_theme_name("solarized-light"), Some(ThemeName::SolarizedLight));
+        assert_eq!(CliArgs::parse_theme_name("dracula"), Some(ThemeName::Dracula));
+        assert_eq!(CliArgs::parse_theme_name("nord"), Some(ThemeName::Nord));
+        assert_eq!(CliArgs::parse_theme_name("invalid"), None);
+    }
+
+    #[test]
+    fn test_config_parse_toml() {
+        let toml_str = r##"
+font_family = "JetBrains Mono"
+font_size = 16.0
+scrollback_lines = 5000
+dimensions = [120, 40]
+theme = "dracula"
+osc52_clipboard = false
+osc52_max_size = 50000
+cursor_style = "beam"
+cursor_blink = false
+
+[colors]
+foreground = "#f8f8f2"
+background = "#282a36"
+cursor = "#f8f8f2"
+selection = "#44475a"
+ansi = [
+    "#21222c", "#ff5555", "#50fa7b", "#f1fa8c",
+    "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2",
+    "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5",
+    "#d6acff", "#ff92df", "#a4ffff", "#ffffff"
+]
+"##;
+        let config: Result<Config, _> = toml::from_str(toml_str);
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.font_family, "JetBrains Mono");
+        assert_eq!(config.font_size, 16.0);
+        assert_eq!(config.theme, ThemeName::Dracula);
+        assert_eq!(config.dimensions, (120, 40));
+    }
+
+    #[test]
+    fn test_effective_colors_by_theme() {
+        let mut config = Config::default();
+
+        config.theme = ThemeName::Dark;
+        let colors = config.effective_colors();
+        assert_eq!(colors.background, "#1e1e1e");
+
+        config.theme = ThemeName::Light;
+        let colors = config.effective_colors();
+        assert_eq!(colors.background, "#ffffff");
+
+        config.theme = ThemeName::Dracula;
+        let colors = config.effective_colors();
+        assert_eq!(colors.background, "#282a36");
+
+        config.theme = ThemeName::Nord;
+        let colors = config.effective_colors();
+        assert_eq!(colors.background, "#2e3440");
+    }
+
+    #[test]
+    fn test_cli_overrides() {
+        let mut config = Config::default();
+        let cli = CliArgs {
+            font_size: Some(20.0),
+            theme: Some(ThemeName::Nord),
+            shell: Some("/bin/zsh".to_string()),
+            ..Default::default()
+        };
+
+        Config::apply_cli_overrides(&mut config, &cli);
+
+        assert_eq!(config.font_size, 20.0);
+        assert_eq!(config.theme, ThemeName::Nord);
+        assert_eq!(config.shell, Some("/bin/zsh".to_string()));
+    }
+
+    #[test]
+    fn test_default_config_path() {
+        let path = Config::default_config_path();
+        assert!(path.is_some());
+        let path = path.unwrap();
+        assert!(path.to_string_lossy().contains("mochi"));
+        assert!(path.to_string_lossy().contains("config.toml"));
     }
 }
