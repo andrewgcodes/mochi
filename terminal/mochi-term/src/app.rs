@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowBuilder};
 
-use crate::config::Config;
+use crate::config::{Config, KeyAction};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
@@ -223,13 +223,102 @@ impl App {
             return;
         }
 
-        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
+        // Extract key string for keybinding lookup
+        let key_str = match &event.logical_key {
+            Key::Character(c) => c.to_string(),
+            Key::Named(named) => format!("{:?}", named).to_lowercase(),
+            _ => String::new(),
+        };
+
+        // Check for configured keybindings
+        let ctrl = self.modifiers.control_key();
+        let shift = self.modifiers.shift_key();
+        let alt = self.modifiers.alt_key();
+        let super_key = self.modifiers.super_key();
+
+        if let Some(action) = self
+            .config
+            .keybindings
+            .find_action(&key_str, ctrl, shift, alt, super_key)
+        {
+            match action {
+                KeyAction::Copy => {
+                    self.handle_copy();
+                    return;
+                }
+                KeyAction::Paste => {
+                    self.handle_paste();
+                    return;
+                }
+                KeyAction::Find => {
+                    // TODO: Implement find bar (M5)
+                    log::info!("Find action triggered (not yet implemented)");
+                    return;
+                }
+                KeyAction::ReloadConfig => {
+                    self.reload_config();
+                    return;
+                }
+                KeyAction::ToggleTheme => {
+                    self.toggle_theme();
+                    return;
+                }
+                KeyAction::FontSizeIncrease => {
+                    self.change_font_size(2.0);
+                    return;
+                }
+                KeyAction::FontSizeDecrease => {
+                    self.change_font_size(-2.0);
+                    return;
+                }
+                KeyAction::FontSizeReset => {
+                    self.reset_font_size();
+                    return;
+                }
+                KeyAction::ScrollUp => {
+                    self.scroll_viewport(1);
+                    return;
+                }
+                KeyAction::ScrollDown => {
+                    self.scroll_viewport(-1);
+                    return;
+                }
+                KeyAction::ScrollPageUp => {
+                    if let Some(terminal) = &self.terminal {
+                        let rows = terminal.screen().rows();
+                        self.scroll_viewport(rows as i32);
+                    }
+                    return;
+                }
+                KeyAction::ScrollPageDown => {
+                    if let Some(terminal) = &self.terminal {
+                        let rows = terminal.screen().rows();
+                        self.scroll_viewport(-(rows as i32));
+                    }
+                    return;
+                }
+                KeyAction::ScrollToTop => {
+                    if let Some(terminal) = &self.terminal {
+                        self.scroll_offset = terminal.screen().scrollback().len();
+                        self.needs_redraw = true;
+                    }
+                    return;
+                }
+                KeyAction::ScrollToBottom => {
+                    self.scroll_offset = 0;
+                    self.needs_redraw = true;
+                    return;
+                }
+            }
+        }
+
+        // Legacy font zoom shortcuts (Cmd on macOS, Ctrl on Linux) for compatibility
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
         let zoom_modifier = self.modifiers.control_key();
 
-        if zoom_modifier {
+        if zoom_modifier && !shift {
             match &event.logical_key {
                 Key::Character(c) if c == "=" || c == "+" => {
                     self.change_font_size(2.0);
@@ -330,6 +419,120 @@ impl App {
         }
 
         self.needs_redraw = true;
+    }
+
+    /// Toggle to the next theme
+    fn toggle_theme(&mut self) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+
+        // Cycle to next theme
+        self.config.theme = self.config.theme.next();
+        let new_colors = self.config.effective_colors();
+
+        log::info!("Switched to theme: {}", self.config.theme.display_name());
+
+        // Update renderer colors
+        renderer.set_colors(new_colors);
+        self.needs_redraw = true;
+    }
+
+    /// Reload configuration from file
+    fn reload_config(&mut self) {
+        match self.config.reload() {
+            Ok(()) => {
+                log::info!("Configuration reloaded successfully");
+
+                // Apply new colors to renderer
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.set_colors(self.config.effective_colors());
+                }
+
+                self.needs_redraw = true;
+            }
+            Err(e) => {
+                log::warn!("Failed to reload configuration: {}", e);
+            }
+        }
+    }
+
+    /// Scroll the viewport by a number of lines (positive = up/older, negative = down/newer)
+    fn scroll_viewport(&mut self, lines: i32) {
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let scrollback_len = terminal.screen().scrollback().len();
+
+        if lines > 0 {
+            // Scroll up (show older content)
+            self.scroll_offset = (self.scroll_offset + lines as usize).min(scrollback_len);
+        } else {
+            // Scroll down (show newer content)
+            self.scroll_offset = self.scroll_offset.saturating_sub((-lines) as usize);
+        }
+
+        self.needs_redraw = true;
+    }
+
+    /// Handle copy (copy selection to clipboard)
+    fn handle_copy(&mut self) {
+        let Some(clipboard) = &mut self.clipboard else {
+            log::warn!("Clipboard not available");
+            return;
+        };
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if !selection.active {
+            log::debug!("No selection to copy");
+            return;
+        }
+
+        // Get selected text from screen
+        let mut text = String::new();
+        let (start, end) = selection.bounds();
+        let start_row = start.row.max(0) as usize;
+        let end_row = end.row.max(0) as usize;
+
+        for row in start_row..=end_row {
+            if row >= screen.rows() {
+                continue;
+            }
+            let line = screen.line(row);
+            let start_col = if row == start_row { start.col } else { 0 };
+            let end_col = if row == end_row {
+                end.col
+            } else {
+                line.cols().saturating_sub(1)
+            };
+
+            for col in start_col..=end_col {
+                if col < line.cols() {
+                    let cell = line.cell(col);
+                    if !cell.is_continuation() {
+                        text.push(cell.display_char());
+                    }
+                }
+            }
+
+            if row < end_row {
+                text.push('\n');
+            }
+        }
+
+        if !text.is_empty() {
+            if let Err(e) = clipboard.set_text(&text) {
+                log::warn!("Failed to copy to clipboard: {}", e);
+            } else {
+                log::debug!("Copied {} characters to clipboard", text.len());
+            }
+        }
     }
 
     /// Handle mouse input
