@@ -874,7 +874,15 @@ impl Screen {
 
         match cmd {
             0 | 2 => {
-                // Set window title
+                // Set window title (OSC 0 sets both icon and title, OSC 2 sets title only)
+                if let Some(title) = params.get(1) {
+                    if let Ok(title) = std::str::from_utf8(title) {
+                        self.set_title(title.to_string());
+                    }
+                }
+            },
+            1 => {
+                // Set icon name (we treat this the same as title for simplicity)
                 if let Some(title) = params.get(1) {
                     if let Ok(title) = std::str::from_utf8(title) {
                         self.set_title(title.to_string());
@@ -882,20 +890,85 @@ impl Screen {
                 }
             },
             8 => {
-                // Hyperlink
-                // OSC 8 ; params ; uri ST
-                // params can include id=xxx
-                tracing::debug!("Hyperlink: {:?}", params);
+                // Hyperlink: OSC 8 ; params ; uri ST
+                // params can include id=xxx for link grouping
+                // Empty URI ends the hyperlink
+                self.handle_osc_hyperlink(params);
             },
             52 => {
-                // Clipboard
-                // Security: This is disabled by default
-                tracing::debug!("OSC 52 clipboard request (disabled by default)");
+                // Clipboard: OSC 52 ; Pc ; Pd ST
+                // Pc = clipboard selection (c = clipboard, p = primary, etc.)
+                // Pd = base64 encoded data or ? to query
+                // Security: This is disabled by default for security reasons
+                // Applications can use this to exfiltrate data
+                tracing::debug!("OSC 52 clipboard request (disabled by default for security)");
+            },
+            4 => {
+                // Set/query color palette
+                // OSC 4 ; c ; spec ST
+                tracing::debug!("OSC 4 color palette: {:?}", params);
+            },
+            10 => {
+                // Set/query foreground color
+                tracing::debug!("OSC 10 foreground color: {:?}", params);
+            },
+            11 => {
+                // Set/query background color
+                tracing::debug!("OSC 11 background color: {:?}", params);
+            },
+            12 => {
+                // Set/query cursor color
+                tracing::debug!("OSC 12 cursor color: {:?}", params);
             },
             _ => {
                 tracing::debug!("Unhandled OSC {}: {:?}", cmd, params);
             },
         }
+    }
+
+    /// Handle OSC 8 hyperlink sequence
+    fn handle_osc_hyperlink(&mut self, params: &[Vec<u8>]) {
+        // OSC 8 ; params ; uri ST
+        // params[0] = "8"
+        // params[1] = link params (e.g., "id=xxx")
+        // params[2] = URI (empty to end hyperlink)
+
+        let uri = params.get(2).and_then(|u| std::str::from_utf8(u).ok());
+
+        if let Some(uri) = uri {
+            if uri.is_empty() {
+                // End hyperlink - clear current hyperlink from attributes
+                self.current_attrs.hyperlink_id = None;
+            } else {
+                // Start hyperlink
+                // Validate URI for security (basic check)
+                if self.is_safe_uri(uri) {
+                    let id = self.next_hyperlink_id;
+                    self.next_hyperlink_id = self.next_hyperlink_id.wrapping_add(1);
+                    self.hyperlinks.insert(id, uri.to_string());
+                    self.current_attrs.hyperlink_id = Some(id);
+                    tracing::debug!("Started hyperlink id={}: {}", id, uri);
+                } else {
+                    tracing::warn!("Rejected unsafe hyperlink URI: {}", uri);
+                }
+            }
+        }
+    }
+
+    /// Check if a URI is safe to use as a hyperlink
+    fn is_safe_uri(&self, uri: &str) -> bool {
+        // Only allow http, https, mailto, and file URIs
+        // Reject javascript:, data:, and other potentially dangerous schemes
+        let uri_lower = uri.to_lowercase();
+        uri_lower.starts_with("http://")
+            || uri_lower.starts_with("https://")
+            || uri_lower.starts_with("mailto:")
+            || uri_lower.starts_with("file://")
+    }
+
+    /// Get the URL for a hyperlink ID
+    pub fn get_hyperlink(&self, id: u32) -> Option<&str> {
+        self.hyperlinks.get(&id).map(|s| s.as_str())
     }
 
     /// Set a DEC private mode

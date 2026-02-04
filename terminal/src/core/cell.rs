@@ -40,6 +40,8 @@ pub struct CellAttributes {
     pub hidden: bool,
     /// Strikethrough text (SGR 9)
     pub strikethrough: bool,
+    /// Hyperlink ID (for OSC 8), None = no link
+    pub hyperlink_id: Option<u32>,
 }
 
 impl CellAttributes {
