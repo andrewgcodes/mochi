@@ -256,8 +256,7 @@ impl Pty {
         let fd = self.master.as_raw_fd();
 
         // Get current flags
-        let flags = fcntl(fd, FcntlArg::F_GETFL)
-            .map_err(|e| PtyError::Io(io::Error::other(e)))?;
+        let flags = fcntl(fd, FcntlArg::F_GETFL).map_err(|e| PtyError::Io(io::Error::other(e)))?;
 
         // Remove O_NONBLOCK temporarily
         let flags_without_nonblock = OFlag::from_bits_truncate(flags) & !OFlag::O_NONBLOCK;
