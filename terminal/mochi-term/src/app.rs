@@ -388,11 +388,11 @@ impl App {
 
                 if state == ElementState::Pressed {
                     // Start selection
-                    let point = Point::new(
-                        self.mouse_cell.0 as usize,
-                        self.mouse_cell.1 as isize,
-                    );
-                    terminal.screen_mut().selection_mut().start(point, SelectionType::Normal);
+                    let point = Point::new(self.mouse_cell.0 as usize, self.mouse_cell.1 as isize);
+                    terminal
+                        .screen_mut()
+                        .selection_mut()
+                        .start(point, SelectionType::Normal);
                     self.needs_redraw = true;
                 } else {
                     // Finish selection
@@ -542,7 +542,10 @@ impl App {
 
         match crate::config::Config::load_with_args(&args) {
             Ok(new_config) => {
-                log::info!("Configuration reloaded successfully (theme: {})", new_config.theme);
+                log::info!(
+                    "Configuration reloaded successfully (theme: {})",
+                    new_config.theme
+                );
 
                 // Apply theme changes
                 if let Some(renderer) = &mut self.renderer {

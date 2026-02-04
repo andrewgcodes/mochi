@@ -27,7 +27,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Load configuration with precedence: CLI > env > file > defaults
     let config = match Config::load_with_args(&args) {
         Ok(config) => {
-            log::info!("Configuration loaded successfully (theme: {})", config.theme);
+            log::info!(
+                "Configuration loaded successfully (theme: {})",
+                config.theme
+            );
             config
         }
         Err(e) => {
