@@ -13,3 +13,8 @@ mochi-core = { path = "../mochi-core" }
 
 [dev-dependencies]
 proptest.workspace = true
+criterion = "0.5"
+
+[[bench]]
+name = "parser_bench"
+harness = false
