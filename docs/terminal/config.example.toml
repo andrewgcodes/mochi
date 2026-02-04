@@ -1,0 +1,123 @@
+# Mochi Terminal Configuration
+# 
+# This is an example configuration file for Mochi Terminal.
+# Copy this file to ~/.config/mochi/config.toml and customize as needed.
+#
+# Configuration precedence (highest to lowest):
+# 1. CLI flags (--config, --font-size, etc.)
+# 2. Environment variables (MOCHI_CONFIG, MOCHI_FONT_SIZE, etc.)
+# 3. Config file (~/.config/mochi/config.toml)
+# 4. Built-in defaults
+
+# =============================================================================
+# Font Settings
+# =============================================================================
+
+# Font family name. Must be a monospace font installed on your system.
+# Default: "DejaVu Sans Mono"
+font_family = "DejaVu Sans Mono"
+
+# Font size in points. Valid range: 6.0 - 128.0
+# Default: 14.0
+font_size = 14.0
+
+# =============================================================================
+# Terminal Dimensions
+# =============================================================================
+
+# Initial terminal dimensions as [columns, rows]
+# Columns: 1-500, Rows: 1-200
+# Default: [80, 24]
+dimensions = [80, 24]
+
+# =============================================================================
+# Scrollback
+# =============================================================================
+
+# Number of lines to keep in scrollback history
+# Valid range: 0 - 1,000,000
+# Default: 10000
+scrollback_lines = 10000
+
+# =============================================================================
+# Theme
+# =============================================================================
+
+# Theme name. Built-in themes:
+#   - "dark"           (VS Code inspired dark theme)
+#   - "light"          (Clean light theme)
+#   - "solarized-dark" (Solarized dark variant)
+#   - "solarized-light"(Solarized light variant)
+#   - "dracula"        (Dracula theme)
+#   - "nord"           (Nord theme)
+#   - "custom"         (Use colors defined below)
+# Default: "dark"
+theme = "dark"
+
+# =============================================================================
+# Cursor
+# =============================================================================
+
+# Cursor style: "block", "underline", or "bar"
+# Default: "block"
+cursor_style = "block"
+
+# Whether the cursor should blink
+# Default: true
+cursor_blink = true
+
+# =============================================================================
+# Shell
+# =============================================================================
+
+# Shell command to run. If not specified, uses $SHELL or /bin/sh
+# shell = "/bin/zsh"
+
+# =============================================================================
+# Security Settings
+# =============================================================================
+
+# Enable OSC 52 clipboard escape sequences
+# WARNING: This allows programs to read/write your clipboard via escape sequences.
+# Only enable if you trust all programs you run in the terminal.
+# Default: false
+osc52_clipboard = false
+
+# Maximum size in bytes for OSC 52 clipboard payloads
+# Default: 100000
+osc52_max_size = 100000
+
+# =============================================================================
+# Custom Colors (used when theme = "custom")
+# =============================================================================
+# All colors are in #RRGGBB hex format
+
+[colors]
+# Main colors
+foreground = "#d4d4d4"
+background = "#1e1e1e"
+cursor = "#d4d4d4"
+selection = "#264f78"
+
+# ANSI 16-color palette
+# Order: black, red, green, yellow, blue, magenta, cyan, white,
+#        bright_black, bright_red, bright_green, bright_yellow,
+#        bright_blue, bright_magenta, bright_cyan, bright_white
+ansi = [
+    "#1e1e1e",  # black
+    "#f44747",  # red
+    "#6a9955",  # green
+    "#dcdcaa",  # yellow
+    "#569cd6",  # blue
+    "#c586c0",  # magenta
+    "#4ec9b0",  # cyan
+    "#d4d4d4",  # white
+    "#808080",  # bright black
+    "#f44747",  # bright red
+    "#6a9955",  # bright green
+    "#dcdcaa",  # bright yellow
+    "#569cd6",  # bright blue
+    "#c586c0",  # bright magenta
+    "#4ec9b0",  # bright cyan
+    "#ffffff",  # bright white
+]
