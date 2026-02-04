@@ -357,29 +357,48 @@ impl App {
 
     /// Handle mouse input
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
-        let Some(terminal) = &self.terminal else {
+        let Some(terminal) = &mut self.terminal else {
             return;
         };
-        let Some(child) = &mut self.child else { return };
 
-        let modes = terminal.screen().modes();
-        if !modes.mouse_tracking_enabled() {
-            return;
-        }
+        let modes = terminal.screen().modes().clone();
 
-        let event = if state == ElementState::Pressed {
-            MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
+        // If mouse tracking is enabled, send to PTY
+        if modes.mouse_tracking_enabled() {
+            let Some(child) = &mut self.child else { return };
+
+            let event = if state == ElementState::Pressed {
+                MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
+            } else {
+                MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
+            };
+
+            if let Some(data) = encode_mouse(
+                event,
+                modes.mouse_sgr,
+                modes.mouse_button_event,
+                modes.mouse_any_event,
+            ) {
+                let _ = child.write_all(&data);
+            }
         } else {
-            MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
-        };
+            // Handle text selection when mouse tracking is disabled
+            if button == MouseButton::Left {
+                use terminal_core::{Point, SelectionType};
 
-        if let Some(data) = encode_mouse(
-            event,
-            modes.mouse_sgr,
-            modes.mouse_button_event,
-            modes.mouse_any_event,
-        ) {
-            let _ = child.write_all(&data);
+                if state == ElementState::Pressed {
+                    // Start selection
+                    let point = Point::new(
+                        self.mouse_cell.0 as usize,
+                        self.mouse_cell.1 as isize,
+                    );
+                    terminal.screen_mut().selection_mut().start(point, SelectionType::Normal);
+                    self.needs_redraw = true;
+                } else {
+                    // Finish selection
+                    terminal.screen_mut().selection_mut().finish();
+                }
+            }
         }
 
         // Track button state
@@ -397,10 +416,9 @@ impl App {
         let Some(renderer) = &self.renderer else {
             return;
         };
-        let Some(terminal) = &self.terminal else {
+        let Some(terminal) = &mut self.terminal else {
             return;
         };
-        let Some(child) = &mut self.child else { return };
 
         let cell_size = renderer.cell_size();
         let col = (position.x / cell_size.width as f64) as u16;
@@ -412,18 +430,31 @@ impl App {
 
         self.mouse_cell = (col, row);
 
-        let modes = terminal.screen().modes();
-        if modes.mouse_any_event
-            || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
-        {
-            let event = MouseEvent::Move(col, row);
-            if let Some(data) = encode_mouse(
-                event,
-                modes.mouse_sgr,
-                modes.mouse_button_event,
-                modes.mouse_any_event,
-            ) {
-                let _ = child.write_all(&data);
+        let modes = terminal.screen().modes().clone();
+
+        if modes.mouse_tracking_enabled() {
+            // Send mouse motion to PTY
+            if modes.mouse_any_event
+                || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
+            {
+                let Some(child) = &mut self.child else { return };
+                let event = MouseEvent::Move(col, row);
+                if let Some(data) = encode_mouse(
+                    event,
+                    modes.mouse_sgr,
+                    modes.mouse_button_event,
+                    modes.mouse_any_event,
+                ) {
+                    let _ = child.write_all(&data);
+                }
+            }
+        } else {
+            // Update selection if left button is held
+            if self.mouse_buttons[0] {
+                use terminal_core::Point;
+                let point = Point::new(col as usize, row as isize);
+                terminal.screen_mut().selection_mut().update(point);
+                self.needs_redraw = true;
             }
         }
     }
