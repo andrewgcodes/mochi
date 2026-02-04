@@ -123,8 +123,7 @@ impl RawModeGuard {
     fn new() -> io::Result<Self> {
         use nix::sys::termios::{self, LocalFlags, SetArg};
 
-        let original =
-            termios::tcgetattr(io::stdin()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let original = termios::tcgetattr(io::stdin()).map_err(io::Error::other)?;
 
         let mut raw = original.clone();
 
@@ -138,8 +137,7 @@ impl RawModeGuard {
         raw.control_chars[nix::sys::termios::SpecialCharacterIndices::VMIN as usize] = 1;
         raw.control_chars[nix::sys::termios::SpecialCharacterIndices::VTIME as usize] = 0;
 
-        termios::tcsetattr(io::stdin(), SetArg::TCSANOW, &raw)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        termios::tcsetattr(io::stdin(), SetArg::TCSANOW, &raw).map_err(io::Error::other)?;
 
         Ok(Self { original })
     }

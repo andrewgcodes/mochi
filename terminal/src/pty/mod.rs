@@ -44,21 +44,19 @@ impl Pty {
         };
 
         // Open PTY pair
-        let pty_pair =
-            openpty(Some(&size), None).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let pty_pair = openpty(Some(&size), None).map_err(io::Error::other)?;
 
         let master = pty_pair.master;
         let slave = pty_pair.slave;
 
         // Set master to non-blocking
-        let flags = fcntl(master.as_raw_fd(), FcntlArg::F_GETFL)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let flags = fcntl(master.as_raw_fd(), FcntlArg::F_GETFL).map_err(io::Error::other)?;
         let flags = OFlag::from_bits_truncate(flags);
         fcntl(
             master.as_raw_fd(),
             FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK),
         )
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(io::Error::other)?;
 
         // Determine shell to use
         let shell_path = shell
@@ -108,10 +106,12 @@ impl Pty {
                 let shell_cstr = CString::new(shell_path.as_str()).expect("CString::new failed");
                 let args = [shell_cstr.clone()];
                 execvp(&shell_cstr, &args).expect("execvp failed");
-
-                unreachable!()
+                // execvp never returns on success, the expect above handles failure
+                // This unreachable is needed for type checking since execvp diverges
+                #[allow(unreachable_code)]
+                Err(io::Error::other("execvp returned unexpectedly"))
             }
-            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+            Err(e) => Err(io::Error::other(e)),
         }
     }
 
@@ -214,7 +214,7 @@ impl Pty {
                 Ok(WaitStatus::Exited(_, code)) => Ok(Some(code)),
                 Ok(WaitStatus::Signaled(_, sig, _)) => Ok(Some(128 + sig as i32)),
                 Ok(_) => Ok(None),
-                Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+                Err(e) => Err(io::Error::other(e)),
             }
         } else {
             Ok(None)
@@ -230,7 +230,7 @@ impl Pty {
                 Ok(WaitStatus::StillAlive) => Ok(None),
                 Ok(_) => Ok(None),
                 Err(Errno::ECHILD) => Ok(Some(0)),
-                Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+                Err(e) => Err(io::Error::other(e)),
             }
         } else {
             Ok(None)
@@ -245,7 +245,7 @@ impl Pty {
     /// Send a signal to the child process
     pub fn signal(&self, sig: Signal) -> io::Result<()> {
         if let Some(pid) = self.child_pid {
-            kill(pid, sig).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+            kill(pid, sig).map_err(io::Error::other)
         } else {
             Ok(())
         }
