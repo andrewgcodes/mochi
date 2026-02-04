@@ -163,7 +163,7 @@ impl App {
         // Create renderer with effective colors based on theme
         let renderer = Renderer::new(
             window.clone(),
-            self.config.font_size,
+            self.config.font_size(),
             self.config.effective_colors(),
         )?;
 
@@ -221,6 +221,40 @@ impl App {
     fn handle_key_input(&mut self, event: &winit::event::KeyEvent) {
         if event.state != ElementState::Pressed {
             return;
+        }
+
+        // Check for app shortcuts (Ctrl+Shift combinations)
+        let ctrl_shift = self.modifiers.control_key() && self.modifiers.shift_key();
+
+        if ctrl_shift {
+            match &event.logical_key {
+                // Copy: Ctrl+Shift+C
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.handle_copy();
+                    return;
+                }
+                // Paste: Ctrl+Shift+V
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
+                    return;
+                }
+                // Find: Ctrl+Shift+F
+                Key::Character(c) if c.to_lowercase() == "f" => {
+                    self.handle_find();
+                    return;
+                }
+                // Reload config: Ctrl+Shift+R
+                Key::Character(c) if c.to_lowercase() == "r" => {
+                    self.handle_reload_config();
+                    return;
+                }
+                // Toggle theme: Ctrl+Shift+T
+                Key::Character(c) if c.to_lowercase() == "t" => {
+                    self.handle_toggle_theme();
+                    return;
+                }
+                _ => {}
+            }
         }
 
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
@@ -314,7 +348,7 @@ impl App {
         let Some(window) = &self.window else { return };
 
         let scale_factor = window.scale_factor() as f32;
-        let default_size = self.config.font_size * scale_factor;
+        let default_size = self.config.font_size() * scale_factor;
 
         renderer.set_font_size(default_size);
 
@@ -451,10 +485,82 @@ impl App {
         }
     }
 
-    /// Handle paste
-    #[allow(dead_code)]
+    /// Handle copy (Ctrl+Shift+C)
+    fn handle_copy(&mut self) {
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if selection.is_empty() {
+            return;
+        }
+
+        // Get selected text using the Line::text() method
+        let (start, end) = selection.bounds();
+        let mut text = String::new();
+        let cols = screen.cols();
+
+        for row in start.row..=end.row {
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row { end.col } else { cols };
+
+            // Get line from screen or scrollback
+            if row < 0 {
+                // Line is in scrollback
+                let scrollback_idx = (-row - 1) as usize;
+                if let Some(line) = screen.scrollback().get_from_end(scrollback_idx) {
+                    let line_text = line.text();
+                    let chars: Vec<char> = line_text.chars().collect();
+                    for col in start_col..end_col.min(chars.len()) {
+                        text.push(chars[col]);
+                    }
+                }
+            } else if (row as usize) < screen.grid().rows() {
+                // Line is in visible grid
+                let line = screen.line(row as usize);
+                let line_text = line.text();
+                let chars: Vec<char> = line_text.chars().collect();
+                for col in start_col..end_col.min(chars.len()) {
+                    text.push(chars[col]);
+                }
+            }
+
+            // Add newline between lines (but not after the last line)
+            if row < end.row {
+                // Trim trailing spaces before newline
+                while text.ends_with(' ') {
+                    text.pop();
+                }
+                text.push('\n');
+            }
+        }
+
+        // Trim trailing whitespace
+        let text = text.trim_end().to_string();
+
+        if text.is_empty() {
+            return;
+        }
+
+        // Now copy to clipboard
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+
+        if let Err(e) = clipboard.set_text(&text) {
+            log::warn!("Failed to copy to clipboard: {}", e);
+        } else {
+            log::debug!("Copied {} bytes to clipboard", text.len());
+        }
+    }
+
+    /// Handle paste (Ctrl+Shift+V)
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
+            log::warn!("Clipboard not available");
             return;
         };
         let Some(terminal) = &self.terminal else {
@@ -462,14 +568,72 @@ impl App {
         };
         let Some(child) = &mut self.child else { return };
 
-        if let Ok(text) = clipboard.get_text() {
-            let data = if terminal.screen().modes().bracketed_paste {
-                encode_bracketed_paste(&text)
-            } else {
-                text.into_bytes()
-            };
-            let _ = child.write_all(&data);
+        match clipboard.get_text() {
+            Ok(text) => {
+                if text.is_empty() {
+                    return;
+                }
+                let data = if terminal.screen().modes().bracketed_paste {
+                    encode_bracketed_paste(&text)
+                } else {
+                    text.into_bytes()
+                };
+                if let Err(e) = child.write_all(&data) {
+                    log::warn!("Failed to write paste data to PTY: {}", e);
+                } else {
+                    log::debug!("Pasted {} bytes", data.len());
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to get clipboard text: {}", e);
+            }
         }
+    }
+
+    /// Handle find (Ctrl+Shift+F) - placeholder for search UI
+    fn handle_find(&mut self) {
+        log::info!("Find requested (Ctrl+Shift+F) - search UI not yet implemented");
+        // TODO: Implement search UI overlay in M5
+    }
+
+    /// Handle reload config (Ctrl+Shift+R)
+    fn handle_reload_config(&mut self) {
+        log::info!("Reloading configuration...");
+
+        match Config::load() {
+            Some(new_config) => {
+                // Update theme
+                self.config.theme = new_config.theme;
+                self.config.font = new_config.font.clone();
+                self.config.keybindings = new_config.keybindings.clone();
+                self.config.security = new_config.security.clone();
+
+                // Apply theme change
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.set_colors(self.config.effective_colors());
+                }
+
+                log::info!("Configuration reloaded successfully");
+                self.needs_redraw = true;
+            }
+            None => {
+                log::warn!("No config file found or failed to parse");
+            }
+        }
+    }
+
+    /// Handle toggle theme (Ctrl+Shift+T)
+    fn handle_toggle_theme(&mut self) {
+        let new_theme = self.config.theme.next();
+        log::info!("Switching theme from {:?} to {:?}", self.config.theme, new_theme);
+
+        self.config.theme = new_theme;
+
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_colors(self.config.effective_colors());
+        }
+
+        self.needs_redraw = true;
     }
 
     /// Handle focus change

@@ -138,6 +138,11 @@ impl Renderer {
         self.height = height;
     }
 
+    /// Set the color scheme (for theme switching)
+    pub fn set_colors(&mut self, colors: ColorScheme) {
+        self.colors = colors;
+    }
+
     /// Render the terminal screen
     pub fn render(
         &mut self,
