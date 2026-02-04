@@ -42,7 +42,7 @@ pub enum ConfigError {
 }
 
 /// CLI arguments for Mochi Terminal
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Default)]
 #[command(name = "mochi")]
 #[command(author, version, about = "Mochi Terminal Emulator - A VT/xterm-compatible terminal")]
 pub struct CliArgs {

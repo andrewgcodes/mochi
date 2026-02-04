@@ -223,7 +223,7 @@ impl App {
             return;
         }
 
-        // Check for Ctrl+Shift shortcuts (theme toggle, copy, paste, etc.)
+        // Check for Ctrl+Shift shortcuts (theme toggle, copy, paste, reload, etc.)
         if self.modifiers.control_key() && self.modifiers.shift_key() {
             match &event.logical_key {
                 Key::Character(c) if c.to_lowercase() == "t" => {
@@ -236,6 +236,10 @@ impl App {
                 }
                 Key::Character(c) if c.to_lowercase() == "v" => {
                     self.handle_paste();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "r" => {
+                    self.reload_config();
                     return;
                 }
                 _ => {}
@@ -374,6 +378,74 @@ impl App {
         log::info!("Theme switched to: {}", new_theme.display_name());
 
         self.needs_redraw = true;
+    }
+
+    /// Reload configuration from file (Ctrl+Shift+R)
+    fn reload_config(&mut self) {
+        use crate::config::CliArgs;
+
+        log::info!("Reloading configuration...");
+
+        // Try to reload config with empty CLI args (preserves file-based settings)
+        let args = CliArgs::default();
+        match Config::load_with_args(&args) {
+            Ok(new_config) => {
+                // Validate the new config
+                if let Err(e) = new_config.validate() {
+                    log::error!("Config validation failed: {}", e);
+                    return;
+                }
+
+                // Apply theme change if different
+                if new_config.theme != self.config.theme {
+                    if let Some(renderer) = &mut self.renderer {
+                        let new_colors = new_config.effective_colors();
+                        renderer.set_colors(new_colors);
+                    }
+                    if let Some(window) = &self.window {
+                        let title = format!("Mochi Terminal - {}", new_config.theme.display_name());
+                        window.set_title(&title);
+                    }
+                }
+
+                // Apply font size change if different
+                if (new_config.font_size - self.config.font_size).abs() > 0.1 {
+                    if let Some(renderer) = &mut self.renderer {
+                        if let Some(window) = &self.window {
+                            let scale_factor = window.scale_factor() as f32;
+                            let new_size = new_config.font_size * scale_factor;
+                            renderer.set_font_size(new_size);
+
+                            // Recalculate terminal dimensions
+                            let size = window.inner_size();
+                            let cell_size = renderer.cell_size();
+                            let cols = (size.width as f32 / cell_size.width) as usize;
+                            let rows = (size.height as f32 / cell_size.height) as usize;
+
+                            if cols > 0 && rows > 0 {
+                                if let Some(terminal) = &mut self.terminal {
+                                    terminal.resize(cols, rows);
+                                }
+                                if let Some(child) = &self.child {
+                                    let _ = child.resize(terminal_pty::WindowSize::new(
+                                        cols as u16,
+                                        rows as u16,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                self.config = new_config;
+                self.needs_redraw = true;
+                log::info!("Configuration reloaded successfully");
+            }
+            Err(e) => {
+                log::error!("Failed to reload config: {}", e);
+                // Keep the old config on failure
+            }
+        }
     }
 
     /// Copy selection to clipboard (Ctrl+Shift+C)
