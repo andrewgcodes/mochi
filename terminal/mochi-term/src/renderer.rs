@@ -68,14 +68,13 @@ impl Renderer {
         let context = Context::new(window.clone())?;
         let surface = Surface::new(&context, window.clone())?;
 
-        // Load default font
-        let font_data = include_bytes!("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf");
+        // Load default font (bundled in assets for cross-platform support)
+        let font_data = include_bytes!("../assets/DejaVuSansMono.ttf");
         let font = Font::from_bytes(font_data as &[u8], FontSettings::default())?;
 
-        // Try to load bold font
-        let bold_font = std::fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf")
-            .ok()
-            .and_then(|data| Font::from_bytes(data, FontSettings::default()).ok());
+        // Load bold font (also bundled)
+        let bold_font_data = include_bytes!("../assets/DejaVuSansMono-Bold.ttf");
+        let bold_font = Font::from_bytes(bold_font_data as &[u8], FontSettings::default()).ok();
 
         // Calculate cell size
         let metrics = font.metrics('M', font_size);
