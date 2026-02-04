@@ -569,7 +569,11 @@ impl App {
             Ok(()) => {
                 log::info!("Configuration reloaded successfully");
                 log::info!("Theme: {}", self.config.theme);
-                log::info!("Font: {} @ {}pt", self.config.font_family, self.config.font_size);
+                log::info!(
+                    "Font: {} @ {}pt",
+                    self.config.font_family,
+                    self.config.font_size
+                );
 
                 // Apply new configuration
                 if let Some(renderer) = &mut self.renderer {

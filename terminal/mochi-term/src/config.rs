@@ -362,6 +362,7 @@ impl Config {
     }
 
     /// Get the list of available themes
+    #[allow(dead_code)]
     pub fn available_themes() -> &'static [&'static str] {
         &[
             "dark",
@@ -549,6 +550,7 @@ impl Default for ColorScheme {
 
 impl Config {
     /// Load configuration from file (legacy method for compatibility)
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         let config_path = Self::default_config_path()?;
 
@@ -796,7 +798,10 @@ mod tests {
         assert_eq!(ThemeName::from_str("dark").unwrap(), ThemeName::Dark);
         assert_eq!(ThemeName::from_str("mochi-dark").unwrap(), ThemeName::Dark);
         assert_eq!(ThemeName::from_str("light").unwrap(), ThemeName::Light);
-        assert_eq!(ThemeName::from_str("mochi-light").unwrap(), ThemeName::Light);
+        assert_eq!(
+            ThemeName::from_str("mochi-light").unwrap(),
+            ThemeName::Light
+        );
         assert_eq!(
             ThemeName::from_str("solarized-dark").unwrap(),
             ThemeName::SolarizedDark
@@ -831,8 +836,10 @@ mod tests {
         let colors = config.effective_colors();
         assert_eq!(colors.background, "#1e1e1e");
 
-        let mut light_config = Config::default();
-        light_config.theme = ThemeName::Light;
+        let light_config = Config {
+            theme: ThemeName::Light,
+            ..Default::default()
+        };
         let light_colors = light_config.effective_colors();
         assert_eq!(light_colors.background, "#ffffff");
     }
