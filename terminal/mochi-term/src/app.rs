@@ -294,7 +294,11 @@ impl App {
             let shift = self.modifiers.shift_key();
             let alt = self.modifiers.alt_key();
 
-            if let Some(action) = self.config.keybindings.find_action(&key_str, ctrl, shift, alt) {
+            if let Some(action) = self
+                .config
+                .keybindings
+                .find_action(&key_str, ctrl, shift, alt)
+            {
                 match action {
                     Action::Copy => {
                         self.handle_copy();
@@ -585,10 +589,7 @@ impl App {
                 )
             };
 
-            window.set_title(&format!(
-                "Search: {}{}",
-                self.search_query, match_info
-            ));
+            window.set_title(&format!("Search: {}{}", self.search_query, match_info));
         }
     }
 
@@ -810,8 +811,8 @@ impl App {
 
         // Check for multi-click (same position, within time threshold)
         let same_position = col == self.last_click_pos.0 && row == self.last_click_pos.1;
-        let within_threshold =
-            now.duration_since(self.last_click_time) < Duration::from_millis(MULTI_CLICK_THRESHOLD_MS);
+        let within_threshold = now.duration_since(self.last_click_time)
+            < Duration::from_millis(MULTI_CLICK_THRESHOLD_MS);
 
         if same_position && within_threshold {
             self.click_count = (self.click_count % 3) + 1;
@@ -854,13 +855,17 @@ impl App {
                 let (start, end) = word_bounds;
                 let start_point = Point::new(start, row as isize - self.scroll_offset as isize);
                 let end_point = Point::new(end, row as isize - self.scroll_offset as isize);
-                screen.selection_mut().start(start_point, SelectionType::Word);
+                screen
+                    .selection_mut()
+                    .start(start_point, SelectionType::Word);
                 screen.selection_mut().update(end_point);
             }
             SelectionType::Line => {
                 // For line selection, select entire line
                 let start_point = Point::new(0, row as isize - self.scroll_offset as isize);
-                screen.selection_mut().start(start_point, SelectionType::Line);
+                screen
+                    .selection_mut()
+                    .start(start_point, SelectionType::Line);
                 // End point will be updated on mouse motion or release
             }
             SelectionType::Normal => {
