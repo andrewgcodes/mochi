@@ -481,7 +481,8 @@ impl App {
 
                 // Check if this is a multi-click (same position, within time threshold)
                 let is_same_pos = self.mouse_cell == self.last_click_pos;
-                let is_quick_click = now.duration_since(self.last_click_time) < double_click_threshold;
+                let is_quick_click =
+                    now.duration_since(self.last_click_time) < double_click_threshold;
 
                 if is_same_pos && is_quick_click {
                     self.click_count = (self.click_count % 3) + 1;
@@ -505,7 +506,10 @@ impl App {
                         self.mouse_cell.0 as usize,
                         self.mouse_cell.1 as isize - self.scroll_offset as isize,
                     );
-                    terminal.screen_mut().selection_mut().start(point, selection_type);
+                    terminal
+                        .screen_mut()
+                        .selection_mut()
+                        .start(point, selection_type);
                 }
 
                 // For word/line selection, expand to word/line boundaries
@@ -649,10 +653,7 @@ impl App {
                 return;
             };
 
-            let point = Point::new(
-                col as usize,
-                row as isize - self.scroll_offset as isize,
-            );
+            let point = Point::new(col as usize, row as isize - self.scroll_offset as isize);
             terminal.screen_mut().selection_mut().update(point);
             self.needs_redraw = true;
         }

@@ -10,7 +10,7 @@ use crate::grid::Grid;
 use crate::line::Line;
 use crate::modes::Modes;
 use crate::scrollback::Scrollback;
-use crate::selection::{Selection, SelectionType};
+use crate::selection::Selection;
 use crate::snapshot::Snapshot;
 use crate::Dimensions;
 

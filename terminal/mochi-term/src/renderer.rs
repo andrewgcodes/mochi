@@ -138,6 +138,7 @@ impl Renderer {
     }
 
     /// Get the current color scheme
+    #[allow(dead_code)]
     pub fn colors(&self) -> &ColorScheme {
         &self.colors
     }

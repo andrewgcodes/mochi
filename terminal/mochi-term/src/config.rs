@@ -140,6 +140,7 @@ impl Default for ColorScheme {
 
 /// Configuration error types
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum ConfigError {
     #[error("Failed to read config file: {0}")]
     ReadError(#[from] std::io::Error),
@@ -405,6 +406,7 @@ impl Config {
     }
 
     /// Load configuration from file (legacy method for compatibility)
+    #[allow(dead_code)]
     pub fn load() -> Option<Self> {
         let config_path = Self::default_config_path()?;
 
@@ -663,56 +665,93 @@ mod tests {
 
     #[test]
     fn test_config_validation_font_size_too_small() {
-        let mut config = Config::default();
-        config.font_size = 2.0;
+        let config = Config {
+            font_size: 2.0,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::FontSizeOutOfRange { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::FontSizeOutOfRange { .. }
+        ));
     }
 
     #[test]
     fn test_config_validation_font_size_too_large() {
-        let mut config = Config::default();
-        config.font_size = 100.0;
+        let config = Config {
+            font_size: 100.0,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::FontSizeOutOfRange { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::FontSizeOutOfRange { .. }
+        ));
     }
 
     #[test]
     fn test_config_validation_invalid_color() {
-        let mut config = Config::default();
-        config.colors.foreground = "not-a-color".to_string();
+        let config = Config {
+            colors: ColorScheme {
+                foreground: "not-a-color".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::InvalidColor { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::InvalidColor { .. }
+        ));
     }
 
     #[test]
     fn test_config_validation_zero_scrollback() {
-        let mut config = Config::default();
-        config.scrollback_lines = 0;
+        let config = Config {
+            scrollback_lines: 0,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::ValidationError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::ValidationError(_)
+        ));
     }
 
     #[test]
     fn test_config_validation_small_dimensions() {
-        let mut config = Config::default();
-        config.dimensions = (5, 3);
+        let config = Config {
+            dimensions: (5, 3),
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConfigError::ValidationError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigError::ValidationError(_)
+        ));
     }
 
     #[test]
     fn test_cli_args_parse_theme_name() {
         assert_eq!(CliArgs::parse_theme_name("dark"), Some(ThemeName::Dark));
         assert_eq!(CliArgs::parse_theme_name("light"), Some(ThemeName::Light));
-        assert_eq!(CliArgs::parse_theme_name("solarized-dark"), Some(ThemeName::SolarizedDark));
-        assert_eq!(CliArgs::parse_theme_name("solarized-light"), Some(ThemeName::SolarizedLight));
-        assert_eq!(CliArgs::parse_theme_name("dracula"), Some(ThemeName::Dracula));
+        assert_eq!(
+            CliArgs::parse_theme_name("solarized-dark"),
+            Some(ThemeName::SolarizedDark)
+        );
+        assert_eq!(
+            CliArgs::parse_theme_name("solarized-light"),
+            Some(ThemeName::SolarizedLight)
+        );
+        assert_eq!(
+            CliArgs::parse_theme_name("dracula"),
+            Some(ThemeName::Dracula)
+        );
         assert_eq!(CliArgs::parse_theme_name("nord"), Some(ThemeName::Nord));
         assert_eq!(CliArgs::parse_theme_name("invalid"), None);
     }
@@ -753,23 +792,33 @@ ansi = [
 
     #[test]
     fn test_effective_colors_by_theme() {
-        let mut config = Config::default();
+        // Test Dark theme
+        let config_dark = Config {
+            theme: ThemeName::Dark,
+            ..Default::default()
+        };
+        assert_eq!(config_dark.effective_colors().background, "#1e1e1e");
 
-        config.theme = ThemeName::Dark;
-        let colors = config.effective_colors();
-        assert_eq!(colors.background, "#1e1e1e");
+        // Test Light theme
+        let config_light = Config {
+            theme: ThemeName::Light,
+            ..Default::default()
+        };
+        assert_eq!(config_light.effective_colors().background, "#ffffff");
 
-        config.theme = ThemeName::Light;
-        let colors = config.effective_colors();
-        assert_eq!(colors.background, "#ffffff");
+        // Test Dracula theme
+        let config_dracula = Config {
+            theme: ThemeName::Dracula,
+            ..Default::default()
+        };
+        assert_eq!(config_dracula.effective_colors().background, "#282a36");
 
-        config.theme = ThemeName::Dracula;
-        let colors = config.effective_colors();
-        assert_eq!(colors.background, "#282a36");
-
-        config.theme = ThemeName::Nord;
-        let colors = config.effective_colors();
-        assert_eq!(colors.background, "#2e3440");
+        // Test Nord theme
+        let config_nord = Config {
+            theme: ThemeName::Nord,
+            ..Default::default()
+        };
+        assert_eq!(config_nord.effective_colors().background, "#2e3440");
     }
 
     #[test]
