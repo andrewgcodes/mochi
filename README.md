@@ -41,16 +41,78 @@ cargo build --release
 
 The binary will be at `target/release/mochi`.
 
+### Installing
+
+#### Linux
+
+To install system-wide so you can run `mochi` from anywhere:
+
+```bash
+sudo cp target/release/mochi /usr/local/bin/
+```
+
+To add a desktop entry so Mochi appears in your application menu:
+
+```bash
+sudo mkdir -p /usr/local/share/applications
+sudo tee /usr/local/share/applications/mochi.desktop > /dev/null << 'EOF'
+[Desktop Entry]
+Name=Mochi Terminal
+Comment=A modern terminal emulator
+Exec=mochi
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=System;TerminalEmulator;
+EOF
+```
+
+#### macOS
+
+To install so you can run `mochi` from anywhere:
+
+```bash
+sudo cp target/release/mochi /usr/local/bin/
+```
+
+To create an application bundle for Finder and Dock:
+
+```bash
+mkdir -p ~/Applications/Mochi.app/Contents/MacOS
+cp target/release/mochi ~/Applications/Mochi.app/Contents/MacOS/
+
+cat > ~/Applications/Mochi.app/Contents/Info.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>mochi</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.mochi.terminal</string>
+    <key>CFBundleName</key>
+    <string>Mochi</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+</dict>
+</plist>
+EOF
+```
+
+After creating the app bundle, you can drag `Mochi.app` from `~/Applications` to your Dock.
+
 ### Running
 
 ```bash
-./target/release/mochi
+mochi
 ```
 
 Or with options:
 
 ```bash
-./target/release/mochi --theme dracula --font-size 16
+mochi --theme dracula --font-size 16
 ```
 
 ## Configuration
