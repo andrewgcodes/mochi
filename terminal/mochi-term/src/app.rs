@@ -736,10 +736,11 @@ impl App {
         }
     }
 
-    /// Handle find (Ctrl+Shift+F) - placeholder for search UI
+    /// Handle find (Ctrl+Shift+F)
+    ///
+    /// Search UI is planned for a future release.
     fn handle_find(&mut self) {
         log::info!("Find requested (Ctrl+Shift+F) - search UI not yet implemented");
-        // TODO: Implement search UI overlay in M5
     }
 
     /// Handle reload config (Ctrl+Shift+R)
