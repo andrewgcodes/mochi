@@ -17,9 +17,6 @@ pub struct Terminal {
     title_changed: bool,
     /// Bell triggered
     bell: bool,
-    /// Track if synchronized output mode has been enabled before
-    /// Used to clear screen on first enable for TUI apps like Claude Code
-    sync_output_first_enable: bool,
 }
 
 impl Terminal {
@@ -31,7 +28,6 @@ impl Terminal {
             title: String::new(),
             title_changed: false,
             bell: false,
-            sync_output_first_enable: false,
         }
     }
 
@@ -538,22 +534,6 @@ impl Terminal {
                 // Synchronized output mode (used by TUI apps like Claude Code)
                 // When enabled, the terminal should buffer output until disabled
                 // This helps prevent flickering during rapid screen updates
-                //
-                // IMPORTANT: On the FIRST enable of this mode, we clear the screen.
-                // This is because TUI apps like Claude Code use differential rendering
-                // and expect a clean canvas. Without this, old terminal content would
-                // show through in areas the TUI app doesn't explicitly overwrite.
-                // The user reported "resizing fixes it" because resize triggers a full
-                // redraw - this fix ensures the first render also gets a clean canvas.
-                if value && !self.sync_output_first_enable {
-                    self.sync_output_first_enable = true;
-                    // Clear the entire screen to give TUI apps a clean canvas
-                    self.screen.erase_display(2); // 2 = clear entire screen
-                    self.screen.move_cursor_to(1, 1); // Move cursor to home
-                    log::debug!(
-                        "Synchronized output mode first enable: clearing screen for TUI app"
-                    );
-                }
                 self.screen.modes_mut().synchronized_output = value;
                 log::debug!("Synchronized output mode: {}", value);
             }
