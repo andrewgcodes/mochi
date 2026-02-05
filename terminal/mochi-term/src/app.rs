@@ -817,8 +817,15 @@ impl App {
                 Ok(0) => break,
                 Ok(n) => {
                     terminal.process(&buf[..n]);
-                    self.needs_redraw = true;
                     received_output = true;
+                    // Only trigger redraw if synchronized output mode is disabled
+                    // This prevents flickering and interleaving issues with TUI apps
+                    // like Claude Code that use differential rendering.
+                    // When synchronized output mode is enabled, the app is still
+                    // building its frame, so we wait until it's disabled to render.
+                    if !terminal.is_synchronized_output() {
+                        self.needs_redraw = true;
+                    }
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(_) => break,
