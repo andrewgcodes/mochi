@@ -736,6 +736,13 @@ impl Terminal {
     pub fn snapshot(&self) -> Snapshot {
         self.screen.snapshot(false)
     }
+
+    /// Check if synchronized output mode is enabled
+    /// When enabled, the terminal should buffer output and not render until disabled
+    /// This prevents flickering and interleaving issues with TUI apps like Claude Code
+    pub fn is_synchronized_output(&self) -> bool {
+        self.screen.modes().synchronized_output
+    }
 }
 
 #[cfg(test)]
