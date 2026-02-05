@@ -231,6 +231,33 @@ impl App {
 
     /// Handle keyboard input
     fn handle_key_input(&mut self, event: &winit::event::KeyEvent) {
+        // Update modifiers from modifier key events to fix race condition where
+        // KeyboardInput arrives before ModifiersChanged. This ensures Ctrl+C and
+        // other control characters work reliably on both macOS and Linux.
+        match &event.logical_key {
+            Key::Named(NamedKey::Control) => {
+                self.modifiers
+                    .set(ModifiersState::CONTROL, event.state == ElementState::Pressed);
+                return; // Modifier keys don't produce terminal output
+            }
+            Key::Named(NamedKey::Alt) => {
+                self.modifiers
+                    .set(ModifiersState::ALT, event.state == ElementState::Pressed);
+                return;
+            }
+            Key::Named(NamedKey::Shift) => {
+                self.modifiers
+                    .set(ModifiersState::SHIFT, event.state == ElementState::Pressed);
+                return;
+            }
+            Key::Named(NamedKey::Super) | Key::Named(NamedKey::Meta) => {
+                self.modifiers
+                    .set(ModifiersState::SUPER, event.state == ElementState::Pressed);
+                return;
+            }
+            _ => {}
+        }
+
         if event.state != ElementState::Pressed {
             return;
         }
