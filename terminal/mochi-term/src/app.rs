@@ -236,8 +236,10 @@ impl App {
         // other control characters work reliably on both macOS and Linux.
         match &event.logical_key {
             Key::Named(NamedKey::Control) => {
-                self.modifiers
-                    .set(ModifiersState::CONTROL, event.state == ElementState::Pressed);
+                self.modifiers.set(
+                    ModifiersState::CONTROL,
+                    event.state == ElementState::Pressed,
+                );
                 return; // Modifier keys don't produce terminal output
             }
             Key::Named(NamedKey::Alt) => {
