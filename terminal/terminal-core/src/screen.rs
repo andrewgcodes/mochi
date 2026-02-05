@@ -478,12 +478,30 @@ impl Screen {
             }
             2 => {
                 // Erase entire display
+                // Before clearing, save non-empty lines to scrollback (only for primary screen)
+                // This preserves terminal history so users can scroll up to see previous content
+                // This matches behavior of terminals like Terminal.app where ED mode=2
+                // doesn't completely erase history
+                if !self.using_alternate {
+                    let rows = self.rows();
+                    for i in 0..rows {
+                        let line = self.primary_grid.line(i);
+                        if !line.is_empty() {
+                            self.scrollback.push(line.clone());
+                        }
+                    }
+                }
                 self.grid_mut().clear(attrs);
             }
             3 => {
                 // Erase scrollback (xterm extension)
-                self.scrollback.clear();
-                self.grid_mut().clear(attrs);
+                // Note: Many modern TUI apps (Claude Code, Gemini CLI, etc.) send ED mode=3
+                // immediately after ED mode=2, which would clear the scrollback we just saved.
+                // To preserve terminal history and match Terminal.app behavior, we intentionally
+                // do NOT clear the scrollback here. Users can still use Cmd+K or similar to
+                // manually clear scrollback if needed.
+                // self.scrollback.clear();
+                log::debug!("ED mode=3 (clear scrollback) ignored to preserve terminal history");
             }
             _ => {}
         }
