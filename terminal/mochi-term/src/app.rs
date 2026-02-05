@@ -335,7 +335,49 @@ impl App {
             }
         }
 
-        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
+        // Additional fallback for macOS: Check if Ctrl is pressed with a letter key
+        // On macOS, text_with_all_modifiers() may not return control characters because
+        // the macOS input system doesn't produce them. We need to manually compute
+        // the control character when:
+        // 1. logical_key is a letter (a-z)
+        // 2. event.text is empty or None (indicating a modifier is suppressing text)
+        // 3. Ctrl is pressed (from self.modifiers)
+        // 4. Cmd is NOT pressed (to avoid interfering with Cmd+C copy)
+        //
+        // This handles the case where ModifiersChanged arrives before KeyboardInput
+        // (the normal case) but text_with_all_modifiers doesn't work on macOS.
+        if let Key::Character(c) = &event.logical_key {
+            if let Some(ch) = c.chars().next() {
+                // Check if it's a single ASCII letter
+                if ch.is_ascii_alphabetic() && c.len() == 1 {
+                    // Check if text is empty (indicating a modifier is pressed)
+                    let text_is_empty = event.text.as_ref().is_none_or(|t| t.is_empty());
+
+                    // On macOS, also check that Cmd is not pressed (Cmd+C should be copy, not Ctrl+C)
+                    #[cfg(target_os = "macos")]
+                    let should_send_ctrl = text_is_empty
+                        && self.modifiers.control_key()
+                        && !self.modifiers.super_key();
+
+                    #[cfg(not(target_os = "macos"))]
+                    let should_send_ctrl = text_is_empty && self.modifiers.control_key();
+
+                    if should_send_ctrl {
+                        // Compute control character: Ctrl+A = 1, Ctrl+B = 2, ..., Ctrl+Z = 26
+                        let ctrl_char = (ch.to_ascii_uppercase() as u8) - b'A' + 1;
+                        log::debug!(
+                            "Sending control character from modifier fallback: Ctrl+{} (0x{:02x})",
+                            ch.to_ascii_uppercase(),
+                            ctrl_char
+                        );
+                        let _ = child.write_all(&[ctrl_char]);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Check for font zoom shortcuts(Cmd on macOS, Ctrl on Linux)
         // Note: On Linux, Ctrl+letter should send control characters to the terminal,
         // so we only intercept specific zoom shortcuts (=, -, 0, arrows)
         #[cfg(target_os = "macos")]
