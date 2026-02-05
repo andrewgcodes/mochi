@@ -2,6 +2,8 @@
 
 A modern, customizable terminal emulator written in Rust with a focus on performance, compatibility, and developer experience.
 
+> **Disclaimer**: This software is provided as-is for educational and experimental purposes. Use at your own risk. As with any terminal emulator, there may be undiscovered security vulnerabilities. Do not use this software in security-critical environments without thorough review.
+
 ## Features
 
 Mochi provides a complete terminal emulation experience with VT/xterm-compatible escape sequence parsing, full 256-color and true color (24-bit RGB) support, Unicode and wide character handling, and a configurable scrollback buffer supporting up to 10 million lines of history. Mouse support includes click, drag, scroll, and SGR encoding, while security features include bracketed paste mode and OSC 8 hyperlink support.
