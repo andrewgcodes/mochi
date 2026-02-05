@@ -269,7 +269,6 @@ pub fn configure_slave(fd: RawFd) -> Result<()> {
     termios.local_flags &= !(termios::LocalFlags::ECHO
         | termios::LocalFlags::ECHONL
         | termios::LocalFlags::ICANON
-        | termios::LocalFlags::ISIG
         | termios::LocalFlags::IEXTEN);
     termios.control_flags &= !(termios::ControlFlags::CSIZE | termios::ControlFlags::PARENB);
     termios.control_flags |= termios::ControlFlags::CS8;
