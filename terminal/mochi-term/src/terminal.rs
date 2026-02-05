@@ -20,6 +20,9 @@ pub struct Terminal {
     /// Track if synchronized output mode has been enabled before
     /// Used to clear screen on first enable for TUI apps like Claude Code
     sync_output_first_enable: bool,
+    /// Pending responses to send back to the PTY
+    /// Used for DSR (Device Status Report), DA1 (Primary Device Attributes), etc.
+    pending_responses: Vec<Vec<u8>>,
 }
 
 impl Terminal {
@@ -32,6 +35,7 @@ impl Terminal {
             title_changed: false,
             bell: false,
             sync_output_first_enable: false,
+            pending_responses: Vec::new(),
         }
     }
 
@@ -347,8 +351,31 @@ impl Terminal {
             }
             b'n' => {
                 // DSR - Device Status Report
-                // This would need to send a response back to the PTY
-                log::debug!("DSR request: {:?}", csi.params);
+                let mode = csi.param(0, 0);
+                match mode {
+                    5 => {
+                        // Status report - respond with "OK"
+                        // Response: CSI 0 n
+                        self.queue_response(b"\x1b[0n".to_vec());
+                        log::debug!("DSR mode 5: status report, responding OK");
+                    }
+                    6 => {
+                        // Cursor position report
+                        // Response: CSI row ; col R (1-indexed)
+                        let row = self.screen.cursor().row + 1;
+                        let col = self.screen.cursor().col + 1;
+                        let response = format!("\x1b[{};{}R", row, col);
+                        self.queue_response(response.into_bytes());
+                        log::debug!(
+                            "DSR mode 6: cursor position report, responding row={} col={}",
+                            row,
+                            col
+                        );
+                    }
+                    _ => {
+                        log::debug!("DSR request with unknown mode: {}", mode);
+                    }
+                }
             }
             b'r' => {
                 // DECSTBM - Set Top and Bottom Margins
@@ -391,7 +418,13 @@ impl Terminal {
             }
             b'c' => {
                 // DA1 - Primary Device Attributes
-                log::debug!("DA1 request");
+                // Respond as VT220 with advanced video option
+                // Response: CSI ? 62 ; 1 ; 2 ; 6 ; 7 ; 8 ; 9 c
+                // This indicates: VT220, 132 columns, printer, selective erase,
+                // user-defined keys, national replacement character sets, technical characters
+                // A simpler response that works well: CSI ? 1 ; 2 c (VT100 with AVO)
+                self.queue_response(b"\x1b[?1;2c".to_vec());
+                log::debug!("DA1 request: responding as VT100 with AVO");
             }
             _ => {
                 log::debug!(
@@ -742,6 +775,17 @@ impl Terminal {
     /// This prevents flickering and interleaving issues with TUI apps like Claude Code
     pub fn is_synchronized_output(&self) -> bool {
         self.screen.modes().synchronized_output
+    }
+
+    /// Take pending responses that need to be sent back to the PTY
+    /// Returns all pending responses and clears the queue
+    pub fn take_pending_responses(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.pending_responses)
+    }
+
+    /// Queue a response to be sent back to the PTY
+    fn queue_response(&mut self, response: Vec<u8>) {
+        self.pending_responses.push(response);
     }
 }
 

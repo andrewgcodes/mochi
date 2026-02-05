@@ -601,9 +601,42 @@ impl Parser {
         F: FnMut(Action),
     {
         // We saw ESC in a string state - this could be ST (ESC \)
-        // For now, we'll handle this by finishing the string
-        // A more complete implementation would buffer the ESC and check next byte
-        self.finish_string(callback);
+        // Finish the string and transition to Escape state so the next byte
+        // (likely '\') is properly handled as part of the ESC sequence.
+        // This fixes the bug where ESC \ would print a literal backslash.
+        self.finish_string_to_escape(callback);
+    }
+
+    fn finish_string_to_escape<F>(&mut self, callback: &mut F)
+    where
+        F: FnMut(Action),
+    {
+        match self.state {
+            ParserState::OscString => {
+                self.finish_osc(callback);
+            }
+            ParserState::DcsPassthrough => {
+                let params = Params::parse(&self.dcs_params);
+                callback(Action::Dcs {
+                    params,
+                    data: self.osc_data.clone(),
+                });
+            }
+            ParserState::ApcString => {
+                callback(Action::Apc(self.osc_data.clone()));
+            }
+            ParserState::PmString => {
+                callback(Action::Pm(self.osc_data.clone()));
+            }
+            ParserState::SosString => {
+                callback(Action::Sos(self.osc_data.clone()));
+            }
+            _ => {}
+        }
+        // Transition to Escape state instead of Ground so that the next byte
+        // (the '\' in ESC \) is handled as part of the escape sequence
+        self.state = ParserState::Escape;
+        self.osc_data.clear();
     }
 
     fn finish_string<F>(&mut self, callback: &mut F)
