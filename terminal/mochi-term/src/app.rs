@@ -12,6 +12,7 @@ use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{Window, WindowBuilder};
 
 use crate::config::Config;
@@ -294,20 +295,20 @@ impl App {
         // This fixes the modifier state synchronization issue where ModifiersChanged and
         // KeyboardInput events can arrive out of sync.
         //
-        // Strategy:
-        // 1. Check if the text field contains a control character (0x01-0x1A)
-        // 2. Check if the logical_key is a letter and we can infer Ctrl is pressed
-        // 3. Fall back to using self.modifiers with encode_key
-
-        // Method 1: Check the text field for control characters
-        // On macOS, Ctrl+C might produce '\x03' directly in the text field
-        if let Some(text) = &event.text {
+        // Use text_with_all_modifiers() from KeyEventExtModifierSupplement trait.
+        // This is the proper way to get control characters in winit - it returns the text
+        // with ALL modifiers applied, including Ctrl. For example:
+        // - Ctrl+C produces Some("\x03")
+        // - Ctrl+A produces Some("\x01")
+        // The regular `text` field does NOT include Ctrl modifier effects.
+        if let Some(text) = event.text_with_all_modifiers() {
             if !text.is_empty() {
                 let first_char = text.chars().next().unwrap();
-                // Check if it's a control character (0x01-0x1A)
-                if (first_char as u32) >= 1 && (first_char as u32) <= 26 {
+                // Check if it's a control character (0x01-0x1A) or DEL (0x7F)
+                let char_code = first_char as u32;
+                if (1..=26).contains(&char_code) || char_code == 0x7F {
                     log::debug!(
-                        "Sending control character from text field: {:?} (0x{:02x})",
+                        "Sending control character from text_with_all_modifiers: {:?} (0x{:02x})",
                         first_char,
                         first_char as u8
                     );
@@ -317,11 +318,12 @@ impl App {
             }
         }
 
-        // Method 2: Check if logical_key is a control character directly
-        // This handles the case where the key itself is reported as a control character
+        // Fallback: Check if logical_key is a control character directly
+        // This handles edge cases where text_with_all_modifiers might not be available
         if let Key::Character(c) = &event.logical_key {
             if let Some(ch) = c.chars().next() {
-                if (ch as u32) >= 1 && (ch as u32) <= 26 {
+                let char_code = ch as u32;
+                if (1..=26).contains(&char_code) || char_code == 0x7F {
                     log::debug!(
                         "Sending control character from logical_key: {:?} (0x{:02x})",
                         ch,
