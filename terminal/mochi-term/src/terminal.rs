@@ -530,6 +530,13 @@ impl Terminal {
                 // Bracketed paste mode
                 self.screen.modes_mut().bracketed_paste = value;
             }
+            2026 => {
+                // Synchronized output mode (used by TUI apps like Claude Code)
+                // When enabled, the terminal should buffer output until disabled
+                // This helps prevent flickering during rapid screen updates
+                self.screen.modes_mut().synchronized_output = value;
+                log::debug!("Synchronized output mode: {}", value);
+            }
             _ => {
                 self.screen.modes_mut().set_dec_mode(mode, value);
             }

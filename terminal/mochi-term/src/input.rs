@@ -19,6 +19,13 @@ pub fn encode_key(
         Key::Character(c) => {
             let c = c.chars().next()?;
 
+            // On macOS, Ctrl+letter might produce the control character directly
+            // (e.g., Ctrl+C produces '\x03' instead of 'c' with Ctrl modifier)
+            // Handle control characters (0x01-0x1A) directly
+            if c as u32 >= 1 && c as u32 <= 26 {
+                return Some(vec![c as u8]);
+            }
+
             if ctrl {
                 // Ctrl+letter produces control characters
                 if c.is_ascii_alphabetic() {
@@ -367,5 +374,18 @@ mod tests {
     fn test_focus_events() {
         assert_eq!(encode_focus(true), b"\x1b[I".to_vec());
         assert_eq!(encode_focus(false), b"\x1b[O".to_vec());
+    }
+
+    #[test]
+    fn test_encode_direct_control_char() {
+        // On macOS, Ctrl+C might produce '\x03' directly instead of 'c' with Ctrl modifier
+        let key = Key::Character("\x03".into());
+        let result = encode_key(&key, ModifiersState::empty(), false);
+        assert_eq!(result, Some(vec![3])); // ETX (Ctrl+C)
+
+        // Ctrl+A as direct control character
+        let key = Key::Character("\x01".into());
+        let result = encode_key(&key, ModifiersState::empty(), false);
+        assert_eq!(result, Some(vec![1])); // SOH (Ctrl+A)
     }
 }

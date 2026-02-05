@@ -1,12 +1,65 @@
 //! Configuration for Mochi Terminal
+//!
+//! This module provides a comprehensive configuration system with:
+//! - XDG-compliant config file location
+//! - CLI argument overrides
+//! - Environment variable support
+//! - Config precedence: CLI > env > file > defaults
+//! - Detailed validation and error messages
 
+use clap::Parser;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+/// CLI arguments for Mochi Terminal
+#[derive(Parser, Debug, Clone)]
+#[command(name = "mochi")]
+#[command(author = "Mochi Team")]
+#[command(version)]
+#[command(about = "A modern, customizable terminal emulator", long_about = None)]
+pub struct CliArgs {
+    /// Path to custom config file
+    #[arg(short, long, value_name = "FILE")]
+    pub config: Option<PathBuf>,
+
+    /// Font family name
+    #[arg(long, value_name = "FONT")]
+    pub font_family: Option<String>,
+
+    /// Font size in points
+    #[arg(long, value_name = "SIZE")]
+    pub font_size: Option<f32>,
+
+    /// Theme name (dark, light, solarized-dark, solarized-light, dracula, nord)
+    #[arg(short, long, value_name = "THEME")]
+    pub theme: Option<String>,
+
+    /// Shell command to run
+    #[arg(short, long, value_name = "SHELL")]
+    pub shell: Option<String>,
+
+    /// Number of scrollback lines
+    #[arg(long, value_name = "LINES")]
+    pub scrollback: Option<usize>,
+
+    /// Initial window columns
+    #[arg(long, value_name = "COLS")]
+    pub columns: Option<u16>,
+
+    /// Initial window rows
+    #[arg(long, value_name = "ROWS")]
+    pub rows: Option<u16>,
+
+    /// Enable OSC 52 clipboard (security risk)
+    #[arg(long)]
+    pub enable_osc52: bool,
+}
+
 /// Available theme names
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum ThemeName {
     /// Dark theme (default)
     #[default]
@@ -25,32 +78,333 @@ pub enum ThemeName {
     Custom,
 }
 
+impl ThemeName {
+    /// Parse theme name from string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "dark" => Some(ThemeName::Dark),
+            "light" => Some(ThemeName::Light),
+            "solarized-dark" | "solarizeddark" => Some(ThemeName::SolarizedDark),
+            "solarized-light" | "solarizedlight" => Some(ThemeName::SolarizedLight),
+            "dracula" => Some(ThemeName::Dracula),
+            "nord" => Some(ThemeName::Nord),
+            "custom" => Some(ThemeName::Custom),
+            _ => None,
+        }
+    }
+
+    /// Get all available theme names
+    #[allow(dead_code)] // Will be used for theme listing UI
+    pub fn all_names() -> &'static [&'static str] {
+        &[
+            "dark",
+            "light",
+            "solarized-dark",
+            "solarized-light",
+            "dracula",
+            "nord",
+            "custom",
+        ]
+    }
+
+    /// Cycle to the next theme (for toggle keybinding)
+    pub fn next(self) -> Self {
+        match self {
+            ThemeName::Dark => ThemeName::Light,
+            ThemeName::Light => ThemeName::SolarizedDark,
+            ThemeName::SolarizedDark => ThemeName::SolarizedLight,
+            ThemeName::SolarizedLight => ThemeName::Dracula,
+            ThemeName::Dracula => ThemeName::Nord,
+            ThemeName::Nord => ThemeName::Dark,
+            ThemeName::Custom => ThemeName::Dark,
+        }
+    }
+}
+
+/// Keybinding action
+#[allow(dead_code)] // Will be used when keybinding parsing is implemented
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeyAction {
+    Copy,
+    Paste,
+    Find,
+    ReloadConfig,
+    ToggleTheme,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    ScrollUp,
+    ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    ScrollToTop,
+    ScrollToBottom,
+    ClearScrollback,
+}
+
+/// Keybinding configuration
+#[allow(dead_code)] // Will be used when keybinding parsing is implemented
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Keybinding {
+    /// Key combination (e.g., "ctrl+shift+c")
+    pub key: String,
+    /// Action to perform
+    pub action: KeyAction,
+}
+
+impl Default for Keybinding {
+    fn default() -> Self {
+        Self {
+            key: String::new(),
+            action: KeyAction::Copy,
+        }
+    }
+}
+
+/// Keybindings configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeybindingsConfig {
+    /// Copy selection to clipboard
+    #[serde(default = "default_copy_key")]
+    pub copy: String,
+    /// Paste from clipboard
+    #[serde(default = "default_paste_key")]
+    pub paste: String,
+    /// Open search/find bar
+    #[serde(default = "default_find_key")]
+    pub find: String,
+    /// Reload configuration
+    #[serde(default = "default_reload_key")]
+    pub reload_config: String,
+    /// Toggle theme (cycle through themes)
+    #[serde(default = "default_toggle_theme_key")]
+    pub toggle_theme: String,
+    /// Zoom in (increase font size)
+    #[serde(default = "default_zoom_in_key")]
+    pub zoom_in: String,
+    /// Zoom out (decrease font size)
+    #[serde(default = "default_zoom_out_key")]
+    pub zoom_out: String,
+    /// Reset zoom to default
+    #[serde(default = "default_zoom_reset_key")]
+    pub zoom_reset: String,
+}
+
+fn default_copy_key() -> String {
+    "ctrl+shift+c".to_string()
+}
+fn default_paste_key() -> String {
+    "ctrl+shift+v".to_string()
+}
+fn default_find_key() -> String {
+    "ctrl+shift+f".to_string()
+}
+fn default_reload_key() -> String {
+    "ctrl+shift+r".to_string()
+}
+fn default_toggle_theme_key() -> String {
+    "ctrl+shift+t".to_string()
+}
+fn default_zoom_in_key() -> String {
+    "ctrl+plus".to_string()
+}
+fn default_zoom_out_key() -> String {
+    "ctrl+minus".to_string()
+}
+fn default_zoom_reset_key() -> String {
+    "ctrl+0".to_string()
+}
+
+impl Default for KeybindingsConfig {
+    fn default() -> Self {
+        Self {
+            copy: default_copy_key(),
+            paste: default_paste_key(),
+            find: default_find_key(),
+            reload_config: default_reload_key(),
+            toggle_theme: default_toggle_theme_key(),
+            zoom_in: default_zoom_in_key(),
+            zoom_out: default_zoom_out_key(),
+            zoom_reset: default_zoom_reset_key(),
+        }
+    }
+}
+
+/// Font configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FontConfig {
+    /// Primary font family name
+    #[serde(default = "default_font_family")]
+    pub family: String,
+    /// Font size in points
+    #[serde(default = "default_font_size")]
+    pub size: f32,
+    /// Fallback font families (tried in order if primary is missing)
+    #[serde(default = "default_font_fallbacks")]
+    pub fallbacks: Vec<String>,
+    /// Extra horizontal padding per cell (pixels)
+    #[serde(default)]
+    pub cell_padding_x: u32,
+    /// Extra vertical padding per cell (pixels)
+    #[serde(default)]
+    pub cell_padding_y: u32,
+    /// Line height multiplier (1.0 = normal)
+    #[serde(default = "default_line_height")]
+    pub line_height: f32,
+}
+
+fn default_font_family() -> String {
+    "monospace".to_string()
+}
+fn default_font_size() -> f32 {
+    14.0
+}
+fn default_font_fallbacks() -> Vec<String> {
+    vec![
+        "DejaVu Sans Mono".to_string(),
+        "Liberation Mono".to_string(),
+        "Courier New".to_string(),
+    ]
+}
+fn default_line_height() -> f32 {
+    1.0
+}
+
+impl Default for FontConfig {
+    fn default() -> Self {
+        Self {
+            family: default_font_family(),
+            size: default_font_size(),
+            fallbacks: default_font_fallbacks(),
+            cell_padding_x: 0,
+            cell_padding_y: 0,
+            line_height: default_line_height(),
+        }
+    }
+}
+
+/// Security configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    /// Enable OSC 52 clipboard sequences (disabled by default for security)
+    #[serde(default)]
+    pub osc52_clipboard: bool,
+    /// Maximum OSC 52 payload size in bytes
+    #[serde(default = "default_osc52_max_size")]
+    pub osc52_max_size: usize,
+    /// Show notification when clipboard is modified by escape sequence
+    #[serde(default = "default_true")]
+    pub osc52_notify: bool,
+    /// Maximum title updates per second (throttling)
+    #[serde(default = "default_title_update_rate")]
+    pub title_update_rate: u32,
+}
+
+fn default_osc52_max_size() -> usize {
+    100_000
+}
+fn default_true() -> bool {
+    true
+}
+fn default_title_update_rate() -> u32 {
+    10
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            osc52_clipboard: false,
+            osc52_max_size: default_osc52_max_size(),
+            osc52_notify: true,
+            title_update_rate: default_title_update_rate(),
+        }
+    }
+}
+
 /// Terminal configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Font family name
-    pub font_family: String,
-    /// Font size in points
-    pub font_size: f32,
+    /// Font configuration
+    #[serde(default)]
+    pub font: FontConfig,
+
     /// Number of scrollback lines
+    #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: usize,
+
     /// Window dimensions (columns, rows)
+    #[serde(default = "default_dimensions")]
     pub dimensions: (u16, u16),
-    /// Theme name (dark, light, solarized-dark, solarized-light, dracula, nord, custom)
+
+    /// Theme name
     #[serde(default)]
     pub theme: ThemeName,
-    /// Color scheme (used when theme is "custom", otherwise ignored)
+
+    /// Custom color scheme (used when theme is "custom")
+    #[serde(default)]
     pub colors: ColorScheme,
-    /// Enable OSC 52 clipboard
-    pub osc52_clipboard: bool,
-    /// Maximum OSC 52 payload size
-    pub osc52_max_size: usize,
+
     /// Shell command (None = use $SHELL)
+    #[serde(default)]
     pub shell: Option<String>,
-    /// Cursor style
+
+    /// Cursor style (block, underline, bar)
+    #[serde(default = "default_cursor_style")]
     pub cursor_style: String,
+
     /// Cursor blink
+    #[serde(default = "default_true")]
     pub cursor_blink: bool,
+
+    /// Keybindings
+    #[serde(default)]
+    pub keybindings: KeybindingsConfig,
+
+    /// Security settings
+    #[serde(default)]
+    pub security: SecurityConfig,
+
+    // Legacy fields for backwards compatibility
+    #[serde(skip_serializing, default)]
+    font_family: Option<String>,
+    #[serde(skip_serializing, default)]
+    font_size: Option<f32>,
+    #[serde(skip_serializing, default)]
+    osc52_clipboard: Option<bool>,
+    #[serde(skip_serializing, default)]
+    osc52_max_size: Option<usize>,
+}
+
+fn default_scrollback_lines() -> usize {
+    10000
+}
+fn default_dimensions() -> (u16, u16) {
+    (80, 24)
+}
+fn default_cursor_style() -> String {
+    "block".to_string()
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            font: FontConfig::default(),
+            scrollback_lines: default_scrollback_lines(),
+            dimensions: default_dimensions(),
+            theme: ThemeName::Dark,
+            colors: ColorScheme::default(),
+            shell: None,
+            cursor_style: default_cursor_style(),
+            cursor_blink: true,
+            keybindings: KeybindingsConfig::default(),
+            security: SecurityConfig::default(),
+            font_family: None,
+            font_size: None,
+            osc52_clipboard: None,
+            osc52_max_size: None,
+        }
+    }
 }
 
 /// Color scheme configuration
@@ -66,39 +420,6 @@ pub struct ColorScheme {
     pub selection: String,
     /// ANSI colors 0-15 (hex)
     pub ansi: [String; 16],
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            font_family: "monospace".to_string(),
-            font_size: 14.0,
-            scrollback_lines: 10000,
-            dimensions: (80, 24),
-            theme: ThemeName::Dark,
-            colors: ColorScheme::default(),
-            osc52_clipboard: false, // Disabled by default for security
-            osc52_max_size: 100000,
-            shell: None,
-            cursor_style: "block".to_string(),
-            cursor_blink: true,
-        }
-    }
-}
-
-impl Config {
-    /// Get the effective color scheme based on the theme setting
-    pub fn effective_colors(&self) -> ColorScheme {
-        match self.theme {
-            ThemeName::Custom => self.colors.clone(),
-            ThemeName::Dark => ColorScheme::dark(),
-            ThemeName::Light => ColorScheme::light(),
-            ThemeName::SolarizedDark => ColorScheme::solarized_dark(),
-            ThemeName::SolarizedLight => ColorScheme::solarized_light(),
-            ThemeName::Dracula => ColorScheme::dracula(),
-            ThemeName::Nord => ColorScheme::nord(),
-        }
-    }
 }
 
 impl Default for ColorScheme {
@@ -130,23 +451,243 @@ impl Default for ColorScheme {
     }
 }
 
-impl Config {
-    /// Load configuration from file
-    pub fn load() -> Option<Self> {
-        let config_path = Self::config_path()?;
+/// Configuration error
+#[derive(Debug, Clone)]
+pub struct ConfigError {
+    pub message: String,
+    pub field: Option<String>,
+}
 
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(field) = &self.field {
+            write!(f, "Config error in '{}': {}", field, self.message)
+        } else {
+            write!(f, "Config error: {}", self.message)
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {}
+
+impl Config {
+    /// Load configuration with full precedence:
+    /// CLI args > environment variables > config file > defaults
+    pub fn load_with_args(args: &CliArgs) -> Result<Self, ConfigError> {
+        // Start with defaults
+        let mut config = Config::default();
+
+        // Load from config file (if exists)
+        let config_path = args.config.clone().or_else(Self::default_config_path);
+        if let Some(path) = &config_path {
+            if path.exists() {
+                match Self::load_from_file(path) {
+                    Ok(file_config) => config = file_config,
+                    Err(e) => {
+                        log::warn!("Failed to load config from {:?}: {}", path, e);
+                        // Continue with defaults if config file is invalid
+                    }
+                }
+            }
+        }
+
+        // Apply environment variables
+        config.apply_env_vars();
+
+        // Apply CLI arguments (highest priority)
+        config.apply_cli_args(args);
+
+        // Validate the final configuration
+        config.validate()?;
+
+        Ok(config)
+    }
+
+    /// Load configuration from file only (legacy method)
+    pub fn load() -> Option<Self> {
+        let config_path = Self::default_config_path()?;
         if !config_path.exists() {
             return None;
         }
+        Self::load_from_file(&config_path).ok()
+    }
 
-        let content = fs::read_to_string(&config_path).ok()?;
-        toml::from_str(&content).ok()
+    /// Load configuration from a specific file
+    pub fn load_from_file(path: &PathBuf) -> Result<Self, ConfigError> {
+        let content = fs::read_to_string(path).map_err(|e| ConfigError {
+            message: format!("Failed to read config file: {}", e),
+            field: None,
+        })?;
+
+        let mut config: Config = toml::from_str(&content).map_err(|e| ConfigError {
+            message: format!("Failed to parse config file: {}", e),
+            field: None,
+        })?;
+
+        // Handle legacy fields
+        config.migrate_legacy_fields();
+
+        Ok(config)
+    }
+
+    /// Migrate legacy config fields to new structure
+    fn migrate_legacy_fields(&mut self) {
+        if let Some(family) = self.font_family.take() {
+            self.font.family = family;
+        }
+        if let Some(size) = self.font_size.take() {
+            self.font.size = size;
+        }
+        if let Some(osc52) = self.osc52_clipboard.take() {
+            self.security.osc52_clipboard = osc52;
+        }
+        if let Some(max_size) = self.osc52_max_size.take() {
+            self.security.osc52_max_size = max_size;
+        }
+    }
+
+    /// Apply environment variables to config
+    fn apply_env_vars(&mut self) {
+        if let Ok(val) = env::var("MOCHI_FONT_FAMILY") {
+            self.font.family = val;
+        }
+        if let Ok(val) = env::var("MOCHI_FONT_SIZE") {
+            if let Ok(size) = val.parse() {
+                self.font.size = size;
+            }
+        }
+        if let Ok(val) = env::var("MOCHI_THEME") {
+            if let Some(theme) = ThemeName::from_str(&val) {
+                self.theme = theme;
+            }
+        }
+        if let Ok(val) = env::var("MOCHI_SHELL") {
+            self.shell = Some(val);
+        }
+        if let Ok(val) = env::var("MOCHI_SCROLLBACK") {
+            if let Ok(lines) = val.parse() {
+                self.scrollback_lines = lines;
+            }
+        }
+        if let Ok(val) = env::var("MOCHI_OSC52_CLIPBOARD") {
+            self.security.osc52_clipboard = val == "1" || val.to_lowercase() == "true";
+        }
+    }
+
+    /// Apply CLI arguments to config
+    fn apply_cli_args(&mut self, args: &CliArgs) {
+        if let Some(family) = &args.font_family {
+            self.font.family = family.clone();
+        }
+        if let Some(size) = args.font_size {
+            self.font.size = size;
+        }
+        if let Some(theme_str) = &args.theme {
+            if let Some(theme) = ThemeName::from_str(theme_str) {
+                self.theme = theme;
+            }
+        }
+        if let Some(shell) = &args.shell {
+            self.shell = Some(shell.clone());
+        }
+        if let Some(scrollback) = args.scrollback {
+            self.scrollback_lines = scrollback;
+        }
+        if let Some(cols) = args.columns {
+            self.dimensions.0 = cols;
+        }
+        if let Some(rows) = args.rows {
+            self.dimensions.1 = rows;
+        }
+        if args.enable_osc52 {
+            self.security.osc52_clipboard = true;
+        }
+    }
+
+    /// Validate configuration
+    fn validate(&self) -> Result<(), ConfigError> {
+        // Validate font size
+        if self.font.size < 4.0 {
+            return Err(ConfigError {
+                message: "Font size must be at least 4.0".to_string(),
+                field: Some("font.size".to_string()),
+            });
+        }
+        if self.font.size > 200.0 {
+            return Err(ConfigError {
+                message: "Font size must be at most 200.0".to_string(),
+                field: Some("font.size".to_string()),
+            });
+        }
+
+        // Validate dimensions
+        if self.dimensions.0 < 10 {
+            return Err(ConfigError {
+                message: "Window columns must be at least 10".to_string(),
+                field: Some("dimensions".to_string()),
+            });
+        }
+        if self.dimensions.1 < 3 {
+            return Err(ConfigError {
+                message: "Window rows must be at least 3".to_string(),
+                field: Some("dimensions".to_string()),
+            });
+        }
+
+        // Validate scrollback
+        if self.scrollback_lines > 10_000_000 {
+            return Err(ConfigError {
+                message: "Scrollback lines must be at most 10,000,000".to_string(),
+                field: Some("scrollback_lines".to_string()),
+            });
+        }
+
+        // Validate line height
+        if self.font.line_height < 0.5 {
+            return Err(ConfigError {
+                message: "Line height must be at least 0.5".to_string(),
+                field: Some("font.line_height".to_string()),
+            });
+        }
+        if self.font.line_height > 3.0 {
+            return Err(ConfigError {
+                message: "Line height must be at most 3.0".to_string(),
+                field: Some("font.line_height".to_string()),
+            });
+        }
+
+        // Validate colors
+        self.validate_color(&self.colors.foreground, "colors.foreground")?;
+        self.validate_color(&self.colors.background, "colors.background")?;
+        self.validate_color(&self.colors.cursor, "colors.cursor")?;
+        self.validate_color(&self.colors.selection, "colors.selection")?;
+        for (i, color) in self.colors.ansi.iter().enumerate() {
+            self.validate_color(color, &format!("colors.ansi[{}]", i))?;
+        }
+
+        Ok(())
+    }
+
+    /// Validate a hex color string
+    fn validate_color(&self, color: &str, field: &str) -> Result<(), ConfigError> {
+        if ColorScheme::parse_hex(color).is_none() {
+            return Err(ConfigError {
+                message: format!("Invalid hex color '{}'. Expected format: #RRGGBB", color),
+                field: Some(field.to_string()),
+            });
+        }
+        Ok(())
+    }
+
+    /// Get the default configuration file path
+    pub fn default_config_path() -> Option<PathBuf> {
+        dirs::config_dir().map(|p| p.join("mochi").join("config.toml"))
     }
 
     /// Save configuration to file
     #[allow(dead_code)]
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let config_path = Self::config_path().ok_or("Could not determine config path")?;
+        let config_path = Self::default_config_path().ok_or("Could not determine config path")?;
 
         if let Some(parent) = config_path.parent() {
             fs::create_dir_all(parent)?;
@@ -158,9 +699,37 @@ impl Config {
         Ok(())
     }
 
-    /// Get the configuration file path
-    fn config_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("mochi").join("config.toml"))
+    /// Get the effective color scheme based on the theme setting
+    pub fn effective_colors(&self) -> ColorScheme {
+        match self.theme {
+            ThemeName::Custom => self.colors.clone(),
+            ThemeName::Dark => ColorScheme::dark(),
+            ThemeName::Light => ColorScheme::light(),
+            ThemeName::SolarizedDark => ColorScheme::solarized_dark(),
+            ThemeName::SolarizedLight => ColorScheme::solarized_light(),
+            ThemeName::Dracula => ColorScheme::dracula(),
+            ThemeName::Nord => ColorScheme::nord(),
+        }
+    }
+
+    // Legacy accessors for backwards compatibility
+    #[allow(dead_code)] // Will be used when font rendering is updated
+    pub fn font_family(&self) -> &str {
+        &self.font.family
+    }
+
+    pub fn font_size(&self) -> f32 {
+        self.font.size
+    }
+
+    #[allow(dead_code)] // Will be used when OSC 52 handling is implemented
+    pub fn osc52_clipboard(&self) -> bool {
+        self.security.osc52_clipboard
+    }
+
+    #[allow(dead_code)] // Will be used when OSC 52 handling is implemented
+    pub fn osc52_max_size(&self) -> usize {
+        self.security.osc52_max_size
     }
 }
 
@@ -361,9 +930,9 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.font_size, 14.0);
+        assert_eq!(config.font.size, 14.0);
         assert_eq!(config.dimensions, (80, 24));
-        assert!(!config.osc52_clipboard);
+        assert!(!config.security.osc52_clipboard);
     }
 
     #[test]
@@ -377,5 +946,120 @@ mod tests {
     fn test_color_scheme_default() {
         let scheme = ColorScheme::default();
         assert_eq!(scheme.ansi.len(), 16);
+    }
+
+    #[test]
+    fn test_theme_from_str() {
+        assert_eq!(ThemeName::from_str("dark"), Some(ThemeName::Dark));
+        assert_eq!(ThemeName::from_str("light"), Some(ThemeName::Light));
+        assert_eq!(
+            ThemeName::from_str("solarized-dark"),
+            Some(ThemeName::SolarizedDark)
+        );
+        assert_eq!(ThemeName::from_str("dracula"), Some(ThemeName::Dracula));
+        assert_eq!(ThemeName::from_str("nord"), Some(ThemeName::Nord));
+        assert_eq!(ThemeName::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_theme_next() {
+        assert_eq!(ThemeName::Dark.next(), ThemeName::Light);
+        assert_eq!(ThemeName::Light.next(), ThemeName::SolarizedDark);
+        assert_eq!(ThemeName::Nord.next(), ThemeName::Dark);
+    }
+
+    #[test]
+    fn test_config_validation() {
+        let mut config = Config::default();
+
+        // Valid config should pass
+        assert!(config.validate().is_ok());
+
+        // Invalid font size
+        config.font.size = 2.0;
+        assert!(config.validate().is_err());
+        config.font.size = 14.0;
+
+        // Invalid dimensions
+        config.dimensions = (5, 24);
+        assert!(config.validate().is_err());
+        config.dimensions = (80, 24);
+
+        // Invalid color
+        config.colors.foreground = "invalid".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_keybindings_default() {
+        let kb = KeybindingsConfig::default();
+        assert_eq!(kb.copy, "ctrl+shift+c");
+        assert_eq!(kb.paste, "ctrl+shift+v");
+        assert_eq!(kb.find, "ctrl+shift+f");
+        assert_eq!(kb.reload_config, "ctrl+shift+r");
+        assert_eq!(kb.toggle_theme, "ctrl+shift+t");
+    }
+
+    #[test]
+    fn test_config_toml_parsing() {
+        let toml_str = r#"
+            scrollback_lines = 5000
+            theme = "dracula"
+            
+            [font]
+            family = "JetBrains Mono"
+            size = 16.0
+            
+            [keybindings]
+            copy = "ctrl+c"
+            paste = "ctrl+v"
+            
+            [security]
+            osc52_clipboard = true
+        "#;
+
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.scrollback_lines, 5000);
+        assert_eq!(config.theme, ThemeName::Dracula);
+        assert_eq!(config.font.family, "JetBrains Mono");
+        assert_eq!(config.font.size, 16.0);
+        assert_eq!(config.keybindings.copy, "ctrl+c");
+        assert!(config.security.osc52_clipboard);
+    }
+
+    #[test]
+    fn test_legacy_config_migration() {
+        // Test that old config format still works
+        let toml_str = r##"
+            font_family = "Fira Code"
+            font_size = 12.0
+            scrollback_lines = 5000
+            dimensions = [100, 30]
+            theme = "light"
+            osc52_clipboard = true
+            osc52_max_size = 50000
+            cursor_style = "underline"
+            cursor_blink = false
+            
+            [colors]
+            foreground = "#333333"
+            background = "#ffffff"
+            cursor = "#000000"
+            selection = "#add6ff"
+            ansi = [
+                "#000000", "#cd3131", "#00bc00", "#949800",
+                "#0451a5", "#bc05bc", "#0598bc", "#555555",
+                "#666666", "#cd3131", "#14ce14", "#b5ba00",
+                "#0451a5", "#bc05bc", "#0598bc", "#a5a5a5"
+            ]
+        "##;
+
+        let mut config: Config = toml::from_str(toml_str).unwrap();
+        config.migrate_legacy_fields();
+
+        assert_eq!(config.font.family, "Fira Code");
+        assert_eq!(config.font.size, 12.0);
+        assert!(config.security.osc52_clipboard);
+        assert_eq!(config.security.osc52_max_size, 50000);
     }
 }

@@ -50,6 +50,9 @@ pub struct Modes {
     pub alternate_screen: bool,
     /// Bracketed paste mode
     pub bracketed_paste: bool,
+    /// Synchronized output mode (DEC 2026) - used by TUI apps like Claude Code
+    /// When enabled, the terminal should buffer output until the mode is disabled
+    pub synchronized_output: bool,
 }
 
 impl Modes {
@@ -80,6 +83,7 @@ impl Modes {
             focus_events: false,
             alternate_screen: false,
             bracketed_paste: false,
+            synchronized_output: false,
         }
     }
 
@@ -108,6 +112,7 @@ impl Modes {
             1006 => self.mouse_sgr = value,
             1049 => self.alternate_screen = value,
             2004 => self.bracketed_paste = value,
+            2026 => self.synchronized_output = value,
             _ => {
                 log::debug!("Unknown DEC private mode: {}", mode);
             }
@@ -134,6 +139,7 @@ impl Modes {
             1006 => self.mouse_sgr,
             1049 => self.alternate_screen,
             2004 => self.bracketed_paste,
+            2026 => self.synchronized_output,
             _ => false,
         }
     }

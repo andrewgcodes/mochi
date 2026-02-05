@@ -587,14 +587,17 @@ impl Screen {
     }
 
     /// Switch to alternate screen
+    /// Always clears the alternate grid to ensure a clean slate for TUI applications
     pub fn enter_alternate_screen(&mut self) {
         if !self.using_alternate {
             self.using_alternate = true;
             self.modes.alternate_screen = true;
             self.saved_cursor_primary = SavedCursor::save(&self.cursor);
-            self.cursor.reset();
-            self.alternate_grid.clear(CellAttributes::default());
         }
+        // Always clear the alternate grid and reset cursor when entering alternate screen
+        // This ensures TUI applications like Claude Code, vim, htop get a clean canvas
+        self.cursor.reset();
+        self.alternate_grid.clear(CellAttributes::default());
     }
 
     /// Switch back to primary screen

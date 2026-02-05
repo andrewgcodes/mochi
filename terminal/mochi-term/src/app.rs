@@ -12,6 +12,7 @@ use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{Window, WindowBuilder};
 
 use crate::config::Config;
@@ -38,6 +39,8 @@ pub struct App {
     modifiers: ModifiersState,
     /// Mouse position (in cells)
     mouse_cell: (u16, u16),
+    /// Mouse position (in pixels)
+    mouse_pixel: (f64, f64),
     /// Mouse button state
     mouse_buttons: [bool; 3],
     /// Last render time
@@ -48,6 +51,12 @@ pub struct App {
     focused: bool,
     /// Scroll offset (number of lines scrolled back into history)
     scroll_offset: usize,
+    /// Whether we're currently dragging the scrollbar
+    scrollbar_dragging: bool,
+    /// Y position where scrollbar drag started (in pixels)
+    scrollbar_drag_start_y: f64,
+    /// Scroll offset when scrollbar drag started
+    scrollbar_drag_start_offset: usize,
 }
 
 impl App {
@@ -62,11 +71,15 @@ impl App {
             clipboard: Clipboard::new().ok(),
             modifiers: ModifiersState::empty(),
             mouse_cell: (0, 0),
+            mouse_pixel: (0.0, 0.0),
             mouse_buttons: [false; 3],
             last_render: Instant::now(),
             needs_redraw: true,
             focused: true,
             scroll_offset: 0,
+            scrollbar_dragging: false,
+            scrollbar_drag_start_y: 0.0,
+            scrollbar_drag_start_offset: 0,
         })
     }
 
@@ -104,11 +117,10 @@ impl App {
                         return;
                     }
 
-                    // Request redraw if needed
+                    // Render directly if needed (more reliable than request_redraw on macOS)
+                    // This ensures TUI apps like Claude Code render immediately
                     if self.needs_redraw {
-                        if let Some(window) = &self.window {
-                            window.request_redraw();
-                        }
+                        self.render();
                     }
                 }
                 _ => {}
@@ -163,7 +175,7 @@ impl App {
         // Create renderer with effective colors based on theme
         let renderer = Renderer::new(
             window.clone(),
-            self.config.font_size,
+            self.config.font_size(),
             self.config.effective_colors(),
         )?;
 
@@ -223,7 +235,109 @@ impl App {
             return;
         }
 
+        // Check for app shortcuts (Ctrl+Shift combinations)
+        let ctrl_shift = self.modifiers.control_key() && self.modifiers.shift_key();
+
+        if ctrl_shift {
+            match &event.logical_key {
+                // Copy: Ctrl+Shift+C
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.handle_copy();
+                    return;
+                }
+                // Paste: Ctrl+Shift+V
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
+                    return;
+                }
+                // Find: Ctrl+Shift+F
+                Key::Character(c) if c.to_lowercase() == "f" => {
+                    self.handle_find();
+                    return;
+                }
+                // Reload config: Ctrl+Shift+R
+                Key::Character(c) if c.to_lowercase() == "r" => {
+                    self.handle_reload_config();
+                    return;
+                }
+                // Toggle theme: Ctrl+Shift+T
+                Key::Character(c) if c.to_lowercase() == "t" => {
+                    self.handle_toggle_theme();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // macOS: Cmd+V for paste, Cmd+C for copy (standard macOS shortcuts)
+        #[cfg(target_os = "macos")]
+        if self.modifiers.super_key() && !self.modifiers.control_key() && !self.modifiers.alt_key()
+        {
+            match &event.logical_key {
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.handle_copy();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+        let Some(child) = &mut self.child else { return };
+
+        // IMPORTANT: Handle control characters FIRST, before any other shortcut processing
+        // This fixes the modifier state synchronization issue where ModifiersChanged and
+        // KeyboardInput events can arrive out of sync.
+        //
+        // Use text_with_all_modifiers() from KeyEventExtModifierSupplement trait.
+        // This is the proper way to get control characters in winit - it returns the text
+        // with ALL modifiers applied, including Ctrl. For example:
+        // - Ctrl+C produces Some("\x03")
+        // - Ctrl+A produces Some("\x01")
+        // The regular `text` field does NOT include Ctrl modifier effects.
+        if let Some(text) = event.text_with_all_modifiers() {
+            if !text.is_empty() {
+                let first_char = text.chars().next().unwrap();
+                // Check if it's a control character (0x01-0x1A) or DEL (0x7F)
+                let char_code = first_char as u32;
+                if (1..=26).contains(&char_code) || char_code == 0x7F {
+                    log::debug!(
+                        "Sending control character from text_with_all_modifiers: {:?} (0x{:02x})",
+                        first_char,
+                        first_char as u8
+                    );
+                    let _ = child.write_all(&[first_char as u8]);
+                    return;
+                }
+            }
+        }
+
+        // Fallback: Check if logical_key is a control character directly
+        // This handles edge cases where text_with_all_modifiers might not be available
+        if let Key::Character(c) = &event.logical_key {
+            if let Some(ch) = c.chars().next() {
+                let char_code = ch as u32;
+                if (1..=26).contains(&char_code) || char_code == 0x7F {
+                    log::debug!(
+                        "Sending control character from logical_key: {:?} (0x{:02x})",
+                        ch,
+                        ch as u8
+                    );
+                    let _ = child.write_all(&[ch as u8]);
+                    return;
+                }
+            }
+        }
+
         // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
+        // Note: On Linux, Ctrl+letter should send control characters to the terminal,
+        // so we only intercept specific zoom shortcuts (=, -, 0, arrows)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
@@ -255,15 +369,11 @@ impl App {
             }
         }
 
-        let Some(terminal) = &self.terminal else {
-            return;
-        };
-        let Some(child) = &mut self.child else { return };
-
         let application_cursor_keys = terminal.screen().modes().cursor_keys_application;
 
         if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
         {
+            log::debug!("Sending key data: {:?}", data);
             let _ = child.write_all(&data);
         }
     }
@@ -314,7 +424,7 @@ impl App {
         let Some(window) = &self.window else { return };
 
         let scale_factor = window.scale_factor() as f32;
-        let default_size = self.config.font_size * scale_factor;
+        let default_size = self.config.font_size() * scale_factor;
 
         renderer.set_font_size(default_size);
 
@@ -334,6 +444,34 @@ impl App {
 
     /// Handle mouse input
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
+        // Handle scrollbar dragging first (left button only)
+        if button == MouseButton::Left {
+            if state == ElementState::Pressed {
+                // Check if click is on scrollbar (right 8 pixels of window)
+                if let (Some(window), Some(terminal)) = (&self.window, &self.terminal) {
+                    let window_width = window.inner_size().width as f64;
+                    let scrollbar_width = 8.0;
+
+                    if self.mouse_pixel.0 >= window_width - scrollbar_width {
+                        let scrollback_len = terminal.screen().scrollback().len();
+                        if scrollback_len > 0 {
+                            // Start scrollbar dragging
+                            self.scrollbar_dragging = true;
+                            self.scrollbar_drag_start_y = self.mouse_pixel.1;
+                            self.scrollbar_drag_start_offset = self.scroll_offset;
+                            return;
+                        }
+                    }
+                }
+            } else {
+                // Mouse released - stop dragging
+                if self.scrollbar_dragging {
+                    self.scrollbar_dragging = false;
+                    return;
+                }
+            }
+        }
+
         let Some(terminal) = &self.terminal else {
             return;
         };
@@ -371,6 +509,48 @@ impl App {
 
     /// Handle mouse motion
     fn handle_mouse_motion(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
+        // Update pixel position
+        self.mouse_pixel = (position.x, position.y);
+
+        // Handle scrollbar dragging
+        if self.scrollbar_dragging {
+            if let (Some(window), Some(terminal)) = (&self.window, &self.terminal) {
+                let window_height = window.inner_size().height as f64;
+                let scrollback_len = terminal.screen().scrollback().len();
+                let visible_rows = terminal.screen().rows();
+
+                if scrollback_len > 0 && window_height > 0.0 {
+                    // Calculate how much the mouse has moved
+                    let delta_y = position.y - self.scrollbar_drag_start_y;
+
+                    // Calculate the scroll range (total scrollable area)
+                    let total_lines = scrollback_len + visible_rows;
+                    let thumb_height =
+                        ((visible_rows as f64 / total_lines as f64) * window_height).max(20.0);
+                    let scroll_range = window_height - thumb_height;
+
+                    if scroll_range > 0.0 {
+                        // Convert pixel delta to scroll offset delta
+                        // Moving down (positive delta) should decrease scroll_offset (show newer content)
+                        // Moving up (negative delta) should increase scroll_offset (show older content)
+                        let scroll_delta =
+                            (-delta_y / scroll_range * scrollback_len as f64) as isize;
+
+                        let new_offset = (self.scrollbar_drag_start_offset as isize + scroll_delta)
+                            .max(0)
+                            .min(scrollback_len as isize)
+                            as usize;
+
+                        if new_offset != self.scroll_offset {
+                            self.scroll_offset = new_offset;
+                            self.needs_redraw = true;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         let Some(renderer) = &self.renderer else {
             return;
         };
@@ -451,10 +631,82 @@ impl App {
         }
     }
 
-    /// Handle paste
-    #[allow(dead_code)]
+    /// Handle copy (Ctrl+Shift+C)
+    fn handle_copy(&mut self) {
+        let Some(terminal) = &self.terminal else {
+            return;
+        };
+
+        let screen = terminal.screen();
+        let selection = screen.selection();
+
+        if selection.is_empty() {
+            return;
+        }
+
+        // Get selected text using the Line::text() method
+        let (start, end) = selection.bounds();
+        let mut text = String::new();
+        let cols = screen.cols();
+
+        for row in start.row..=end.row {
+            let start_col = if row == start.row { start.col } else { 0 };
+            let end_col = if row == end.row { end.col } else { cols };
+
+            // Get line from screen or scrollback
+            if row < 0 {
+                // Line is in scrollback
+                let scrollback_idx = (-row - 1) as usize;
+                if let Some(line) = screen.scrollback().get_from_end(scrollback_idx) {
+                    let line_text = line.text();
+                    let chars: Vec<char> = line_text.chars().collect();
+                    for ch in chars.iter().take(end_col.min(chars.len())).skip(start_col) {
+                        text.push(*ch);
+                    }
+                }
+            } else if (row as usize) < screen.grid().rows() {
+                // Line is in visible grid
+                let line = screen.line(row as usize);
+                let line_text = line.text();
+                let chars: Vec<char> = line_text.chars().collect();
+                for ch in chars.iter().take(end_col.min(chars.len())).skip(start_col) {
+                    text.push(*ch);
+                }
+            }
+
+            // Add newline between lines (but not after the last line)
+            if row < end.row {
+                // Trim trailing spaces before newline
+                while text.ends_with(' ') {
+                    text.pop();
+                }
+                text.push('\n');
+            }
+        }
+
+        // Trim trailing whitespace
+        let text = text.trim_end().to_string();
+
+        if text.is_empty() {
+            return;
+        }
+
+        // Now copy to clipboard
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+
+        if let Err(e) = clipboard.set_text(&text) {
+            log::warn!("Failed to copy to clipboard: {}", e);
+        } else {
+            log::debug!("Copied {} bytes to clipboard", text.len());
+        }
+    }
+
+    /// Handle paste (Ctrl+Shift+V)
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
+            log::warn!("Clipboard not available");
             return;
         };
         let Some(terminal) = &self.terminal else {
@@ -462,14 +714,76 @@ impl App {
         };
         let Some(child) = &mut self.child else { return };
 
-        if let Ok(text) = clipboard.get_text() {
-            let data = if terminal.screen().modes().bracketed_paste {
-                encode_bracketed_paste(&text)
-            } else {
-                text.into_bytes()
-            };
-            let _ = child.write_all(&data);
+        match clipboard.get_text() {
+            Ok(text) => {
+                if text.is_empty() {
+                    return;
+                }
+                let data = if terminal.screen().modes().bracketed_paste {
+                    encode_bracketed_paste(&text)
+                } else {
+                    text.into_bytes()
+                };
+                if let Err(e) = child.write_all(&data) {
+                    log::warn!("Failed to write paste data to PTY: {}", e);
+                } else {
+                    log::debug!("Pasted {} bytes", data.len());
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to get clipboard text: {}", e);
+            }
         }
+    }
+
+    /// Handle find (Ctrl+Shift+F) - placeholder for search UI
+    fn handle_find(&mut self) {
+        log::info!("Find requested (Ctrl+Shift+F) - search UI not yet implemented");
+        // TODO: Implement search UI overlay in M5
+    }
+
+    /// Handle reload config (Ctrl+Shift+R)
+    fn handle_reload_config(&mut self) {
+        log::info!("Reloading configuration...");
+
+        match Config::load() {
+            Some(new_config) => {
+                // Update theme
+                self.config.theme = new_config.theme;
+                self.config.font = new_config.font.clone();
+                self.config.keybindings = new_config.keybindings.clone();
+                self.config.security = new_config.security.clone();
+
+                // Apply theme change
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.set_colors(self.config.effective_colors());
+                }
+
+                log::info!("Configuration reloaded successfully");
+                self.needs_redraw = true;
+            }
+            None => {
+                log::warn!("No config file found or failed to parse");
+            }
+        }
+    }
+
+    /// Handle toggle theme (Ctrl+Shift+T)
+    fn handle_toggle_theme(&mut self) {
+        let new_theme = self.config.theme.next();
+        log::info!(
+            "Switching theme from {:?} to {:?}",
+            self.config.theme,
+            new_theme
+        );
+
+        self.config.theme = new_theme;
+
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_colors(self.config.effective_colors());
+        }
+
+        self.needs_redraw = true;
     }
 
     /// Handle focus change
