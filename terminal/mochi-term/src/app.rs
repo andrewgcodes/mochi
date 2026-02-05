@@ -335,13 +335,13 @@ impl App {
             }
         }
 
-        // Check for font zoom shortcuts (Cmd on macOS, Ctrl on Linux)
-        // Note: On Linux, Ctrl+letter should send control characters to the terminal,
-        // so we only intercept specific zoom shortcuts (=, -, 0, arrows)
+        // Check for font zoom shortcuts
+        // On macOS: Cmd+=/- for zoom (standard macOS behavior)
+        // On Linux: Ctrl+Shift+=/- for zoom (Ctrl+arrows are used by terminal apps for word navigation)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
-        let zoom_modifier = self.modifiers.control_key();
+        let zoom_modifier = self.modifiers.control_key() && self.modifiers.shift_key();
 
         if zoom_modifier {
             match &event.logical_key {
@@ -848,6 +848,14 @@ impl App {
         if terminal.take_bell() {
             // Could play a sound or flash the window
             log::debug!("Bell!");
+        }
+
+        // Send any pending responses back to the PTY (DSR, DA1, etc.)
+        let responses = terminal.take_pending_responses();
+        for response in responses {
+            if let Err(e) = child.write_all(&response) {
+                log::warn!("Failed to send response to PTY: {}", e);
+            }
         }
     }
 
