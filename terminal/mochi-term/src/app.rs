@@ -15,6 +15,8 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{Window, WindowBuilder};
 
+use terminal_core::{Point, SelectionType};
+
 use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::Renderer;
@@ -472,15 +474,43 @@ impl App {
             }
         }
 
-        let Some(terminal) = &self.terminal else {
+        let Some(terminal) = &mut self.terminal else {
             return;
         };
-        let Some(child) = &mut self.child else { return };
 
-        let modes = terminal.screen().modes();
+        let modes = terminal.screen().modes().clone();
+
+        // Handle text selection when mouse tracking is NOT enabled
         if !modes.mouse_tracking_enabled() {
+            if button == MouseButton::Left {
+                let col = self.mouse_cell.0 as usize;
+                let row = self.mouse_cell.1 as isize - self.scroll_offset as isize;
+
+                if state == ElementState::Pressed {
+                    // Start a new selection
+                    terminal
+                        .screen_mut()
+                        .selection_mut()
+                        .start(Point::new(col, row), SelectionType::Normal);
+                    self.needs_redraw = true;
+                } else {
+                    // Finish selection
+                    terminal.screen_mut().selection_mut().finish();
+                }
+            }
+            // Track button state for selection dragging
+            let idx = match button {
+                MouseButton::Left => 0,
+                MouseButton::Middle => 1,
+                MouseButton::Right => 2,
+                _ => return,
+            };
+            self.mouse_buttons[idx] = state == ElementState::Pressed;
             return;
         }
+
+        // Mouse tracking is enabled - send events to PTY
+        let Some(child) = &mut self.child else { return };
 
         let event = if state == ElementState::Pressed {
             MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
@@ -554,10 +584,6 @@ impl App {
         let Some(renderer) = &self.renderer else {
             return;
         };
-        let Some(terminal) = &self.terminal else {
-            return;
-        };
-        let Some(child) = &mut self.child else { return };
 
         let cell_size = renderer.cell_size();
         let col = (position.x / cell_size.width as f64) as u16;
@@ -569,7 +595,28 @@ impl App {
 
         self.mouse_cell = (col, row);
 
-        let modes = terminal.screen().modes();
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+
+        let modes = terminal.screen().modes().clone();
+
+        // Handle text selection dragging when mouse tracking is NOT enabled
+        if !modes.mouse_tracking_enabled() && self.mouse_buttons[0] {
+            // Left button is held - update selection
+            let sel_col = col as usize;
+            let sel_row = row as isize - self.scroll_offset as isize;
+            terminal
+                .screen_mut()
+                .selection_mut()
+                .update(Point::new(sel_col, sel_row));
+            self.needs_redraw = true;
+            return;
+        }
+
+        // Mouse tracking is enabled - send events to PTY
+        let Some(child) = &mut self.child else { return };
+
         if modes.mouse_any_event
             || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
         {
