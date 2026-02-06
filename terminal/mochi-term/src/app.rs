@@ -271,7 +271,7 @@ impl App {
             }
         }
 
-        // macOS: Cmd+V for paste, Cmd+C for copy (standard macOS shortcuts)
+        // macOS: Cmd+V for paste, Cmd+C for copy, Cmd+N for new window (standard macOS shortcuts)
         #[cfg(target_os = "macos")]
         if self.modifiers.super_key() && !self.modifiers.control_key() && !self.modifiers.alt_key()
         {
@@ -282,6 +282,10 @@ impl App {
                 }
                 Key::Character(c) if c.to_lowercase() == "c" => {
                     self.handle_copy();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "n" => {
+                    self.handle_new_window();
                     return;
                 }
                 _ => {}
@@ -788,6 +792,28 @@ impl App {
     /// Search UI is planned for a future release.
     fn handle_find(&mut self) {
         log::info!("Find requested (Ctrl+Shift+F) - search UI not yet implemented");
+    }
+
+    /// Handle new window (Cmd+N on macOS)
+    ///
+    /// Spawns a new instance of the Mochi terminal.
+    #[cfg(target_os = "macos")]
+    fn handle_new_window(&mut self) {
+        log::info!("Opening new terminal window...");
+
+        // Get the path to the current executable
+        if let Ok(exe_path) = std::env::current_exe() {
+            match std::process::Command::new(&exe_path).spawn() {
+                Ok(_) => {
+                    log::info!("New terminal window spawned successfully");
+                }
+                Err(e) => {
+                    log::error!("Failed to spawn new terminal window: {}", e);
+                }
+            }
+        } else {
+            log::error!("Failed to get current executable path");
+        }
     }
 
     /// Handle reload config (Ctrl+Shift+R)
