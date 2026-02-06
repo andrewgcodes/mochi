@@ -22,6 +22,28 @@ use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mous
 use crate::renderer::Renderer;
 use crate::terminal::Terminal;
 
+/// Height of the tab bar in pixels
+const TAB_BAR_HEIGHT: u32 = 28;
+
+/// A single terminal tab
+struct Tab {
+    terminal: Terminal,
+    child: Child,
+    title: String,
+    scroll_offset: usize,
+}
+
+impl Tab {
+    fn new(terminal: Terminal, child: Child) -> Self {
+        Self {
+            terminal,
+            child,
+            title: String::from("Terminal"),
+            scroll_offset: 0,
+        }
+    }
+}
+
 /// Application state
 pub struct App {
     /// Configuration
@@ -30,10 +52,10 @@ pub struct App {
     window: Option<Rc<Window>>,
     /// Renderer
     renderer: Option<Renderer>,
-    /// Terminal state
-    terminal: Option<Terminal>,
-    /// Child process
-    child: Option<Child>,
+    /// Tabs (each tab has its own terminal and child process)
+    tabs: Vec<Tab>,
+    /// Active tab index
+    active_tab: usize,
     /// Clipboard
     #[allow(dead_code)]
     clipboard: Option<Clipboard>,
@@ -51,8 +73,6 @@ pub struct App {
     needs_redraw: bool,
     /// Is focused
     focused: bool,
-    /// Scroll offset (number of lines scrolled back into history)
-    scroll_offset: usize,
     /// Whether we're currently dragging the scrollbar
     scrollbar_dragging: bool,
     /// Y position where scrollbar drag started (in pixels)
@@ -68,8 +88,8 @@ impl App {
             config,
             window: None,
             renderer: None,
-            terminal: None,
-            child: None,
+            tabs: Vec::new(),
+            active_tab: 0,
             clipboard: Clipboard::new().ok(),
             modifiers: ModifiersState::empty(),
             mouse_cell: (0, 0),
@@ -78,7 +98,6 @@ impl App {
             last_render: Instant::now(),
             needs_redraw: true,
             focused: true,
-            scroll_offset: 0,
             scrollbar_dragging: false,
             scrollbar_drag_start_y: 0.0,
             scrollbar_drag_start_offset: 0,
@@ -181,24 +200,79 @@ impl App {
             self.config.effective_colors(),
         )?;
 
-        // Calculate terminal dimensions
+        // Calculate terminal dimensions (account for tab bar height)
         let cell_size = renderer.cell_size();
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let rows = (size.height as f32 / cell_size.height) as usize;
+        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        // Create terminal
+        // Create first tab
         let terminal = Terminal::new(cols.max(1), rows.max(1));
-
-        // Spawn shell
         let child = Child::spawn_shell(WindowSize::new(cols as u16, rows as u16))?;
         child.set_nonblocking(true)?;
 
+        let tab = Tab::new(terminal, child);
+        self.tabs.push(tab);
+        self.active_tab = 0;
+
         self.window = Some(window);
         self.renderer = Some(renderer);
-        self.terminal = Some(terminal);
-        self.child = Some(child);
 
         Ok(())
+    }
+
+    /// Create a new tab
+    fn create_new_tab(&mut self) {
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
+        let Some(window) = &self.window else { return };
+
+        let size = window.inner_size();
+        let cell_size = renderer.cell_size();
+        let cols = (size.width as f32 / cell_size.width) as usize;
+        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let rows = (terminal_height as f32 / cell_size.height) as usize;
+
+        let terminal = Terminal::new(cols.max(1), rows.max(1));
+        match Child::spawn_shell(WindowSize::new(cols as u16, rows as u16)) {
+            Ok(child) => {
+                let _ = child.set_nonblocking(true);
+                let tab = Tab::new(terminal, child);
+                self.tabs.push(tab);
+                self.active_tab = self.tabs.len() - 1;
+                self.needs_redraw = true;
+                log::info!("Created new tab {}", self.active_tab + 1);
+            }
+            Err(e) => {
+                log::error!("Failed to create new tab: {}", e);
+            }
+        }
+    }
+
+    /// Close the current tab
+    fn close_current_tab(&mut self) -> bool {
+        if self.tabs.len() <= 1 {
+            return false;
+        }
+
+        self.tabs.remove(self.active_tab);
+        if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len() - 1;
+        }
+        self.needs_redraw = true;
+        log::info!("Closed tab, now on tab {}", self.active_tab + 1);
+        true
+    }
+
+    /// Switch to a specific tab (used by Cmd+1-9 on macOS)
+    #[allow(dead_code)]
+    fn switch_to_tab(&mut self, index: usize) {
+        if index < self.tabs.len() && index != self.active_tab {
+            self.active_tab = index;
+            self.needs_redraw = true;
+            log::info!("Switched to tab {}", index + 1);
+        }
     }
 
     /// Handle window resize
@@ -210,22 +284,22 @@ impl App {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
-        let Some(terminal) = &mut self.terminal else {
-            return;
-        };
-        let Some(child) = &self.child else { return };
 
         // Update renderer
         renderer.resize(size.width, size.height);
 
-        // Calculate new terminal dimensions
+        // Calculate new terminal dimensions (account for tab bar)
         let cell_size = renderer.cell_size();
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let rows = (size.height as f32 / cell_size.height) as usize;
+        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let rows = (terminal_height as f32 / cell_size.height) as usize;
 
+        // Resize all tabs
         if cols > 0 && rows > 0 {
-            terminal.resize(cols, rows);
-            let _ = child.resize(WindowSize::new(cols as u16, rows as u16));
+            for tab in &mut self.tabs {
+                tab.terminal.resize(cols, rows);
+                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+            }
         }
 
         self.needs_redraw = true;
@@ -271,7 +345,8 @@ impl App {
             }
         }
 
-        // macOS: Cmd+V for paste, Cmd+C for copy, Cmd+N for new window (standard macOS shortcuts)
+        // macOS: Cmd+V for paste, Cmd+C for copy, Cmd+N for new window, Cmd+T for new tab,
+        // Cmd+W to close tab, Cmd+1-9 to switch tabs (standard macOS shortcuts)
         #[cfg(target_os = "macos")]
         if self.modifiers.super_key() && !self.modifiers.control_key() && !self.modifiers.alt_key()
         {
@@ -288,14 +363,80 @@ impl App {
                     self.handle_new_window();
                     return;
                 }
+                Key::Character(c) if c.to_lowercase() == "t" => {
+                    self.create_new_tab();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "w" => {
+                    if !self.close_current_tab() {
+                        // Only one tab left - close the terminal window
+                        self.tabs.clear();
+                    }
+                    return;
+                }
+                Key::Character(c) if c == "1" => {
+                    self.switch_to_tab(0);
+                    return;
+                }
+                Key::Character(c) if c == "2" => {
+                    self.switch_to_tab(1);
+                    return;
+                }
+                Key::Character(c) if c == "3" => {
+                    self.switch_to_tab(2);
+                    return;
+                }
+                Key::Character(c) if c == "4" => {
+                    self.switch_to_tab(3);
+                    return;
+                }
+                Key::Character(c) if c == "5" => {
+                    self.switch_to_tab(4);
+                    return;
+                }
+                Key::Character(c) if c == "6" => {
+                    self.switch_to_tab(5);
+                    return;
+                }
+                Key::Character(c) if c == "7" => {
+                    self.switch_to_tab(6);
+                    return;
+                }
+                Key::Character(c) if c == "8" => {
+                    self.switch_to_tab(7);
+                    return;
+                }
+                Key::Character(c) if c == "9" => {
+                    self.switch_to_tab(8);
+                    return;
+                }
                 _ => {}
             }
         }
 
-        let Some(terminal) = &self.terminal else {
+        // Linux: Ctrl+Shift+T for new tab, Ctrl+Shift+W to close tab
+        #[cfg(not(target_os = "macos"))]
+        if ctrl_shift {
+            match &event.logical_key {
+                Key::Character(c) if c.to_lowercase() == "t" && !self.modifiers.super_key() => {
+                    self.create_new_tab();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "w" => {
+                    if !self.close_current_tab() {
+                        // Only one tab left - close the terminal window
+                        self.tabs.clear();
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        if self.tabs.is_empty() {
             return;
-        };
-        let Some(child) = &mut self.child else { return };
+        }
+        let tab = &mut self.tabs[self.active_tab];
 
         // IMPORTANT: Handle control characters FIRST, before any other shortcut processing
         // This fixes the modifier state synchronization issue where ModifiersChanged and
@@ -318,7 +459,7 @@ impl App {
                         first_char,
                         first_char as u8
                     );
-                    let _ = child.write_all(&[first_char as u8]);
+                    let _ = tab.child.write_all(&[first_char as u8]);
                     return;
                 }
             }
@@ -335,7 +476,7 @@ impl App {
                         ch,
                         ch as u8
                     );
-                    let _ = child.write_all(&[ch as u8]);
+                    let _ = tab.child.write_all(&[ch as u8]);
                     return;
                 }
             }
@@ -375,12 +516,12 @@ impl App {
             }
         }
 
-        let application_cursor_keys = terminal.screen().modes().cursor_keys_application;
+        let application_cursor_keys = tab.terminal.screen().modes().cursor_keys_application;
 
         if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
         {
             log::debug!("Sending key data: {:?}", data);
-            let _ = child.write_all(&data);
+            let _ = tab.child.write_all(&data);
         }
     }
 
@@ -389,10 +530,6 @@ impl App {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
-        let Some(terminal) = &mut self.terminal else {
-            return;
-        };
-        let Some(child) = &self.child else { return };
         let Some(window) = &self.window else { return };
 
         let current_size = renderer.font_size();
@@ -404,15 +541,19 @@ impl App {
 
         renderer.set_font_size(new_size);
 
-        // Recalculate terminal dimensions
+        // Recalculate terminal dimensions (account for tab bar)
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let rows = (size.height as f32 / cell_size.height) as usize;
+        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let rows = (terminal_height as f32 / cell_size.height) as usize;
 
+        // Resize all tabs
         if cols > 0 && rows > 0 {
-            terminal.resize(cols, rows);
-            let _ = child.resize(WindowSize::new(cols as u16, rows as u16));
+            for tab in &mut self.tabs {
+                tab.terminal.resize(cols, rows);
+                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+            }
         }
 
         self.needs_redraw = true;
@@ -423,10 +564,6 @@ impl App {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
-        let Some(terminal) = &mut self.terminal else {
-            return;
-        };
-        let Some(child) = &self.child else { return };
         let Some(window) = &self.window else { return };
 
         let scale_factor = window.scale_factor() as f32;
@@ -434,15 +571,19 @@ impl App {
 
         renderer.set_font_size(default_size);
 
-        // Recalculate terminal dimensions
+        // Recalculate terminal dimensions (account for tab bar)
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let rows = (size.height as f32 / cell_size.height) as usize;
+        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let rows = (terminal_height as f32 / cell_size.height) as usize;
 
+        // Resize all tabs
         if cols > 0 && rows > 0 {
-            terminal.resize(cols, rows);
-            let _ = child.resize(WindowSize::new(cols as u16, rows as u16));
+            for tab in &mut self.tabs {
+                tab.terminal.resize(cols, rows);
+                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+            }
         }
 
         self.needs_redraw = true;
@@ -450,21 +591,26 @@ impl App {
 
     /// Handle mouse input
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
+        if self.tabs.is_empty() {
+            return;
+        }
+
         // Handle scrollbar dragging first (left button only)
         if button == MouseButton::Left {
             if state == ElementState::Pressed {
-                // Check if click is on scrollbar (right 8 pixels of window)
-                if let (Some(window), Some(terminal)) = (&self.window, &self.terminal) {
+                // Check if click is on scrollbar (right 12 pixels of window)
+                if let Some(window) = &self.window {
                     let window_width = window.inner_size().width as f64;
-                    let scrollbar_width = 8.0;
+                    let scrollbar_width = 12.0;
 
                     if self.mouse_pixel.0 >= window_width - scrollbar_width {
-                        let scrollback_len = terminal.screen().scrollback().len();
+                        let tab = &self.tabs[self.active_tab];
+                        let scrollback_len = tab.terminal.screen().scrollback().len();
                         if scrollback_len > 0 {
                             // Start scrollbar dragging
                             self.scrollbar_dragging = true;
                             self.scrollbar_drag_start_y = self.mouse_pixel.1;
-                            self.scrollbar_drag_start_offset = self.scroll_offset;
+                            self.scrollbar_drag_start_offset = tab.scroll_offset;
                             return;
                         }
                     }
@@ -478,28 +624,25 @@ impl App {
             }
         }
 
-        let Some(terminal) = &mut self.terminal else {
-            return;
-        };
-
-        let modes = terminal.screen().modes().clone();
+        let tab = &mut self.tabs[self.active_tab];
+        let modes = tab.terminal.screen().modes().clone();
 
         // Handle text selection when mouse tracking is NOT enabled
         if !modes.mouse_tracking_enabled() {
             if button == MouseButton::Left {
                 let col = self.mouse_cell.0 as usize;
-                let row = self.mouse_cell.1 as isize - self.scroll_offset as isize;
+                let row = self.mouse_cell.1 as isize - tab.scroll_offset as isize;
 
                 if state == ElementState::Pressed {
                     // Start a new selection
-                    terminal
+                    tab.terminal
                         .screen_mut()
                         .selection_mut()
                         .start(Point::new(col, row), SelectionType::Normal);
                     self.needs_redraw = true;
                 } else {
                     // Finish selection
-                    terminal.screen_mut().selection_mut().finish();
+                    tab.terminal.screen_mut().selection_mut().finish();
                 }
             }
             // Track button state for selection dragging
@@ -514,8 +657,6 @@ impl App {
         }
 
         // Mouse tracking is enabled - send events to PTY
-        let Some(child) = &mut self.child else { return };
-
         let event = if state == ElementState::Pressed {
             MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
         } else {
@@ -528,7 +669,7 @@ impl App {
             modes.mouse_button_event,
             modes.mouse_any_event,
         ) {
-            let _ = child.write_all(&data);
+            let _ = tab.child.write_all(&data);
         }
 
         // Track button state
@@ -546,12 +687,17 @@ impl App {
         // Update pixel position
         self.mouse_pixel = (position.x, position.y);
 
+        if self.tabs.is_empty() {
+            return;
+        }
+
         // Handle scrollbar dragging
         if self.scrollbar_dragging {
-            if let (Some(window), Some(terminal)) = (&self.window, &self.terminal) {
+            if let Some(window) = &self.window {
+                let tab = &mut self.tabs[self.active_tab];
                 let window_height = window.inner_size().height as f64;
-                let scrollback_len = terminal.screen().scrollback().len();
-                let visible_rows = terminal.screen().rows();
+                let scrollback_len = tab.terminal.screen().scrollback().len();
+                let visible_rows = tab.terminal.screen().rows();
 
                 if scrollback_len > 0 && window_height > 0.0 {
                     // Calculate how much the mouse has moved
@@ -575,8 +721,8 @@ impl App {
                             .min(scrollback_len as isize)
                             as usize;
 
-                        if new_offset != self.scroll_offset {
-                            self.scroll_offset = new_offset;
+                        if new_offset != tab.scroll_offset {
+                            tab.scroll_offset = new_offset;
                             self.needs_redraw = true;
                         }
                     }
@@ -599,18 +745,15 @@ impl App {
 
         self.mouse_cell = (col, row);
 
-        let Some(terminal) = &mut self.terminal else {
-            return;
-        };
-
-        let modes = terminal.screen().modes().clone();
+        let tab = &mut self.tabs[self.active_tab];
+        let modes = tab.terminal.screen().modes().clone();
 
         // Handle text selection dragging when mouse tracking is NOT enabled
         if !modes.mouse_tracking_enabled() && self.mouse_buttons[0] {
             // Left button is held - update selection
             let sel_col = col as usize;
-            let sel_row = row as isize - self.scroll_offset as isize;
-            terminal
+            let sel_row = row as isize - tab.scroll_offset as isize;
+            tab.terminal
                 .screen_mut()
                 .selection_mut()
                 .update(Point::new(sel_col, sel_row));
@@ -619,8 +762,6 @@ impl App {
         }
 
         // Mouse tracking is enabled - send events to PTY
-        let Some(child) = &mut self.child else { return };
-
         if modes.mouse_any_event
             || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
         {
@@ -631,18 +772,19 @@ impl App {
                 modes.mouse_button_event,
                 modes.mouse_any_event,
             ) {
-                let _ = child.write_all(&data);
+                let _ = tab.child.write_all(&data);
             }
         }
     }
 
     /// Handle mouse scroll
     fn handle_mouse_scroll(&mut self, delta: MouseScrollDelta) {
-        let Some(terminal) = &self.terminal else {
+        if self.tabs.is_empty() {
             return;
-        };
+        }
 
-        let modes = terminal.screen().modes();
+        let tab = &mut self.tabs[self.active_tab];
+        let modes = tab.terminal.screen().modes().clone();
         let lines = match delta {
             MouseScrollDelta::LineDelta(_, y) => y as i32,
             MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as i32,
@@ -654,7 +796,6 @@ impl App {
 
         // If mouse tracking is enabled or in alternate screen, send to PTY
         if modes.mouse_tracking_enabled() || modes.alternate_screen {
-            let Some(child) = &mut self.child else { return };
             let event = MouseEvent::Scroll {
                 x: self.mouse_cell.0,
                 y: self.mouse_cell.1,
@@ -666,17 +807,17 @@ impl App {
                 modes.mouse_button_event,
                 modes.mouse_any_event,
             ) {
-                let _ = child.write_all(&data);
+                let _ = tab.child.write_all(&data);
             }
         } else {
             // Scroll the viewport through scrollback history
-            let scrollback_len = terminal.screen().scrollback().len();
+            let scrollback_len = tab.terminal.screen().scrollback().len();
             if lines > 0 {
                 // Scroll up (show older content)
-                self.scroll_offset = (self.scroll_offset + lines as usize).min(scrollback_len);
+                tab.scroll_offset = (tab.scroll_offset + lines as usize).min(scrollback_len);
             } else {
                 // Scroll down (show newer content)
-                self.scroll_offset = self.scroll_offset.saturating_sub((-lines) as usize);
+                tab.scroll_offset = tab.scroll_offset.saturating_sub((-lines) as usize);
             }
             self.needs_redraw = true;
         }
@@ -684,11 +825,12 @@ impl App {
 
     /// Handle copy (Ctrl+Shift+C)
     fn handle_copy(&mut self) {
-        let Some(terminal) = &self.terminal else {
+        if self.tabs.is_empty() {
             return;
-        };
+        }
+        let tab = &self.tabs[self.active_tab];
 
-        let screen = terminal.screen();
+        let screen = tab.terminal.screen();
         let selection = screen.selection();
 
         if selection.is_empty() {
@@ -760,22 +902,23 @@ impl App {
             log::warn!("Clipboard not available");
             return;
         };
-        let Some(terminal) = &self.terminal else {
+        if self.tabs.is_empty() {
             return;
-        };
-        let Some(child) = &mut self.child else { return };
+        }
+
+        let tab = &mut self.tabs[self.active_tab];
 
         match clipboard.get_text() {
             Ok(text) => {
                 if text.is_empty() {
                     return;
                 }
-                let data = if terminal.screen().modes().bracketed_paste {
+                let data = if tab.terminal.screen().modes().bracketed_paste {
                     encode_bracketed_paste(&text)
                 } else {
                     text.into_bytes()
                 };
-                if let Err(e) = child.write_all(&data) {
+                if let Err(e) = tab.child.write_all(&data) {
                     log::warn!("Failed to write paste data to PTY: {}", e);
                 } else {
                     log::debug!("Pasted {} bytes", data.len());
@@ -870,70 +1013,68 @@ impl App {
     fn handle_focus(&mut self, focused: bool) {
         self.focused = focused;
 
-        let Some(terminal) = &self.terminal else {
+        if self.tabs.is_empty() {
             return;
-        };
-        let Some(child) = &mut self.child else { return };
+        }
+        let tab = &mut self.tabs[self.active_tab];
 
-        if terminal.screen().modes().focus_events {
+        if tab.terminal.screen().modes().focus_events {
             let data = encode_focus(focused);
-            let _ = child.write_all(&data);
+            let _ = tab.child.write_all(&data);
         }
     }
 
-    /// Poll PTY for output
+    /// Poll PTY for output from all tabs
     fn poll_pty(&mut self) {
-        let Some(child) = &mut self.child else { return };
-        let Some(terminal) = &mut self.terminal else {
-            return;
-        };
-
         let mut buf = [0u8; 65536];
-        let mut received_output = false;
 
-        loop {
-            match child.pty_mut().try_read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    terminal.process(&buf[..n]);
-                    received_output = true;
-                    // Only trigger redraw if synchronized output mode is disabled
-                    // This prevents flickering and interleaving issues with TUI apps
-                    // like Claude Code that use differential rendering.
-                    // When synchronized output mode is enabled, the app is still
-                    // building its frame, so we wait until it's disabled to render.
-                    if !terminal.is_synchronized_output() {
-                        self.needs_redraw = true;
+        // Poll all tabs for output
+        for (i, tab) in self.tabs.iter_mut().enumerate() {
+            let mut received_output = false;
+
+            loop {
+                match tab.child.pty_mut().try_read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        tab.terminal.process(&buf[..n]);
+                        received_output = true;
+                        // Only trigger redraw if synchronized output mode is disabled
+                        // and this is the active tab
+                        if i == self.active_tab && !tab.terminal.is_synchronized_output() {
+                            self.needs_redraw = true;
+                        }
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(_) => break,
+                }
+            }
+
+            // Reset scroll offset when new output arrives (auto-scroll to bottom)
+            if received_output && tab.scroll_offset > 0 {
+                tab.scroll_offset = 0;
+            }
+
+            // Check for title change (only update window title for active tab)
+            if tab.terminal.take_title_changed() {
+                tab.title = tab.terminal.title().to_string();
+                if i == self.active_tab {
+                    if let Some(window) = &self.window {
+                        window.set_title(&tab.title);
                     }
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(_) => break,
             }
-        }
 
-        // Reset scroll offset when new output arrives (auto-scroll to bottom)
-        if received_output && self.scroll_offset > 0 {
-            self.scroll_offset = 0;
-        }
-
-        // Check for title change
-        if terminal.take_title_changed() {
-            if let Some(window) = &self.window {
-                window.set_title(terminal.title());
+            // Check for bell
+            if tab.terminal.take_bell() {
+                log::debug!("Bell!");
             }
-        }
 
-        // Check for bell
-        if terminal.take_bell() {
-            // Could play a sound or flash the window
-            log::debug!("Bell!");
-        }
-
-        // Send any pending responses back to the PTY (DSR, DA1, etc.)
-        let responses = terminal.take_pending_responses();
-        for response in responses {
-            if let Err(e) = child.write_all(&response) {
-                log::warn!("Failed to send response to PTY: {}", e);
+            // Send any pending responses back to the PTY (DSR, DA1, etc.)
+            let responses = tab.terminal.take_pending_responses();
+            for response in responses {
+                if let Err(e) = tab.child.write_all(&response) {
+                    log::warn!("Failed to send response to PTY: {}", e);
+                }
             }
         }
     }
@@ -943,14 +1084,16 @@ impl App {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
-        let Some(terminal) = &self.terminal else {
-            return;
-        };
 
-        let screen = terminal.screen();
+        if self.tabs.is_empty() {
+            return;
+        }
+
+        let tab = &self.tabs[self.active_tab];
+        let screen = tab.terminal.screen();
         let selection = screen.selection();
 
-        if let Err(e) = renderer.render(screen, selection, self.scroll_offset) {
+        if let Err(e) = renderer.render(screen, selection, tab.scroll_offset) {
             log::warn!("Render error: {:?}", e);
         }
 
@@ -958,12 +1101,24 @@ impl App {
         self.last_render = Instant::now();
     }
 
-    /// Check if child is still running
+    /// Check if active tab's child is still running
     fn check_child(&mut self) -> bool {
-        if let Some(child) = &self.child {
-            child.is_running()
-        } else {
-            false
+        if self.tabs.is_empty() {
+            return false;
         }
+
+        // Check if active tab's child is running
+        let active_running = self.tabs[self.active_tab].child.is_running();
+
+        // Remove any tabs whose children have exited
+        self.tabs.retain(|tab| tab.child.is_running());
+
+        // Adjust active tab index if needed
+        if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len().saturating_sub(1);
+        }
+
+        // Return true if there are still tabs with running children
+        !self.tabs.is_empty() && (active_running || self.tabs[self.active_tab].child.is_running())
     }
 }
