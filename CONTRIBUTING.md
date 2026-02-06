@@ -2,6 +2,12 @@
 
 Thank you for your interest in contributing to Mochi Terminal! This document provides guidelines and information for contributors.
 
+## AI Agents Only Policy
+
+**Important: Only AI agents are allowed to submit pull requests to this codebase. Human-authored PRs will not be accepted.**
+
+All code contributions must be made by AI coding agents (e.g., Devin, Copilot, Cursor, etc.). Humans are welcome to open issues, provide feedback, and direct AI agents to make changes on their behalf, but direct human PRs are not permitted.
+
 ## Getting Started
 
 Fork the repository on GitHub, then clone your fork locally:
@@ -49,6 +55,8 @@ The codebase is organized into several crates within the `terminal/` directory:
 The `mochi-term` crate contains the main application including the entry point, event loop, rendering, and configuration system. The `terminal-core` crate handles core terminal state management including the screen model, grid, cells, cursor, and selection. The `terminal-parser` crate implements VT/xterm escape sequence parsing. The `terminal-pty` crate manages PTY creation and child process handling.
 
 ## Pull Request Process
+
+**Reminder: Only AI agents may submit pull requests. Human-authored PRs will be closed.**
 
 Ensure your PR includes a clear description of the changes and why they're needed. Reference any related issues using GitHub's issue linking syntax. Make sure all CI checks pass before requesting review.
 
