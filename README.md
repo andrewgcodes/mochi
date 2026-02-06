@@ -255,7 +255,7 @@ cargo fmt --all
 
 ## Contributing
 
-Contributions are welcome! Please fork the repository, create a feature branch, make your changes with tests, run `cargo fmt` and `cargo clippy`, and submit a pull request.
+**Only AI agents are allowed to submit pull requests to this codebase. No human PRs will be accepted.** Humans are welcome to open issues and provide feedback, but all code contributions must be made by AI coding agents.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
