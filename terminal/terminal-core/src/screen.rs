@@ -297,11 +297,15 @@ impl Screen {
 
     /// Handle line feed (LF), vertical tab (VT), form feed (FF)
     pub fn linefeed(&mut self) {
-        let (_, scroll_bottom) = self.scroll_region();
+        let (scroll_top, scroll_bottom) = self.scroll_region();
+        let rows = self.rows();
 
-        if self.cursor.row >= scroll_bottom {
+        // Only scroll if cursor is exactly at the bottom of the scroll region
+        // and within the scroll region. If cursor is below the scroll region,
+        // just move it down (up to screen bottom) without scrolling.
+        if self.cursor.row == scroll_bottom && self.cursor.row >= scroll_top {
             self.scroll_up(1);
-        } else {
+        } else if self.cursor.row < rows - 1 {
             self.cursor.row += 1;
         }
         self.cursor.pending_wrap = false;
@@ -314,11 +318,14 @@ impl Screen {
 
     /// Handle reverse index (RI) - move cursor up, scroll if at top
     pub fn reverse_index(&mut self) {
-        let (scroll_top, _) = self.scroll_region();
+        let (scroll_top, scroll_bottom) = self.scroll_region();
 
-        if self.cursor.row <= scroll_top {
+        // Only scroll if cursor is exactly at the top of the scroll region
+        // and within the scroll region. If cursor is above the scroll region,
+        // just move it up (down to row 0) without scrolling.
+        if self.cursor.row == scroll_top && self.cursor.row <= scroll_bottom {
             self.scroll_down(1);
-        } else {
+        } else if self.cursor.row > 0 {
             self.cursor.row -= 1;
         }
         self.cursor.pending_wrap = false;
