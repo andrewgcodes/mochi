@@ -16,10 +16,11 @@ use clap::Parser;
 use config::{CliArgs, Config};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Initialize logging with "warn" level by default for faster startup
+    // Users can set RUST_LOG=info or RUST_LOG=debug for more verbose output
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
-    log::info!("Starting Mochi Terminal");
+    log::debug!("Starting Mochi Terminal");
 
     // Parse CLI arguments
     let args = CliArgs::parse();
@@ -34,13 +35,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    log::info!("Theme: {:?}", config.theme);
-    log::info!("Font: {} @ {}pt", config.font.family, config.font.size);
+    log::debug!("Theme: {:?}", config.theme);
+    log::debug!("Font: {} @ {}pt", config.font.family, config.font.size);
 
     // Run the application
     let app = App::new(config)?;
     app.run()?;
 
-    log::info!("Mochi Terminal exited");
+    log::debug!("Mochi Terminal exited");
     Ok(())
 }
