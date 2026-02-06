@@ -61,8 +61,10 @@ pub struct CliArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemeName {
-    /// Dark theme (default)
+    /// Mochi theme - cute pink kawaii aesthetic (default)
     #[default]
+    Mochi,
+    /// Dark theme
     Dark,
     /// Light theme
     Light,
@@ -82,6 +84,7 @@ impl ThemeName {
     /// Parse theme name from string
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
+            "mochi" => Some(ThemeName::Mochi),
             "dark" => Some(ThemeName::Dark),
             "light" => Some(ThemeName::Light),
             "solarized-dark" | "solarizeddark" => Some(ThemeName::SolarizedDark),
@@ -97,6 +100,7 @@ impl ThemeName {
     #[allow(dead_code)] // Will be used for theme listing UI
     pub fn all_names() -> &'static [&'static str] {
         &[
+            "mochi",
             "dark",
             "light",
             "solarized-dark",
@@ -110,13 +114,14 @@ impl ThemeName {
     /// Cycle to the next theme (for toggle keybinding)
     pub fn next(self) -> Self {
         match self {
+            ThemeName::Mochi => ThemeName::Dark,
             ThemeName::Dark => ThemeName::Light,
             ThemeName::Light => ThemeName::SolarizedDark,
             ThemeName::SolarizedDark => ThemeName::SolarizedLight,
             ThemeName::SolarizedLight => ThemeName::Dracula,
             ThemeName::Dracula => ThemeName::Nord,
-            ThemeName::Nord => ThemeName::Dark,
-            ThemeName::Custom => ThemeName::Dark,
+            ThemeName::Nord => ThemeName::Mochi,
+            ThemeName::Custom => ThemeName::Mochi,
         }
     }
 }
@@ -392,7 +397,7 @@ impl Default for Config {
             font: FontConfig::default(),
             scrollback_lines: default_scrollback_lines(),
             dimensions: default_dimensions(),
-            theme: ThemeName::Dark,
+            theme: ThemeName::Mochi,
             colors: ColorScheme::default(),
             shell: None,
             cursor_style: default_cursor_style(),
@@ -703,6 +708,7 @@ impl Config {
     pub fn effective_colors(&self) -> ColorScheme {
         match self.theme {
             ThemeName::Custom => self.colors.clone(),
+            ThemeName::Mochi => ColorScheme::mochi(),
             ThemeName::Dark => ColorScheme::dark(),
             ThemeName::Light => ColorScheme::light(),
             ThemeName::SolarizedDark => ColorScheme::solarized_dark(),
@@ -734,6 +740,35 @@ impl Config {
 }
 
 impl ColorScheme {
+    /// Mochi theme - cute pink kawaii aesthetic
+    /// A soft, gentle color scheme inspired by Japanese mochi rice cakes
+    pub fn mochi() -> Self {
+        Self {
+            foreground: "#5c4d5c".to_string(), // Soft plum for readable text
+            background: "#fff5f5".to_string(), // Rose white - very light pink
+            cursor: "#ff8fab".to_string(),     // Soft pink cursor
+            selection: "#ffd6e0".to_string(),  // Light pink selection
+            ansi: [
+                "#5c4d5c".to_string(), // Black - dark plum
+                "#e64980".to_string(), // Red - soft rose
+                "#40a070".to_string(), // Green - soft sage
+                "#d9730d".to_string(), // Yellow - warm peach
+                "#9775fa".to_string(), // Blue - soft lavender
+                "#f06595".to_string(), // Magenta - pink
+                "#22b8cf".to_string(), // Cyan - soft teal
+                "#fff0f3".to_string(), // White - rose white
+                "#8b7a8b".to_string(), // Bright Black - lighter plum
+                "#ff8fa3".to_string(), // Bright Red - lighter rose
+                "#69db7c".to_string(), // Bright Green - lighter sage
+                "#ffa94d".to_string(), // Bright Yellow - lighter peach
+                "#b197fc".to_string(), // Bright Blue - lighter lavender
+                "#faa2c1".to_string(), // Bright Magenta - lighter pink
+                "#66d9e8".to_string(), // Bright Cyan - lighter teal
+                "#ffffff".to_string(), // Bright White - pure white
+            ],
+        }
+    }
+
     /// Dark theme (VS Code inspired)
     pub fn dark() -> Self {
         Self::default()
@@ -963,9 +998,10 @@ mod tests {
 
     #[test]
     fn test_theme_next() {
+        assert_eq!(ThemeName::Mochi.next(), ThemeName::Dark);
         assert_eq!(ThemeName::Dark.next(), ThemeName::Light);
         assert_eq!(ThemeName::Light.next(), ThemeName::SolarizedDark);
-        assert_eq!(ThemeName::Nord.next(), ThemeName::Dark);
+        assert_eq!(ThemeName::Nord.next(), ThemeName::Mochi);
     }
 
     #[test]

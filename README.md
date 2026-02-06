@@ -8,7 +8,7 @@ A modern, customizable terminal emulator written in Rust with a focus on perform
 
 Mochi provides a complete terminal emulation experience with VT/xterm-compatible escape sequence parsing, full 256-color and true color (24-bit RGB) support, Unicode and wide character handling, and a configurable scrollback buffer supporting up to 10 million lines of history. Mouse support includes click, drag, scroll, and SGR encoding, while security features include bracketed paste mode and OSC 8 hyperlink support.
 
-The terminal offers extensive theming and customization options with 6 built-in themes (Dark, Light, Solarized Dark, Solarized Light, Dracula, and Nord), runtime theme switching via `Ctrl+Shift+T`, and fully customizable color schemes through TOML configuration. Font settings include configurable family, size, and fallback support, with zoom controls (`Ctrl++`, `Ctrl+-`, `Ctrl+0`).
+The terminal offers extensive theming and customization options with 7 built-in themes including the signature **Mochi** theme (a cute pink kawaii aesthetic), plus Dark, Light, Solarized Dark, Solarized Light, Dracula, and Nord. Runtime theme switching via `Ctrl+Shift+T` and fully customizable color schemes through TOML configuration. Font settings include configurable family, size, and fallback support, with zoom controls (`Ctrl++`, `Ctrl+-`, `Ctrl+0`).
 
 Built with a modern architecture using CPU-based rendering via softbuffer (no GPU driver dependencies required), efficient glyph caching for fast text rendering, and a modular crate structure for maintainability. Cross-platform support covers Linux and macOS.
 
@@ -140,8 +140,8 @@ Settings are applied in the following order (highest priority first): command-li
 ### Example Configuration
 
 ```toml
-# Theme: dark, light, solarized-dark, solarized-light, dracula, nord
-theme = "dracula"
+# Theme: mochi, dark, light, solarized-dark, solarized-light, dracula, nord
+theme = "mochi"
 
 # Scrollback history
 scrollback_lines = 50000
@@ -251,6 +251,22 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+## Easter Egg
+
+Try this in your Mochi terminal for a cute surprise:
+
+```bash
+echo '
+    .-"""-.
+   /        \
+  |  O    O  |
+  |    __    |
+   \  \__/  /
+    `------`
+   ~ mochi ~
+'
+```
 
 ## Acknowledgments
 
