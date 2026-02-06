@@ -804,8 +804,14 @@ impl App {
         // Get the path to the current executable
         if let Ok(exe_path) = std::env::current_exe() {
             match std::process::Command::new(&exe_path).spawn() {
-                Ok(_) => {
+                Ok(child) => {
                     log::info!("New terminal window spawned successfully");
+                    // Spawn a thread to wait on the child process to prevent zombie processes.
+                    // When the child exits, this thread will reap it by calling wait().
+                    std::thread::spawn(move || {
+                        let mut child = child;
+                        let _ = child.wait();
+                    });
                 }
                 Err(e) => {
                     log::error!("Failed to spawn new terminal window: {}", e);
