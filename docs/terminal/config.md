@@ -79,16 +79,17 @@ cursor_blink = true
 
 ```toml
 # Theme name
-# Options: "dark", "light", "solarized-dark", "solarized-light", "dracula", "nord", "custom"
-# Default: "dark"
-theme = "dark"
+# Options: "mochi", "dark", "light", "solarized-dark", "solarized-light", "dracula", "nord", "custom"
+# Default: "mochi"
+theme = "mochi"
 ```
 
 #### Built-in Themes
 
 | Theme | Description |
 |-------|-------------|
-| `dark` | VS Code-inspired dark theme (default) |
+| `mochi` | Cute pink kawaii theme (default) |
+| `dark` | VS Code-inspired dark theme |
 | `light` | Clean light theme |
 | `solarized-dark` | Solarized dark color scheme |
 | `solarized-light` | Solarized light color scheme |
@@ -213,13 +214,14 @@ title_update_rate = 10
 ### Theme Cycling
 
 Press `Ctrl+Shift+T` to cycle through themes in this order:
-1. Dark
-2. Light
-3. Solarized Dark
-4. Solarized Light
-5. Dracula
-6. Nord
-7. (back to Dark)
+1. Mochi
+2. Dark
+3. Light
+4. Solarized Dark
+5. Solarized Light
+6. Dracula
+7. Nord
+8. (back to Mochi)
 
 ### Configuration Reload
 

@@ -36,10 +36,10 @@ cursor_blink = true
 # THEME
 # =============================================================================
 
-# Theme name: "dark", "light", "solarized-dark", "solarized-light", "dracula", "nord", or "custom"
-# Default: "dark"
+# Theme name: "mochi", "dark", "light", "solarized-dark", "solarized-light", "dracula", "nord", or "custom"
+# Default: "mochi"
 # Use Ctrl+Shift+T to cycle through themes at runtime
-theme = "dark"
+theme = "mochi"
 
 # Custom color scheme (only used when theme = "custom")
 # All colors are specified as hex strings: "#RRGGBB"
