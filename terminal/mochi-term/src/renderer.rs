@@ -285,7 +285,8 @@ impl Renderer {
                 let y = (row as f32 * cell_height_px) as i32;
 
                 // Determine colors
-                let is_selected = selection.contains(col, row as isize);
+                // Don't highlight empty selections (single click without drag)
+                let is_selected = !selection.is_empty() && selection.contains(col, row as isize);
                 // Check if this is the cursor position (regardless of visibility)
                 let is_cursor_position = !is_from_scrollback
                     && scroll_offset == 0
