@@ -368,7 +368,10 @@ impl App {
                     return;
                 }
                 Key::Character(c) if c.to_lowercase() == "w" => {
-                    self.close_current_tab();
+                    if !self.close_current_tab() {
+                        // Only one tab left - close the terminal window
+                        self.tabs.clear();
+                    }
                     return;
                 }
                 Key::Character(c) if c == "1" => {
@@ -420,7 +423,10 @@ impl App {
                     return;
                 }
                 Key::Character(c) if c.to_lowercase() == "w" => {
-                    self.close_current_tab();
+                    if !self.close_current_tab() {
+                        // Only one tab left - close the terminal window
+                        self.tabs.clear();
+                    }
                     return;
                 }
                 _ => {}
