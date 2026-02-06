@@ -163,6 +163,10 @@ impl Child {
     }
 
     /// Spawn a shell (uses $SHELL or /bin/bash)
+    ///
+    /// The shell is launched as a login shell (-l flag) to ensure proper
+    /// environment setup when launched from GUI applications (e.g., macOS app bundles).
+    /// This sources ~/.zshrc, ~/.bash_profile, etc. which sets up PATH and tools like direnv.
     pub fn spawn_shell(size: WindowSize) -> Result<Self> {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
@@ -174,8 +178,11 @@ impl Child {
             env.into_iter().filter(|(k, _)| k != "TERM").collect();
         env_with_term.push(("TERM".to_string(), "xterm-256color".to_string()));
 
-        let empty_args: Vec<String> = vec![];
-        Self::spawn(shell, empty_args, Some(env_with_term), size)
+        // Launch as login shell to properly source shell profile
+        // This is important for GUI-launched terminals (e.g., macOS app bundles)
+        // where the environment may not include user's PATH modifications
+        let args = vec!["-l".to_string()];
+        Self::spawn(shell, args, Some(env_with_term), size)
     }
 
     /// Get the PTY master
@@ -331,16 +338,26 @@ mod tests {
         let mut child = Child::spawn_shell(WindowSize::default()).unwrap();
         child.set_nonblocking(true).unwrap();
 
-        // Wait for shell to start
-        thread::sleep(Duration::from_millis(200));
+        // Wait for shell to start (longer wait for login shell which sources profile)
+        thread::sleep(Duration::from_millis(500));
 
-        // Send a command
-        child.write_all(b"echo test123\n").unwrap();
+        // Drain any initial output from shell startup/profile
+        let mut buf = [0u8; 4096];
+        loop {
+            match child.read(&mut buf) {
+                Ok(0) => break,
+                Ok(_) => continue,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+
+        // Send a command with unique marker
+        child.write_all(b"echo MARKER_test123_MARKER\n").unwrap();
 
         // Wait for response
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_millis(300));
 
-        let mut buf = [0u8; 4096];
         let mut output = String::new();
 
         // Read all available output
@@ -353,7 +370,11 @@ mod tests {
             }
         }
 
-        assert!(output.contains("test123"));
+        assert!(
+            output.contains("MARKER_test123_MARKER"),
+            "Expected output to contain 'MARKER_test123_MARKER', got: {}",
+            output
+        );
 
         let _ = child.signal(Signal::SIGTERM);
     }

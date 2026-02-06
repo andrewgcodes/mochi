@@ -79,6 +79,7 @@ To create an application bundle for Finder and Dock:
 
 ```bash
 mkdir -p ~/Applications/Mochi.app/Contents/MacOS
+mkdir -p ~/Applications/Mochi.app/Contents/Resources
 cp target/release/mochi ~/Applications/Mochi.app/Contents/MacOS/
 
 cat > ~/Applications/Mochi.app/Contents/Info.plist << 'EOF'
@@ -96,9 +97,19 @@ cat > ~/Applications/Mochi.app/Contents/Info.plist << 'EOF'
     <string>0.1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.13</string>
 </dict>
 </plist>
 EOF
+```
+
+Copy the included icon to the Resources folder:
+
+```bash
+cp assets/AppIcon.icns ~/Applications/Mochi.app/Contents/Resources/
 ```
 
 After creating the app bundle, you can drag `Mochi.app` from `~/Applications` to your Dock.
@@ -251,22 +262,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Easter Egg
-
-Try this in your Mochi terminal for a cute surprise:
-
-```bash
-echo '
-    .-"""-.
-   /        \
-  |  O    O  |
-  |    __    |
-   \  \__/  /
-    `------`
-   ~ mochi ~
-'
-```
 
 ## Acknowledgments
 
