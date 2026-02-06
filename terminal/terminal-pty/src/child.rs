@@ -129,6 +129,13 @@ impl Child {
                     drop(slave_fd);
                 }
 
+                // Change to home directory if available
+                // This ensures the shell starts in the user's home directory
+                // rather than wherever the app was launched from (e.g., "/" for macOS app bundles)
+                if let Some(home) = std::env::var_os("HOME") {
+                    let _ = std::env::set_current_dir(&home);
+                }
+
                 // Set environment if provided
                 if let Some(env_vars) = env_cstr {
                     // Clear environment and set new variables
