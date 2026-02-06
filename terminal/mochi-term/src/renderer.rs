@@ -48,6 +48,10 @@ pub struct Renderer {
     bold_font: Option<Font>,
     /// Whether we've attempted to load the bold font
     bold_font_loaded: bool,
+    /// Fallback fonts for emoji and symbols (lazily loaded)
+    fallback_fonts: Vec<Font>,
+    /// Whether we've attempted to load fallback fonts
+    fallback_fonts_loaded: bool,
     /// Glyph cache
     glyph_cache: HashMap<(char, bool), GlyphEntry>,
     /// Cell size
@@ -117,6 +121,8 @@ impl Renderer {
             font,
             bold_font: None,
             bold_font_loaded: false,
+            fallback_fonts: Vec::new(),
+            fallback_fonts_loaded: false,
             glyph_cache,
             cell_size,
             colors,
@@ -383,7 +389,7 @@ impl Renderer {
         buf_width: u32,
         buf_height: u32,
     ) {
-        let scrollbar_width = 8;
+        let scrollbar_width = 12; // Wider for easier clicking
         let scrollbar_x = buf_width.saturating_sub(scrollbar_width) as i32;
         let scrollbar_height = buf_height as i32;
 
@@ -453,13 +459,36 @@ impl Renderer {
                 Font::from_bytes(bold_font_data as &[u8], FontSettings::default()).ok();
         }
 
+        // Lazy load fallback fonts on first use (for emoji and symbols)
+        if !self.fallback_fonts_loaded {
+            self.fallback_fonts_loaded = true;
+            self.load_fallback_fonts();
+        }
+
         let font = if bold {
             self.bold_font.as_ref().unwrap_or(&self.font)
         } else {
             &self.font
         };
 
-        let (metrics, bitmap) = font.rasterize(c, self.cell_size.baseline);
+        // Check if primary font has this glyph (glyph index 0 means missing)
+        let has_glyph = font.lookup_glyph_index(c) != 0;
+
+        // Try fallback fonts if primary font doesn't have the glyph
+        let (metrics, bitmap) = if has_glyph {
+            font.rasterize(c, self.cell_size.baseline)
+        } else {
+            // Try each fallback font
+            let mut found = None;
+            for fallback in &self.fallback_fonts {
+                if fallback.lookup_glyph_index(c) != 0 {
+                    found = Some(fallback.rasterize(c, self.cell_size.baseline));
+                    break;
+                }
+            }
+            // Use primary font as last resort (will show tofu/replacement char)
+            found.unwrap_or_else(|| font.rasterize(c, self.cell_size.baseline))
+        };
 
         let entry = GlyphEntry {
             bitmap,
@@ -470,6 +499,42 @@ impl Renderer {
         };
 
         self.glyph_cache.insert(key, entry);
+    }
+
+    fn load_fallback_fonts(&mut self) {
+        // System font paths for emoji and symbol fonts
+        let fallback_paths: &[&str] = if cfg!(target_os = "macos") {
+            &[
+                "/System/Library/Fonts/Apple Color Emoji.ttc",
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+                "/Library/Fonts/Arial Unicode.ttf",
+                "/System/Library/Fonts/Supplemental/Symbola.ttf",
+            ]
+        } else {
+            // Linux paths
+            &[
+                "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+                "/usr/share/fonts/noto-emoji/NotoColorEmoji.ttf",
+                "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/unifont/unifont.ttf",
+                "/usr/share/fonts/unifont/unifont.ttf",
+            ]
+        };
+
+        for path in fallback_paths {
+            if let Ok(data) = std::fs::read(path) {
+                if let Ok(font) = Font::from_bytes(data, FontSettings::default()) {
+                    self.fallback_fonts.push(font);
+                    log::debug!("Loaded fallback font: {}", path);
+                }
+            }
+        }
+
+        if self.fallback_fonts.is_empty() {
+            log::warn!("No fallback fonts found for emoji/symbol support");
+        }
     }
 
     /// Fill a rectangle with a color (static version)
