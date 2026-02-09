@@ -309,7 +309,7 @@ impl App {
             let tab_index = (click_x / tab_width) as usize;
             if tab_index < self.tabs.len() {
                 let tab_start = tab_index as u32 * tab_width;
-                let close_x_start = tab_start + tab_width - CLOSE_BTN_WIDTH;
+                let close_x_start = tab_start + tab_width.saturating_sub(CLOSE_BTN_WIDTH);
 
                 if click_x >= close_x_start && self.tabs.len() > 1 {
                     self.tabs.remove(tab_index);
