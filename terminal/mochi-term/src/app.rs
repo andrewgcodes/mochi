@@ -22,7 +22,7 @@ use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mous
 use crate::renderer::{Renderer, TabInfo};
 use crate::terminal::Terminal;
 
-/// Vertical padding added to cell height for the tab bar
+/// Padding added to cell height to compute tab bar height
 const TAB_BAR_PADDING: u32 = 8;
 /// Maximum width of a single tab in pixels
 const TAB_MAX_WIDTH: u32 = 200;
@@ -31,10 +31,10 @@ const CLOSE_BTN_WIDTH: u32 = 20;
 /// Width of the new tab (+) button
 const NEW_TAB_BTN_WIDTH: u32 = 32;
 
+/// Compute tab bar height from the current cell size so it scales with HiDPI / font size.
 fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
     cell_size.height.ceil() as u32 + TAB_BAR_PADDING
 }
-
 /// A single terminal tab
 struct Tab {
     terminal: Terminal,
@@ -83,14 +83,14 @@ pub struct App {
     needs_redraw: bool,
     /// Is focused
     focused: bool,
+    /// Current tab bar height in physical pixels (scales with font / HiDPI)
+    tab_bar_height: u32,
     /// Whether we're currently dragging the scrollbar
     scrollbar_dragging: bool,
     /// Y position where scrollbar drag started (in pixels)
     scrollbar_drag_start_y: f64,
     /// Scroll offset when scrollbar drag started
     scrollbar_drag_start_offset: usize,
-    /// Dynamic tab bar height (computed from cell size)
-    tab_bar_height: u32,
 }
 
 impl App {
@@ -110,10 +110,10 @@ impl App {
             last_render: Instant::now(),
             needs_redraw: true,
             focused: true,
+            tab_bar_height: 0,
             scrollbar_dragging: false,
             scrollbar_drag_start_y: 0.0,
             scrollbar_drag_start_offset: 0,
-            tab_bar_height: 0,
         })
     }
 
