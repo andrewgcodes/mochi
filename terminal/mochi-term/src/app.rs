@@ -649,11 +649,12 @@ impl App {
         }
 
         // Handle tab bar clicks
-        if button == MouseButton::Left && state == ElementState::Pressed {
-            if self.mouse_pixel.1 < TAB_BAR_HEIGHT as f64 {
-                self.handle_tab_bar_click(self.mouse_pixel.0);
-                return;
-            }
+        if button == MouseButton::Left
+            && state == ElementState::Pressed
+            && self.mouse_pixel.1 < TAB_BAR_HEIGHT as f64
+        {
+            self.handle_tab_bar_click(self.mouse_pixel.0);
+            return;
         }
 
         // Handle scrollbar dragging first (left button only)
