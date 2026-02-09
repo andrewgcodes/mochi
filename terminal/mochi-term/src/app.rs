@@ -22,14 +22,19 @@ use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mous
 use crate::renderer::{Renderer, TabInfo};
 use crate::terminal::Terminal;
 
-/// Height of the tab bar in pixels
-const TAB_BAR_HEIGHT: u32 = 28;
+/// Padding added to cell height to compute tab bar height
+const TAB_BAR_PADDING: u32 = 8;
 /// Maximum width of a single tab in pixels
 const TAB_MAX_WIDTH: u32 = 200;
 /// Width of the close button area in each tab
 const CLOSE_BTN_WIDTH: u32 = 20;
 /// Width of the new tab (+) button
 const NEW_TAB_BTN_WIDTH: u32 = 32;
+
+/// Compute tab bar height from the current cell size so it scales with HiDPI / font size.
+fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
+    cell_size.height as u32 + TAB_BAR_PADDING
+}
 
 /// A single terminal tab
 struct Tab {
@@ -79,6 +84,8 @@ pub struct App {
     needs_redraw: bool,
     /// Is focused
     focused: bool,
+    /// Current tab bar height in physical pixels (scales with font / HiDPI)
+    tab_bar_height: u32,
     /// Whether we're currently dragging the scrollbar
     scrollbar_dragging: bool,
     /// Y position where scrollbar drag started (in pixels)
@@ -104,6 +111,7 @@ impl App {
             last_render: Instant::now(),
             needs_redraw: true,
             focused: true,
+            tab_bar_height: 0,
             scrollbar_dragging: false,
             scrollbar_drag_start_y: 0.0,
             scrollbar_drag_start_offset: 0,
@@ -208,8 +216,9 @@ impl App {
 
         // Calculate terminal dimensions (account for tab bar height)
         let cell_size = renderer.cell_size();
+        self.tab_bar_height = compute_tab_bar_height(&cell_size);
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
         // Create first tab
@@ -237,7 +246,7 @@ impl App {
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
         let terminal = Terminal::new(cols.max(1), rows.max(1));
@@ -343,7 +352,7 @@ impl App {
         // Calculate new terminal dimensions (account for tab bar)
         let cell_size = renderer.cell_size();
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
         // Resize all tabs
@@ -597,8 +606,9 @@ impl App {
         // Recalculate terminal dimensions (account for tab bar)
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
+        self.tab_bar_height = compute_tab_bar_height(&cell_size);
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
         // Resize all tabs
@@ -627,8 +637,9 @@ impl App {
         // Recalculate terminal dimensions (account for tab bar)
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
+        self.tab_bar_height = compute_tab_bar_height(&cell_size);
         let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(TAB_BAR_HEIGHT);
+        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
         // Resize all tabs
@@ -651,7 +662,7 @@ impl App {
         // Handle tab bar clicks
         if button == MouseButton::Left
             && state == ElementState::Pressed
-            && self.mouse_pixel.1 < TAB_BAR_HEIGHT as f64
+            && self.mouse_pixel.1 < self.tab_bar_height as f64
         {
             self.handle_tab_bar_click(self.mouse_pixel.0);
             return;
@@ -666,7 +677,7 @@ impl App {
                     let scrollbar_width = 12.0;
 
                     if self.mouse_pixel.0 >= window_width - scrollbar_width
-                        && self.mouse_pixel.1 >= TAB_BAR_HEIGHT as f64
+                        && self.mouse_pixel.1 >= self.tab_bar_height as f64
                     {
                         let tab = &self.tabs[self.active_tab];
                         let scrollback_len = tab.terminal.screen().scrollback().len();
@@ -760,7 +771,7 @@ impl App {
             if let Some(window) = &self.window {
                 let tab = &mut self.tabs[self.active_tab];
                 let window_height =
-                    (window.inner_size().height as f64 - TAB_BAR_HEIGHT as f64).max(1.0);
+                    (window.inner_size().height as f64 - self.tab_bar_height as f64).max(1.0);
                 let scrollback_len = tab.terminal.screen().scrollback().len();
                 let visible_rows = tab.terminal.screen().rows();
 
@@ -802,7 +813,7 @@ impl App {
 
         let cell_size = renderer.cell_size();
         let col = (position.x / cell_size.width as f64) as u16;
-        let adjusted_y = (position.y - TAB_BAR_HEIGHT as f64).max(0.0);
+        let adjusted_y = (position.y - self.tab_bar_height as f64).max(0.0);
         let row = (adjusted_y / cell_size.height as f64) as u16;
 
         if col == self.mouse_cell.0 && row == self.mouse_cell.1 {
@@ -1169,7 +1180,7 @@ impl App {
             screen,
             selection,
             tab.scroll_offset,
-            TAB_BAR_HEIGHT,
+            self.tab_bar_height,
             &tab_infos,
             self.active_tab,
         ) {
