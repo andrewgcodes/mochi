@@ -33,9 +33,8 @@ const NEW_TAB_BTN_WIDTH: u32 = 32;
 
 /// Compute tab bar height from the current cell size so it scales with HiDPI / font size.
 fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
-    cell_size.height as u32 + TAB_BAR_PADDING
+    cell_size.height.ceil() as u32 + TAB_BAR_PADDING
 }
-
 /// A single terminal tab
 struct Tab {
     terminal: Terminal,
@@ -245,6 +244,7 @@ impl App {
 
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
+        self.tab_bar_height = compute_tab_bar_height(&cell_size);
         let cols = (size.width as f32 / cell_size.width) as usize;
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
@@ -351,6 +351,7 @@ impl App {
 
         // Calculate new terminal dimensions (account for tab bar)
         let cell_size = renderer.cell_size();
+        self.tab_bar_height = compute_tab_bar_height(&cell_size);
         let cols = (size.width as f32 / cell_size.width) as usize;
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
