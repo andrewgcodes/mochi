@@ -13,6 +13,11 @@ use winit::window::Window;
 
 use crate::config::ColorScheme;
 
+/// Information about a tab for rendering
+pub struct TabInfo<'a> {
+    pub title: &'a str,
+}
+
 /// Cell dimensions in pixels
 #[derive(Debug, Clone, Copy)]
 pub struct CellSize {
@@ -175,6 +180,9 @@ impl Renderer {
         screen: &Screen,
         selection: &Selection,
         scroll_offset: usize,
+        tab_bar_height: u32,
+        tabs: &[TabInfo<'_>],
+        active_tab: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let width = self.width;
         let height = self.height;
@@ -202,6 +210,17 @@ impl Renderer {
         let rows = screen.rows();
         let scrollback = screen.scrollback();
         let scrollback_len = scrollback.len();
+
+        // Pre-cache glyphs for tab titles
+        for tab in tabs {
+            for c in tab.title.chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+        }
+        self.ensure_glyph_cached('+', false);
+        self.ensure_glyph_cached('x', false);
 
         // Pre-cache all glyphs we'll need (from both screen and scrollback if scrolled)
         for row in 0..rows {
@@ -252,6 +271,22 @@ impl Renderer {
         let bg_pixel = Self::rgb_to_pixel(bg_color.0, bg_color.1, bg_color.2);
         buffer.fill(bg_pixel);
 
+        // Draw tab bar
+        if tab_bar_height > 0 && !tabs.is_empty() {
+            Self::draw_tab_bar_static(
+                &mut buffer,
+                &self.glyph_cache,
+                tabs,
+                active_tab,
+                tab_bar_height,
+                width,
+                height,
+                &self.cell_size,
+                bg_color,
+                fg_color,
+            );
+        }
+
         let cursor = screen.cursor();
 
         // Render each cell
@@ -288,7 +323,7 @@ impl Renderer {
                 }
 
                 let x = (col as f32 * cell_width_px) as i32;
-                let y = (row as f32 * cell_height_px) as i32;
+                let y = (row as f32 * cell_height_px) as i32 + tab_bar_height as i32;
 
                 // Determine colors
                 // Don't highlight empty selections (single click without drag)
@@ -371,6 +406,7 @@ impl Renderer {
                 rows,
                 width,
                 height,
+                tab_bar_height,
             );
         }
 
@@ -388,10 +424,12 @@ impl Renderer {
         visible_rows: usize,
         buf_width: u32,
         buf_height: u32,
+        y_offset: u32,
     ) {
         let scrollbar_width = 12; // Wider for easier clicking
         let scrollbar_x = buf_width.saturating_sub(scrollbar_width) as i32;
-        let scrollbar_height = buf_height as i32;
+        let scrollbar_height = buf_height.saturating_sub(y_offset) as i32;
+        let y_off = y_offset as i32;
 
         // Total content = scrollback + visible screen
         let total_lines = scrollback_len + visible_rows;
@@ -416,7 +454,7 @@ impl Renderer {
         Self::fill_rect_static(
             buffer,
             scrollbar_x,
-            0,
+            y_off,
             scrollbar_width as i32,
             scrollbar_height,
             track_color,
@@ -433,7 +471,7 @@ impl Renderer {
         Self::fill_rect_static(
             buffer,
             scrollbar_x + 1,
-            thumb_y,
+            y_off + thumb_y,
             scrollbar_width as i32 - 2,
             thumb_height,
             thumb_color,
@@ -740,5 +778,210 @@ impl Renderer {
     /// Convert RGB to pixel value (ARGB format)
     fn rgb_to_pixel(r: u8, g: u8, b: u8) -> u32 {
         0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_tab_bar_static(
+        buffer: &mut [u32],
+        glyph_cache: &HashMap<(char, bool), GlyphEntry>,
+        tabs: &[TabInfo<'_>],
+        active_tab: usize,
+        tab_bar_height: u32,
+        buf_width: u32,
+        buf_height: u32,
+        cell_size: &CellSize,
+        bg_color: (u8, u8, u8),
+        fg_color: (u8, u8, u8),
+    ) {
+        let tab_padding: u32 = 10;
+        let close_btn_width: u32 = 20;
+        let new_tab_btn_width: u32 = 32;
+        let tab_max_width: u32 = 200;
+
+        let tab_bar_bg = Self::blend_color(bg_color, (0, 0, 0), 0.3);
+        let active_tab_bg = bg_color;
+        let inactive_tab_bg = Self::blend_color(tab_bar_bg, bg_color, 0.3);
+        let inactive_fg = Self::blend_color(fg_color, bg_color, 0.4);
+        let separator_color = Self::blend_color(bg_color, (128, 128, 128), 0.3);
+        let close_color = Self::blend_color(fg_color, (200, 80, 80), 0.5);
+
+        Self::fill_rect_static(
+            buffer,
+            0,
+            0,
+            buf_width as i32,
+            tab_bar_height as i32,
+            tab_bar_bg,
+            buf_width,
+            buf_height,
+        );
+
+        let num_tabs = tabs.len() as u32;
+        let available_width = buf_width.saturating_sub(new_tab_btn_width);
+        let tab_width = if num_tabs > 0 {
+            (available_width / num_tabs).min(tab_max_width)
+        } else {
+            tab_max_width
+        };
+
+        for (i, tab) in tabs.iter().enumerate() {
+            let is_active = i == active_tab;
+            let tab_x = (i as u32 * tab_width) as i32;
+            let tab_bg = if is_active {
+                active_tab_bg
+            } else {
+                inactive_tab_bg
+            };
+            let text_color = if is_active { fg_color } else { inactive_fg };
+
+            Self::fill_rect_static(
+                buffer,
+                tab_x,
+                0,
+                tab_width as i32,
+                tab_bar_height as i32,
+                tab_bg,
+                buf_width,
+                buf_height,
+            );
+
+            if is_active {
+                let accent = Self::blend_color(fg_color, (100, 149, 237), 0.5);
+                Self::fill_rect_static(
+                    buffer,
+                    tab_x,
+                    (tab_bar_height - 2) as i32,
+                    tab_width as i32,
+                    2,
+                    accent,
+                    buf_width,
+                    buf_height,
+                );
+            }
+
+            if i < tabs.len() - 1 {
+                Self::fill_rect_static(
+                    buffer,
+                    tab_x + tab_width as i32 - 1,
+                    4,
+                    1,
+                    (tab_bar_height - 8) as i32,
+                    separator_color,
+                    buf_width,
+                    buf_height,
+                );
+            }
+
+            let text_x = tab_x + tab_padding as i32;
+            let text_y = ((tab_bar_height as f32 - cell_size.height) / 2.0).max(0.0) as i32;
+            let max_text_width = tab_width.saturating_sub(tab_padding * 2 + close_btn_width) as i32;
+
+            Self::draw_text_static(
+                buffer,
+                glyph_cache,
+                tab.title,
+                text_x,
+                text_y,
+                text_color,
+                cell_size.width,
+                cell_size.baseline,
+                buf_width,
+                buf_height,
+                max_text_width,
+            );
+
+            if tabs.len() > 1 {
+                let close_x = tab_x + tab_width as i32 - close_btn_width as i32;
+                let close_y = text_y;
+                if let Some(glyph) = glyph_cache.get(&('x', false)) {
+                    Self::draw_glyph_static(
+                        buffer,
+                        close_x,
+                        close_y,
+                        glyph,
+                        close_color,
+                        cell_size.baseline,
+                        buf_width,
+                        buf_height,
+                    );
+                }
+            }
+        }
+
+        let plus_btn_x = (num_tabs * tab_width) as i32;
+        let plus_text_x = plus_btn_x + ((new_tab_btn_width as f32 - cell_size.width) / 2.0) as i32;
+        let plus_text_y = ((tab_bar_height as f32 - cell_size.height) / 2.0).max(0.0) as i32;
+        let plus_bg = Self::blend_color(tab_bar_bg, bg_color, 0.15);
+        Self::fill_rect_static(
+            buffer,
+            plus_btn_x,
+            0,
+            new_tab_btn_width as i32,
+            tab_bar_height as i32,
+            plus_bg,
+            buf_width,
+            buf_height,
+        );
+        if let Some(glyph) = glyph_cache.get(&('+', false)) {
+            Self::draw_glyph_static(
+                buffer,
+                plus_text_x,
+                plus_text_y,
+                glyph,
+                fg_color,
+                cell_size.baseline,
+                buf_width,
+                buf_height,
+            );
+        }
+
+        Self::fill_rect_static(
+            buffer,
+            0,
+            (tab_bar_height - 1) as i32,
+            buf_width as i32,
+            1,
+            separator_color,
+            buf_width,
+            buf_height,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_text_static(
+        buffer: &mut [u32],
+        glyph_cache: &HashMap<(char, bool), GlyphEntry>,
+        text: &str,
+        x: i32,
+        y: i32,
+        color: (u8, u8, u8),
+        cell_width: f32,
+        baseline: f32,
+        buf_width: u32,
+        buf_height: u32,
+        max_width: i32,
+    ) {
+        let mut cx = x;
+        for ch in text.chars() {
+            if cx - x >= max_width {
+                break;
+            }
+            if ch != ' ' {
+                if let Some(glyph) = glyph_cache.get(&(ch, false)) {
+                    Self::draw_glyph_static(
+                        buffer, cx, y, glyph, color, baseline, buf_width, buf_height,
+                    );
+                }
+            }
+            cx += cell_width as i32;
+        }
+    }
+
+    fn blend_color(a: (u8, u8, u8), b: (u8, u8, u8), t: f32) -> (u8, u8, u8) {
+        (
+            (a.0 as f32 * (1.0 - t) + b.0 as f32 * t) as u8,
+            (a.1 as f32 * (1.0 - t) + b.1 as f32 * t) as u8,
+            (a.2 as f32 * (1.0 - t) + b.2 as f32 * t) as u8,
+        )
     }
 }

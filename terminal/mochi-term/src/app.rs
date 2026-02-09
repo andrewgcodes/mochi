@@ -19,11 +19,17 @@ use terminal_core::{Point, SelectionType};
 
 use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
-use crate::renderer::Renderer;
+use crate::renderer::{Renderer, TabInfo};
 use crate::terminal::Terminal;
 
 /// Height of the tab bar in pixels
 const TAB_BAR_HEIGHT: u32 = 28;
+/// Maximum width of a single tab in pixels
+const TAB_MAX_WIDTH: u32 = 200;
+/// Width of the close button area in each tab
+const CLOSE_BTN_WIDTH: u32 = 20;
+/// Width of the new tab (+) button
+const NEW_TAB_BTN_WIDTH: u32 = 32;
 
 /// A single terminal tab
 struct Tab {
@@ -275,6 +281,52 @@ impl App {
         }
     }
 
+    /// Handle a click in the tab bar area
+    fn handle_tab_bar_click(&mut self, x: f64) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let Some(window) = &self.window else { return };
+
+        let window_width = window.inner_size().width;
+        let num_tabs = self.tabs.len() as u32;
+        let available_width = window_width.saturating_sub(NEW_TAB_BTN_WIDTH);
+        let tab_width = if num_tabs > 0 {
+            (available_width / num_tabs).min(TAB_MAX_WIDTH)
+        } else {
+            TAB_MAX_WIDTH
+        };
+
+        let click_x = x as u32;
+        let tabs_end = num_tabs * tab_width;
+
+        if click_x >= tabs_end && click_x < tabs_end + NEW_TAB_BTN_WIDTH {
+            self.create_new_tab();
+            return;
+        }
+
+        if click_x < tabs_end {
+            let tab_index = (click_x / tab_width) as usize;
+            if tab_index < self.tabs.len() {
+                let tab_start = tab_index as u32 * tab_width;
+                let close_x_start = tab_start + tab_width - CLOSE_BTN_WIDTH;
+
+                if click_x >= close_x_start && self.tabs.len() > 1 {
+                    self.tabs.remove(tab_index);
+                    if self.active_tab >= self.tabs.len() {
+                        self.active_tab = self.tabs.len() - 1;
+                    } else if self.active_tab > tab_index {
+                        self.active_tab -= 1;
+                    }
+                    self.needs_redraw = true;
+                    log::info!("Closed tab via click {}", tab_index + 1);
+                } else {
+                    self.switch_to_tab(tab_index);
+                }
+            }
+        }
+    }
+
     /// Handle window resize
     fn handle_resize(&mut self, size: PhysicalSize<u32>) {
         if size.width == 0 || size.height == 0 {
@@ -336,7 +388,8 @@ impl App {
                     self.handle_reload_config();
                     return;
                 }
-                // Toggle theme: Ctrl+Shift+T
+                // Toggle theme: Ctrl+Shift+T (macOS only; on Linux Ctrl+Shift+T is new tab)
+                #[cfg(target_os = "macos")]
                 Key::Character(c) if c.to_lowercase() == "t" => {
                     self.handle_toggle_theme();
                     return;
@@ -595,6 +648,14 @@ impl App {
             return;
         }
 
+        // Handle tab bar clicks
+        if button == MouseButton::Left && state == ElementState::Pressed {
+            if self.mouse_pixel.1 < TAB_BAR_HEIGHT as f64 {
+                self.handle_tab_bar_click(self.mouse_pixel.0);
+                return;
+            }
+        }
+
         // Handle scrollbar dragging first (left button only)
         if button == MouseButton::Left {
             if state == ElementState::Pressed {
@@ -603,7 +664,9 @@ impl App {
                     let window_width = window.inner_size().width as f64;
                     let scrollbar_width = 12.0;
 
-                    if self.mouse_pixel.0 >= window_width - scrollbar_width {
+                    if self.mouse_pixel.0 >= window_width - scrollbar_width
+                        && self.mouse_pixel.1 >= TAB_BAR_HEIGHT as f64
+                    {
                         let tab = &self.tabs[self.active_tab];
                         let scrollback_len = tab.terminal.screen().scrollback().len();
                         if scrollback_len > 0 {
@@ -695,7 +758,8 @@ impl App {
         if self.scrollbar_dragging {
             if let Some(window) = &self.window {
                 let tab = &mut self.tabs[self.active_tab];
-                let window_height = window.inner_size().height as f64;
+                let window_height =
+                    (window.inner_size().height as f64 - TAB_BAR_HEIGHT as f64).max(1.0);
                 let scrollback_len = tab.terminal.screen().scrollback().len();
                 let visible_rows = tab.terminal.screen().rows();
 
@@ -737,7 +801,8 @@ impl App {
 
         let cell_size = renderer.cell_size();
         let col = (position.x / cell_size.width as f64) as u16;
-        let row = (position.y / cell_size.height as f64) as u16;
+        let adjusted_y = (position.y - TAB_BAR_HEIGHT as f64).max(0.0);
+        let row = (adjusted_y / cell_size.height as f64) as u16;
 
         if col == self.mouse_cell.0 && row == self.mouse_cell.1 {
             return;
@@ -991,7 +1056,8 @@ impl App {
         }
     }
 
-    /// Handle toggle theme (Ctrl+Shift+T)
+    /// Handle toggle theme (Ctrl+Shift+T on macOS)
+    #[allow(dead_code)]
     fn handle_toggle_theme(&mut self) {
         let new_theme = self.config.theme.next();
         log::info!(
@@ -1089,11 +1155,23 @@ impl App {
             return;
         }
 
+        let tab_infos: Vec<TabInfo<'_>> = self
+            .tabs
+            .iter()
+            .map(|t| TabInfo { title: &t.title })
+            .collect();
         let tab = &self.tabs[self.active_tab];
         let screen = tab.terminal.screen();
         let selection = screen.selection();
 
-        if let Err(e) = renderer.render(screen, selection, tab.scroll_offset) {
+        if let Err(e) = renderer.render(
+            screen,
+            selection,
+            tab.scroll_offset,
+            TAB_BAR_HEIGHT,
+            &tab_infos,
+            self.active_tab,
+        ) {
             log::warn!("Render error: {:?}", e);
         }
 
