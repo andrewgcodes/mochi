@@ -922,4 +922,133 @@ mod tests {
         assert_eq!(screen.cursor().col, 19);
         assert!(screen.cursor().attrs.bold);
     }
+
+    #[test]
+    fn test_linefeed_cursor_below_scroll_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(3, 6);
+        screen.move_cursor_to(8, 1);
+
+        screen.linefeed();
+
+        assert_eq!(screen.cursor().row, 8);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(2).cell(0).display_char(), 'C');
+        assert_eq!(screen.line(5).cell(0).display_char(), 'F');
+        assert_eq!(screen.line(9).cell(0).display_char(), 'J');
+    }
+
+    #[test]
+    fn test_linefeed_cursor_above_scroll_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(5, 8);
+        screen.move_cursor_to(2, 1);
+
+        screen.linefeed();
+
+        assert_eq!(screen.cursor().row, 2);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(4).cell(0).display_char(), 'E');
+        assert_eq!(screen.line(7).cell(0).display_char(), 'H');
+    }
+
+    #[test]
+    fn test_linefeed_at_scroll_region_bottom_scrolls() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(3, 6);
+        screen.move_cursor_to(6, 1);
+
+        screen.linefeed();
+
+        assert_eq!(screen.cursor().row, 5);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(1).cell(0).display_char(), 'B');
+        assert_eq!(screen.line(2).cell(0).display_char(), 'D');
+        assert_eq!(screen.line(3).cell(0).display_char(), 'E');
+        assert_eq!(screen.line(4).cell(0).display_char(), 'F');
+        assert!(screen.line(5).cell(0).is_empty());
+        assert_eq!(screen.line(6).cell(0).display_char(), 'G');
+    }
+
+    #[test]
+    fn test_reverse_index_cursor_above_scroll_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(5, 8);
+        screen.move_cursor_to(2, 1);
+
+        screen.reverse_index();
+
+        assert_eq!(screen.cursor().row, 0);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(4).cell(0).display_char(), 'E');
+        assert_eq!(screen.line(7).cell(0).display_char(), 'H');
+    }
+
+    #[test]
+    fn test_reverse_index_cursor_below_scroll_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(3, 6);
+        screen.move_cursor_to(8, 1);
+
+        screen.reverse_index();
+
+        assert_eq!(screen.cursor().row, 6);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(2).cell(0).display_char(), 'C');
+        assert_eq!(screen.line(5).cell(0).display_char(), 'F');
+    }
+
+    #[test]
+    fn test_reverse_index_at_scroll_region_top_scrolls() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(3, 6);
+        screen.move_cursor_to(3, 1);
+
+        screen.reverse_index();
+
+        assert_eq!(screen.cursor().row, 2);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(1).cell(0).display_char(), 'B');
+        assert!(screen.line(2).cell(0).is_empty());
+        assert_eq!(screen.line(3).cell(0).display_char(), 'C');
+        assert_eq!(screen.line(4).cell(0).display_char(), 'D');
+        assert_eq!(screen.line(5).cell(0).display_char(), 'E');
+        assert_eq!(screen.line(6).cell(0).display_char(), 'G');
+    }
 }
