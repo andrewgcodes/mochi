@@ -297,11 +297,15 @@ impl Screen {
 
     /// Handle line feed (LF), vertical tab (VT), form feed (FF)
     pub fn linefeed(&mut self) {
-        let (_, scroll_bottom) = self.scroll_region();
+        let (scroll_top, scroll_bottom) = self.scroll_region();
+        let rows = self.rows();
 
-        if self.cursor.row >= scroll_bottom {
+        // Only scroll if cursor is exactly at the bottom of the scroll region
+        // and within the scroll region. If cursor is below the scroll region,
+        // just move it down (up to screen bottom) without scrolling.
+        if self.cursor.row == scroll_bottom && self.cursor.row >= scroll_top {
             self.scroll_up(1);
-        } else {
+        } else if self.cursor.row < rows - 1 {
             self.cursor.row += 1;
         }
         self.cursor.pending_wrap = false;
@@ -314,11 +318,14 @@ impl Screen {
 
     /// Handle reverse index (RI) - move cursor up, scroll if at top
     pub fn reverse_index(&mut self) {
-        let (scroll_top, _) = self.scroll_region();
+        let (scroll_top, scroll_bottom) = self.scroll_region();
 
-        if self.cursor.row <= scroll_top {
+        // Only scroll if cursor is exactly at the top of the scroll region
+        // and within the scroll region. If cursor is above the scroll region,
+        // just move it up (down to row 0) without scrolling.
+        if self.cursor.row == scroll_top && self.cursor.row <= scroll_bottom {
             self.scroll_down(1);
-        } else {
+        } else if self.cursor.row > 0 {
             self.cursor.row -= 1;
         }
         self.cursor.pending_wrap = false;
@@ -914,5 +921,134 @@ mod tests {
         assert_eq!(screen.cursor().row, 9);
         assert_eq!(screen.cursor().col, 19);
         assert!(screen.cursor().attrs.bold);
+    }
+
+    #[test]
+    fn test_linefeed_cursor_below_scroll_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(3, 6);
+        screen.move_cursor_to(8, 1);
+
+        screen.linefeed();
+
+        assert_eq!(screen.cursor().row, 8);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(2).cell(0).display_char(), 'C');
+        assert_eq!(screen.line(5).cell(0).display_char(), 'F');
+        assert_eq!(screen.line(9).cell(0).display_char(), 'J');
+    }
+
+    #[test]
+    fn test_linefeed_cursor_above_scroll_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(5, 8);
+        screen.move_cursor_to(2, 1);
+
+        screen.linefeed();
+
+        assert_eq!(screen.cursor().row, 2);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(4).cell(0).display_char(), 'E');
+        assert_eq!(screen.line(7).cell(0).display_char(), 'H');
+    }
+
+    #[test]
+    fn test_linefeed_at_scroll_region_bottom_scrolls() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(3, 6);
+        screen.move_cursor_to(6, 1);
+
+        screen.linefeed();
+
+        assert_eq!(screen.cursor().row, 5);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(1).cell(0).display_char(), 'B');
+        assert_eq!(screen.line(2).cell(0).display_char(), 'D');
+        assert_eq!(screen.line(3).cell(0).display_char(), 'E');
+        assert_eq!(screen.line(4).cell(0).display_char(), 'F');
+        assert!(screen.line(5).cell(0).is_empty());
+        assert_eq!(screen.line(6).cell(0).display_char(), 'G');
+    }
+
+    #[test]
+    fn test_reverse_index_cursor_above_scroll_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(5, 8);
+        screen.move_cursor_to(2, 1);
+
+        screen.reverse_index();
+
+        assert_eq!(screen.cursor().row, 0);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(4).cell(0).display_char(), 'E');
+        assert_eq!(screen.line(7).cell(0).display_char(), 'H');
+    }
+
+    #[test]
+    fn test_reverse_index_cursor_below_scroll_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(3, 6);
+        screen.move_cursor_to(8, 1);
+
+        screen.reverse_index();
+
+        assert_eq!(screen.cursor().row, 6);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(2).cell(0).display_char(), 'C');
+        assert_eq!(screen.line(5).cell(0).display_char(), 'F');
+    }
+
+    #[test]
+    fn test_reverse_index_at_scroll_region_top_scrolls() {
+        let mut screen = Screen::new(Dimensions::new(10, 10));
+
+        for row in 0..10 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+
+        screen.set_scroll_region(3, 6);
+        screen.move_cursor_to(3, 1);
+
+        screen.reverse_index();
+
+        assert_eq!(screen.cursor().row, 2);
+        assert_eq!(screen.line(0).cell(0).display_char(), 'A');
+        assert_eq!(screen.line(1).cell(0).display_char(), 'B');
+        assert!(screen.line(2).cell(0).is_empty());
+        assert_eq!(screen.line(3).cell(0).display_char(), 'C');
+        assert_eq!(screen.line(4).cell(0).display_char(), 'D');
+        assert_eq!(screen.line(5).cell(0).display_char(), 'E');
+        assert_eq!(screen.line(6).cell(0).display_char(), 'G');
     }
 }
