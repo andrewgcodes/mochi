@@ -48,11 +48,13 @@ impl Params {
                 }
                 b';' => {
                     if params.values.len() < MAX_PARAMS {
-                        params.values.push(if has_value { current } else { 0 });
                         if !current_subparams.is_empty() {
-                            params.subparams.push(current_subparams.clone());
+                            current_subparams.push(if has_value { current } else { 0 });
+                            params.values.push(current_subparams[0]);
+                            params.subparams.push(current_subparams[1..].to_vec());
                             current_subparams.clear();
                         } else {
+                            params.values.push(if has_value { current } else { 0 });
                             params.subparams.push(Vec::new());
                         }
                     }
@@ -73,11 +75,12 @@ impl Params {
 
         // Don't forget the last parameter
         if (has_value || !params.values.is_empty()) && params.values.len() < MAX_PARAMS {
-            params.values.push(if has_value { current } else { 0 });
             if !current_subparams.is_empty() {
-                current_subparams.push(current);
-                params.subparams.push(current_subparams);
+                current_subparams.push(if has_value { current } else { 0 });
+                params.values.push(current_subparams[0]);
+                params.subparams.push(current_subparams[1..].to_vec());
             } else {
+                params.values.push(if has_value { current } else { 0 });
                 params.subparams.push(Vec::new());
             }
         }

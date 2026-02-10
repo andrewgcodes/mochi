@@ -406,19 +406,8 @@ impl Terminal {
                 self.screen.restore_cursor();
             }
             _ => {
-                // Handle sequences with leading byte (like DA2)
                 if csi.leading_byte == b'>' && csi.final_byte == b'c' {
-                    // DA2 - Secondary Device Attributes
-                    // Respond with a generic xterm-like version: > 0 ; 136 ; 0 c
                     self.queue_response(b"\x1b[>0;136;0c".to_vec());
-                } else if csi.private && csi.final_byte == b'p' && csi.intermediates == vec![b'$'] {
-                    // DECRQM - Request Mode
-                    // Respond for each requested mode; if none, ignore
-                    for mode in csi.params.iter() {
-                        let pm = self.decrqm_status(mode);
-                        let response = format!("\x1b[?{};{}$y", mode, pm);
-                        self.queue_response(response.into_bytes());
-                    }
                 } else {
                     log::debug!(
                         "Unknown CSI sequence: lead={:?} inter={:?} params={:?} {}",
@@ -448,14 +437,15 @@ impl Terminal {
                 }
             }
             b'c' => {
-                // DA1 - Primary Device Attributes
-                // Respond as VT220 with advanced video option
-                // Response: CSI ? 62 ; 1 ; 2 ; 6 ; 7 ; 8 ; 9 c
-                // This indicates: VT220, 132 columns, printer, selective erase,
-                // user-defined keys, national replacement character sets, technical characters
-                // A simpler response that works well: CSI ? 1 ; 2 c (VT100 with AVO)
                 self.queue_response(b"\x1b[?1;2c".to_vec());
                 log::debug!("DA1 request: responding as VT100 with AVO");
+            }
+            b'p' if csi.intermediates == vec![b'$'] => {
+                for mode in csi.params.iter() {
+                    let pm = self.decrqm_status(mode);
+                    let response = format!("\x1b[?{};{}$y", mode, pm);
+                    self.queue_response(response.into_bytes());
+                }
             }
             _ => {
                 log::debug!(
