@@ -665,10 +665,12 @@ impl Screen {
 
     /// Soft reset (DECSTR) - reset modes and cursor but preserve screen contents
     pub fn soft_reset(&mut self) {
+        let was_alternate = self.using_alternate;
         self.cursor = Cursor::new();
         self.saved_cursor_primary = SavedCursor::default();
         self.saved_cursor_alternate = SavedCursor::default();
         self.modes = Modes::new();
+        self.modes.alternate_screen = was_alternate;
         self.scroll_region = None;
         self.charset = CharsetState::new();
         self.last_printed_char = None;
