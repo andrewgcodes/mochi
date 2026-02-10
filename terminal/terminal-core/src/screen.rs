@@ -663,6 +663,22 @@ impl Screen {
         *self = Self::new(dims);
     }
 
+    /// Soft reset (DECSTR) - reset modes and cursor but preserve screen contents
+    pub fn soft_reset(&mut self) {
+        self.cursor = Cursor::new();
+        self.saved_cursor_primary = SavedCursor::default();
+        self.saved_cursor_alternate = SavedCursor::default();
+        self.modes = Modes::new();
+        self.scroll_region = None;
+        self.charset = CharsetState::new();
+        self.last_printed_char = None;
+        let cols = self.cols();
+        self.tab_stops = vec![false; cols];
+        for i in (0..cols).step_by(DEFAULT_TAB_WIDTH) {
+            self.tab_stops[i] = true;
+        }
+    }
+
     /// Create a snapshot of the current state
     pub fn snapshot(&self, include_scrollback: bool) -> Snapshot {
         Snapshot::from_terminal(

@@ -493,8 +493,8 @@ impl Terminal {
                 }
             }
             ([b'!'], b'p') => {
-                // DECSTR - Soft terminal reset
-                self.screen.reset();
+                // DECSTR - Soft terminal reset (preserve grid/scrollback)
+                self.screen.soft_reset();
             }
             _ => {
                 log::debug!(
