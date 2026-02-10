@@ -9,6 +9,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::Color;
 
+/// Underline style variants (SGR 4:x subparameters)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum UnderlineStyle {
+    #[default]
+    None,
+    Single,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
+}
+
 /// Attributes that affect how a cell is rendered
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CellAttributes {
@@ -24,6 +36,10 @@ pub struct CellAttributes {
     pub italic: bool,
     /// Underlined text (SGR 4)
     pub underline: bool,
+    /// Underline style (SGR 4:0-4:5)
+    pub underline_style: UnderlineStyle,
+    /// Underline color (SGR 58)
+    pub underline_color: Color,
     /// Blinking text (SGR 5) - typically rendered as bold or ignored
     pub blink: bool,
     /// Inverse/reverse video (SGR 7)

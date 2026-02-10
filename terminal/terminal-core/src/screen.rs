@@ -50,6 +50,8 @@ pub struct Screen {
     next_hyperlink_id: u32,
     /// Character set state
     charset: CharsetState,
+    /// Last printed character (for REP - repeat character)
+    last_printed_char: Option<char>,
 }
 
 impl Screen {
@@ -76,7 +78,13 @@ impl Screen {
             hyperlinks: Vec::new(),
             next_hyperlink_id: 1,
             charset: CharsetState::new(),
+            last_printed_char: None,
         }
+    }
+
+    /// Get the last printed character (for REP)
+    pub fn last_printed_char(&self) -> Option<char> {
+        self.last_printed_char
     }
 
     /// Get the current grid (primary or alternate)
@@ -194,6 +202,7 @@ impl Screen {
     pub fn print(&mut self, c: char) {
         // Translate character through current charset
         let c = self.charset.translate(c);
+        self.last_printed_char = Some(c);
         // Clear single shift after use
         self.charset.clear_single_shift();
 
@@ -652,6 +661,24 @@ impl Screen {
     pub fn reset(&mut self) {
         let dims = self.dimensions();
         *self = Self::new(dims);
+    }
+
+    /// Soft reset (DECSTR) - reset modes and cursor but preserve screen contents
+    pub fn soft_reset(&mut self) {
+        let was_alternate = self.using_alternate;
+        self.cursor = Cursor::new();
+        self.saved_cursor_primary = SavedCursor::default();
+        self.saved_cursor_alternate = SavedCursor::default();
+        self.modes = Modes::new();
+        self.modes.alternate_screen = was_alternate;
+        self.scroll_region = None;
+        self.charset = CharsetState::new();
+        self.last_printed_char = None;
+        let cols = self.cols();
+        self.tab_stops = vec![false; cols];
+        for i in (0..cols).step_by(DEFAULT_TAB_WIDTH) {
+            self.tab_stops[i] = true;
+        }
     }
 
     /// Create a snapshot of the current state
