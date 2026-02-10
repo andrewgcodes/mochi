@@ -654,9 +654,12 @@ impl Terminal {
                     // Underline on; handle styles via subparams if present
                     attrs.underline = true;
                     if let Some(sub) = csi.params.subparams(i) {
-                        let style = sub.get(0).copied().unwrap_or(1);
+                        let style = sub.first().copied().unwrap_or(1);
                         attrs.underline_style = match style {
-                            0 => { attrs.underline = false; UnderlineStyle::None }
+                            0 => {
+                                attrs.underline = false;
+                                UnderlineStyle::None
+                            }
                             1 => UnderlineStyle::Single,
                             2 => UnderlineStyle::Double,
                             3 => UnderlineStyle::Curly,
@@ -678,7 +681,10 @@ impl Terminal {
                     attrs.faint = false;
                 }
                 23 => attrs.italic = false,
-                24 => { attrs.underline = false; attrs.underline_style = UnderlineStyle::None; }
+                24 => {
+                    attrs.underline = false;
+                    attrs.underline_style = UnderlineStyle::None;
+                }
                 25 => attrs.blink = false,
                 27 => attrs.inverse = false,
                 28 => attrs.hidden = false,
@@ -873,7 +879,23 @@ impl Terminal {
         // Known modes we track
         let known = matches!(
             mode,
-            1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 25 | 1000 | 1002 | 1003 | 1004 | 1006 | 1049 | 2004 | 2026
+            1 | 2
+                | 3
+                | 4
+                | 5
+                | 6
+                | 7
+                | 8
+                | 9
+                | 25
+                | 1000
+                | 1002
+                | 1003
+                | 1004
+                | 1006
+                | 1049
+                | 2004
+                | 2026
         );
         if !known {
             return 0;
