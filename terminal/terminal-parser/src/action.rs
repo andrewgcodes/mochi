@@ -85,6 +85,8 @@ pub struct CsiAction {
     pub final_byte: u8,
     /// Whether this is a private sequence (starts with ?)
     pub private: bool,
+    /// Leading private marker byte (0 if none, b'?' for DEC private, b'>' for DA2/XTVERSION, etc.)
+    pub leading_byte: u8,
 }
 
 impl CsiAction {
@@ -101,6 +103,11 @@ impl CsiAction {
     /// Check if this is a specific private CSI sequence
     pub fn is_private(&self, final_byte: u8) -> bool {
         self.final_byte == final_byte && self.intermediates.is_empty() && self.private
+    }
+
+    /// Check if this CSI sequence has a specific leading byte (e.g. b'>' for DA2)
+    pub fn has_leading(&self, byte: u8) -> bool {
+        self.leading_byte == byte
     }
 }
 
@@ -150,6 +157,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            leading_byte: 0,
         };
 
         assert_eq!(csi.param(0, 1), 10);
@@ -164,6 +172,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            leading_byte: 0,
         };
 
         assert!(csi.is(b'H'));
@@ -178,6 +187,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'h',
             private: true,
+            leading_byte: b'?',
         };
 
         assert!(csi.is_private(b'h'));

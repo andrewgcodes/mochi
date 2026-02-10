@@ -2,7 +2,7 @@
 //!
 //! Integrates the parser and screen model to handle terminal emulation.
 
-use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
+use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot, UnderlineStyle};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
 
 /// Terminal emulator state
@@ -277,6 +277,11 @@ impl Terminal {
                 let col = csi.param(0, 1) as usize;
                 self.screen.set_cursor_col(col);
             }
+            b'`' => {
+                // HPA - Horizontal Position Absolute (same as CHA)
+                let col = csi.param(0, 1) as usize;
+                self.screen.set_cursor_col(col);
+            }
             b'H' | b'f' => {
                 // CUP/HVP - Cursor Position
                 let row = csi.param(0, 1) as usize;
@@ -349,6 +354,15 @@ impl Terminal {
                 // SGR - Select Graphic Rendition
                 self.handle_sgr(&csi);
             }
+            b'b' => {
+                // REP - Repeat last printed character
+                let n = csi.param(0, 1) as usize;
+                if let Some(ch) = self.screen.last_printed_char() {
+                    for _ in 0..n {
+                        self.screen.print(ch);
+                    }
+                }
+            }
             b'n' => {
                 // DSR - Device Status Report
                 let mode = csi.param(0, 0);
@@ -392,11 +406,28 @@ impl Terminal {
                 self.screen.restore_cursor();
             }
             _ => {
-                log::debug!(
-                    "Unknown CSI sequence: {:?} {}",
-                    csi.params,
-                    csi.final_byte as char
-                );
+                // Handle sequences with leading byte (like DA2)
+                if csi.leading_byte == b'>' && csi.final_byte == b'c' {
+                    // DA2 - Secondary Device Attributes
+                    // Respond with a generic xterm-like version: > 0 ; 136 ; 0 c
+                    self.queue_response(b"\x1b[>0;136;0c".to_vec());
+                } else if csi.private && csi.final_byte == b'p' && csi.intermediates == vec![b'$'] {
+                    // DECRQM - Request Mode
+                    // Respond for each requested mode; if none, ignore
+                    for mode in csi.params.iter() {
+                        let pm = self.decrqm_status(mode);
+                        let response = format!("\x1b[?{};{}$y", mode, pm);
+                        self.queue_response(response.into_bytes());
+                    }
+                } else {
+                    log::debug!(
+                        "Unknown CSI sequence: lead={:?} inter={:?} params={:?} {}",
+                        csi.leading_byte as char,
+                        csi.intermediates,
+                        csi.params,
+                        csi.final_byte as char
+                    );
+                }
             }
         }
     }
@@ -470,6 +501,10 @@ impl Terminal {
                     }
                     _ => {}
                 }
+            }
+            ([b'!'], b'p') => {
+                // DECSTR - Soft terminal reset
+                self.screen.reset();
             }
             _ => {
                 log::debug!(
@@ -615,7 +650,24 @@ impl Terminal {
                 1 => attrs.bold = true,
                 2 => attrs.faint = true,
                 3 => attrs.italic = true,
-                4 => attrs.underline = true,
+                4 => {
+                    // Underline on; handle styles via subparams if present
+                    attrs.underline = true;
+                    if let Some(sub) = csi.params.subparams(i) {
+                        let style = sub.get(0).copied().unwrap_or(1);
+                        attrs.underline_style = match style {
+                            0 => { attrs.underline = false; UnderlineStyle::None }
+                            1 => UnderlineStyle::Single,
+                            2 => UnderlineStyle::Double,
+                            3 => UnderlineStyle::Curly,
+                            4 => UnderlineStyle::Dotted,
+                            5 => UnderlineStyle::Dashed,
+                            _ => UnderlineStyle::Single,
+                        };
+                    } else {
+                        attrs.underline_style = UnderlineStyle::Single;
+                    }
+                }
                 5 => attrs.blink = true,
                 7 => attrs.inverse = true,
                 8 => attrs.hidden = true,
@@ -626,7 +678,7 @@ impl Terminal {
                     attrs.faint = false;
                 }
                 23 => attrs.italic = false,
-                24 => attrs.underline = false,
+                24 => { attrs.underline = false; attrs.underline_style = UnderlineStyle::None; }
                 25 => attrs.blink = false,
                 27 => attrs.inverse = false,
                 28 => attrs.hidden = false,
@@ -691,6 +743,34 @@ impl Terminal {
                     }
                 }
                 49 => attrs.bg = Color::Default,
+                58 => {
+                    // Underline color
+                    if i + 1 < params.len() {
+                        match params[i + 1] {
+                            5 => {
+                                if i + 2 < params.len() {
+                                    attrs.underline_color = Color::Indexed(params[i + 2] as u8);
+                                    i += 2;
+                                }
+                            }
+                            2 => {
+                                if i + 4 < params.len() {
+                                    attrs.underline_color = Color::Rgb {
+                                        r: params[i + 2] as u8,
+                                        g: params[i + 3] as u8,
+                                        b: params[i + 4] as u8,
+                                    };
+                                    i += 4;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                59 => {
+                    // Default underline color
+                    attrs.underline_color = Color::Default;
+                }
                 90..=97 => {
                     // Bright foreground colors
                     attrs.fg = Color::Indexed((param - 90 + 8) as u8);
@@ -786,6 +866,23 @@ impl Terminal {
     /// Queue a response to be sent back to the PTY
     fn queue_response(&mut self, response: Vec<u8>) {
         self.pending_responses.push(response);
+    }
+
+    /// Map DECRQM status for a DEC private mode (1=set, 2=reset, 0=unknown)
+    fn decrqm_status(&self, mode: u16) -> u8 {
+        // Known modes we track
+        let known = matches!(
+            mode,
+            1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 25 | 1000 | 1002 | 1003 | 1004 | 1006 | 1049 | 2004 | 2026
+        );
+        if !known {
+            return 0;
+        }
+        if self.screen.modes().get_dec_mode(mode) {
+            1
+        } else {
+            2
+        }
     }
 }
 

@@ -21,7 +21,7 @@ mod scrollback;
 mod selection;
 mod snapshot;
 
-pub use cell::{Cell, CellAttributes};
+pub use cell::{Cell, CellAttributes, UnderlineStyle};
 pub use charset::{parse_charset_designation, Charset, CharsetState};
 pub use color::Color;
 pub use cursor::{Cursor, CursorStyle};
