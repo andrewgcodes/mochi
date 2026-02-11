@@ -66,8 +66,8 @@ pub struct Parser {
     params_buf: Vec<u8>,
     /// CSI intermediate bytes
     intermediates: Vec<u8>,
-    /// Whether CSI sequence starts with ?
-    private_marker: bool,
+    /// CSI private marker byte (0 = none, '?' = DEC private, '>' = secondary DA, etc.)
+    private_marker: u8,
     /// OSC/DCS string data
     osc_data: Vec<u8>,
     /// DCS parameters
@@ -84,7 +84,7 @@ impl Parser {
             utf8: Utf8Decoder::new(),
             params_buf: Vec::with_capacity(64),
             intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
-            private_marker: false,
+            private_marker: 0,
             osc_data: Vec::with_capacity(256),
             dcs_params: Vec::with_capacity(64),
             esc_intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
@@ -102,7 +102,7 @@ impl Parser {
         self.utf8.reset();
         self.params_buf.clear();
         self.intermediates.clear();
-        self.private_marker = false;
+        self.private_marker = 0;
         self.osc_data.clear();
         self.dcs_params.clear();
         self.esc_intermediates.clear();
@@ -429,7 +429,7 @@ impl Parser {
         self.state = ParserState::CsiEntry;
         self.params_buf.clear();
         self.intermediates.clear();
-        self.private_marker = false;
+        self.private_marker = 0;
     }
 
     fn handle_csi_entry<F>(&mut self, byte: u8, callback: &mut F)
@@ -439,7 +439,7 @@ impl Parser {
         match byte {
             b'?' | b'>' | b'<' | b'=' => {
                 // Private marker
-                self.private_marker = byte == b'?';
+                self.private_marker = byte;
                 self.state = ParserState::CsiParam;
             }
             b'0'..=b'9' | b';' | b':' => {
@@ -528,7 +528,8 @@ impl Parser {
             params,
             intermediates: self.intermediates.clone(),
             final_byte,
-            private: self.private_marker,
+            private: self.private_marker == b'?',
+            marker: self.private_marker,
         };
         callback(Action::Csi(action));
     }
