@@ -370,10 +370,8 @@ impl App {
                     }
                 }
             }
-        } else {
-            if self.renaming_tab.is_some() {
-                self.confirm_rename();
-            }
+        } else if self.renaming_tab.is_some() {
+            self.confirm_rename();
         }
     }
 

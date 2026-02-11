@@ -175,6 +175,7 @@ impl Renderer {
     }
 
     /// Render the terminal screen
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         screen: &Screen,
