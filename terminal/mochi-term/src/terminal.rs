@@ -222,7 +222,13 @@ impl Terminal {
 
     /// Handle CSI sequences
     fn handle_csi(&mut self, csi: CsiAction) {
-        // Handle private sequences
+        // Handle sequences with > marker (DA2, XTVERSION, etc.)
+        if csi.marker == b'>' {
+            self.handle_csi_gt(&csi);
+            return;
+        }
+
+        // Handle private sequences (? marker)
         if csi.private {
             self.handle_csi_private(&csi);
             return;
@@ -383,9 +389,64 @@ impl Terminal {
                 let bottom = csi.param(1, self.screen.rows() as u16) as usize;
                 self.screen.set_scroll_region(top, bottom);
             }
+            b'b' => {
+                // REP - Repeat preceding graphic character
+                let n = csi.param(0, 1) as usize;
+                let ch = self.screen.last_printed_char();
+                for _ in 0..n {
+                    self.screen.print(ch);
+                }
+            }
             b's' => {
                 // Save cursor (ANSI.SYS)
                 self.screen.save_cursor();
+            }
+            b't' => {
+                // Window manipulation (XTWINOPS)
+                let mode = csi.param(0, 0);
+                match mode {
+                    8 => {
+                        // Resize terminal (ignored - host controls size)
+                    }
+                    11 => {
+                        // Report window state (not iconified)
+                        self.queue_response(b"\x1b[1t".to_vec());
+                    }
+                    13 => {
+                        // Report window position
+                        self.queue_response(b"\x1b[3;0;0t".to_vec());
+                    }
+                    14 => {
+                        // Report window size in pixels
+                        let rows = self.screen.rows();
+                        let cols = self.screen.cols();
+                        let response = format!("\x1b[4;{};{}t", rows * 16, cols * 8);
+                        self.queue_response(response.into_bytes());
+                    }
+                    18 => {
+                        // Report terminal size in characters
+                        let rows = self.screen.rows();
+                        let cols = self.screen.cols();
+                        let response = format!("\x1b[8;{};{}t", rows, cols);
+                        self.queue_response(response.into_bytes());
+                    }
+                    19 => {
+                        // Report screen size in characters (same as terminal size)
+                        let rows = self.screen.rows();
+                        let cols = self.screen.cols();
+                        let response = format!("\x1b[9;{};{}t", rows, cols);
+                        self.queue_response(response.into_bytes());
+                    }
+                    22 => {
+                        // Push title to stack (ignored)
+                    }
+                    23 => {
+                        // Pop title from stack (ignored)
+                    }
+                    _ => {
+                        log::debug!("Unknown window manipulation mode: {}", mode);
+                    }
+                }
             }
             b'u' => {
                 // Restore cursor (ANSI.SYS)
@@ -394,6 +455,35 @@ impl Terminal {
             _ => {
                 log::debug!(
                     "Unknown CSI sequence: {:?} {}",
+                    csi.params,
+                    csi.final_byte as char
+                );
+            }
+        }
+    }
+
+    /// Handle CSI sequences with > marker (DA2, XTVERSION, etc.)
+    fn handle_csi_gt(&mut self, csi: &CsiAction) {
+        match csi.final_byte {
+            b'c' => {
+                // DA2 - Secondary Device Attributes
+                // Response: CSI > Pp ; Pv ; Pc c
+                // Pp=41 (mochi), Pv=version, Pc=0
+                self.queue_response(b"\x1b[>41;100;0c".to_vec());
+                log::debug!("DA2 request: responding as mochi terminal");
+            }
+            b'q' => {
+                // XTVERSION - Report terminal version
+                // Response: DCS > | terminal-name(version) ST
+                self.queue_response(b"\x1bP>|mochi(0.1.0)\x1b\\".to_vec());
+                log::debug!("XTVERSION request: responding with mochi version");
+            }
+            b'm' | b'n' => {
+                // XTMODKEYS - xterm modifyKeys (ignore but don't warn)
+            }
+            _ => {
+                log::debug!(
+                    "Unknown CSI > sequence: {:?}{}",
                     csi.params,
                     csi.final_byte as char
                 );
@@ -418,15 +508,33 @@ impl Terminal {
             }
             b'c' => {
                 // DA1 - Primary Device Attributes
-                // Respond as VT220 with advanced video option
-                // Response: CSI ? 62 ; 1 ; 2 ; 6 ; 7 ; 8 ; 9 c
-                // This indicates: VT220, 132 columns, printer, selective erase,
-                // user-defined keys, national replacement character sets, technical characters
-                // A simpler response that works well: CSI ? 1 ; 2 c (VT100 with AVO)
-                self.queue_response(b"\x1b[?1;2c".to_vec());
-                log::debug!("DA1 request: responding as VT100 with AVO");
+                // Respond as VT220 with capabilities tmux expects:
+                // 62 = VT220, 4 = sixel, 22 = ANSI color
+                self.queue_response(b"\x1b[?62;4;22c".to_vec());
+                log::debug!("DA1 request: responding as VT220");
+            }
+            b'n' => {
+                // DECDSR - DEC-specific Device Status Report
+                let mode = csi.param(0, 0);
+                match mode {
+                    6 => {
+                        // Extended cursor position report (DECXCPR)
+                        let row = self.screen.cursor().row + 1;
+                        let col = self.screen.cursor().col + 1;
+                        let response = format!("\x1b[?{};{}R", row, col);
+                        self.queue_response(response.into_bytes());
+                    }
+                    _ => {
+                        log::debug!("Unknown DECDSR mode: {}", mode);
+                    }
+                }
             }
             _ => {
+                // Check for DECRQM (CSI ? Ps $ p)
+                if csi.final_byte == b'p' && csi.intermediates.first() == Some(&b'$') {
+                    self.handle_decrqm(csi);
+                    return;
+                }
                 log::debug!(
                     "Unknown private CSI: ?{:?}{}",
                     csi.params,
@@ -436,9 +544,36 @@ impl Terminal {
         }
     }
 
+    /// Handle DECRQM - DEC Request Mode (CSI ? Ps $ p)
+    fn handle_decrqm(&mut self, csi: &CsiAction) {
+        let mode = csi.param(0, 0);
+        let status = if self.screen.modes().get_dec_mode(mode) {
+            1 // set
+        } else {
+            2 // reset
+        };
+        let response = format!("\x1b[?{};{}$y", mode, status);
+        self.queue_response(response.into_bytes());
+        log::debug!(
+            "DECRQM: mode {} is {}",
+            mode,
+            if status == 1 { "set" } else { "reset" }
+        );
+    }
+
     /// Handle CSI sequences with intermediate bytes
     fn handle_csi_intermediate(&mut self, csi: &CsiAction) {
         match (csi.intermediates.as_slice(), csi.final_byte) {
+            ([b'$'], b'p') if csi.private => {
+                // DECRQM - DEC Request Mode (CSI ? Ps $ p)
+                self.handle_decrqm(csi);
+            }
+            ([b'!'], b'p') => {
+                // DECSTR - Soft Terminal Reset
+                self.screen.reset();
+                self.parser.reset();
+                log::debug!("DECSTR: soft terminal reset");
+            }
             ([b' '], b'q') => {
                 // DECSCUSR - Set Cursor Style
                 let style = csi.param(0, 1);
@@ -525,9 +660,17 @@ impl Terminal {
                 // Focus events
                 self.screen.modes_mut().focus_events = value;
             }
+            1005 => {
+                // UTF-8 mouse mode
+                self.screen.modes_mut().mouse_utf8 = value;
+            }
             1006 => {
                 // SGR mouse mode
                 self.screen.modes_mut().mouse_sgr = value;
+            }
+            1015 => {
+                // urxvt mouse mode
+                self.screen.modes_mut().mouse_urxvt = value;
             }
             47 => {
                 // Alternate screen buffer (without clearing)
@@ -736,13 +879,25 @@ impl Terminal {
                 log::debug!("Set color {}: {}", index, color);
             }
             OscAction::SetForegroundColor(color) => {
-                log::debug!("Set foreground color: {}", color);
+                if color == "?" {
+                    self.queue_response(b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\".to_vec());
+                } else {
+                    log::debug!("Set foreground color: {}", color);
+                }
             }
             OscAction::SetBackgroundColor(color) => {
-                log::debug!("Set background color: {}", color);
+                if color == "?" {
+                    self.queue_response(b"\x1b]11;rgb:0000/0000/0000\x1b\\".to_vec());
+                } else {
+                    log::debug!("Set background color: {}", color);
+                }
             }
             OscAction::SetCursorColor(color) => {
-                log::debug!("Set cursor color: {}", color);
+                if color == "?" {
+                    self.queue_response(b"\x1b]12;rgb:ffff/ffff/ffff\x1b\\".to_vec());
+                } else {
+                    log::debug!("Set cursor color: {}", color);
+                }
             }
             OscAction::SetCurrentDirectory(dir) => {
                 log::debug!("Set current directory: {}", dir);

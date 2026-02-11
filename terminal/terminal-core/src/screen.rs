@@ -50,6 +50,8 @@ pub struct Screen {
     next_hyperlink_id: u32,
     /// Character set state
     charset: CharsetState,
+    /// Last printed character (for REP - CSI b)
+    last_printed_char: char,
 }
 
 impl Screen {
@@ -76,6 +78,7 @@ impl Screen {
             hyperlinks: Vec::new(),
             next_hyperlink_id: 1,
             charset: CharsetState::new(),
+            last_printed_char: ' ',
         }
     }
 
@@ -190,10 +193,16 @@ impl Screen {
         self.scroll_region = None;
     }
 
+    /// Get the last printed character (for REP - CSI b)
+    pub fn last_printed_char(&self) -> char {
+        self.last_printed_char
+    }
+
     /// Print a character at the current cursor position
     pub fn print(&mut self, c: char) {
         // Translate character through current charset
         let c = self.charset.translate(c);
+        self.last_printed_char = c;
         // Clear single shift after use
         self.charset.clear_single_shift();
 

@@ -85,6 +85,8 @@ pub struct CsiAction {
     pub final_byte: u8,
     /// Whether this is a private sequence (starts with ?)
     pub private: bool,
+    /// The actual private marker byte (b'?', b'>', b'<', b'=', or 0 for none)
+    pub marker: u8,
 }
 
 impl CsiAction {
@@ -150,6 +152,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            marker: 0,
         };
 
         assert_eq!(csi.param(0, 1), 10);
@@ -164,6 +167,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            marker: 0,
         };
 
         assert!(csi.is(b'H'));
@@ -178,6 +182,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'h',
             private: true,
+            marker: b'?',
         };
 
         assert!(csi.is_private(b'h'));
