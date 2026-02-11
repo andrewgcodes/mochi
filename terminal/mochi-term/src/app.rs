@@ -363,11 +363,11 @@ impl App {
 
         // Resize all tabs
         if cols > 0 && rows > 0 {
-                        for tab in &mut self.tabs {
-                            tab.terminal.resize(cols, rows);
-                            tab.terminal.set_pixel_size(size.width, size.height);
-                            let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-                        }
+            for tab in &mut self.tabs {
+                tab.terminal.resize(cols, rows);
+                tab.terminal.set_pixel_size(size.width, size.height);
+                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+            }
         }
 
         self.needs_redraw = true;
@@ -620,11 +620,11 @@ impl App {
 
         // Resize all tabs
         if cols > 0 && rows > 0 {
-                        for tab in &mut self.tabs {
-                            tab.terminal.resize(cols, rows);
-                            tab.terminal.set_pixel_size(size.width, size.height);
-                            let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-                        }
+            for tab in &mut self.tabs {
+                tab.terminal.resize(cols, rows);
+                tab.terminal.set_pixel_size(size.width, size.height);
+                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+            }
         }
 
         self.needs_redraw = true;
@@ -652,11 +652,11 @@ impl App {
 
         // Resize all tabs
         if cols > 0 && rows > 0 {
-                        for tab in &mut self.tabs {
-                            tab.terminal.resize(cols, rows);
-                            tab.terminal.set_pixel_size(size.width, size.height);
-                            let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-                        }
+            for tab in &mut self.tabs {
+                tab.terminal.resize(cols, rows);
+                tab.terminal.set_pixel_size(size.width, size.height);
+                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+            }
         }
 
         self.needs_redraw = true;
@@ -1069,7 +1069,8 @@ impl App {
                     renderer.set_colors(colors.clone());
                 }
                 for tab in &mut self.tabs {
-                    tab.terminal.set_colors(colors.foreground_rgb(), colors.background_rgb());
+                    tab.terminal
+                        .set_colors(colors.foreground_rgb(), colors.background_rgb());
                 }
 
                 log::info!("Configuration reloaded successfully");
@@ -1098,7 +1099,8 @@ impl App {
             renderer.set_colors(colors.clone());
         }
         for tab in &mut self.tabs {
-            tab.terminal.set_colors(colors.foreground_rgb(), colors.background_rgb());
+            tab.terminal
+                .set_colors(colors.foreground_rgb(), colors.background_rgb());
         }
 
         self.needs_redraw = true;
