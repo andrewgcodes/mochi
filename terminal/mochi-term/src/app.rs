@@ -291,6 +291,7 @@ impl App {
             return false;
         }
 
+        self.invalidate_rename();
         self.tabs.remove(self.active_tab);
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
@@ -392,7 +393,7 @@ impl App {
                     self.rename_buffer.clone()
                 };
                 self.tabs[tab_index].title = new_title;
-                self.tabs[tab_index].custom_title = true;
+                self.tabs[tab_index].custom_title = !self.rename_buffer.is_empty();
                 log::info!(
                     "Renamed tab {} to '{}'",
                     tab_index + 1,
@@ -417,6 +418,13 @@ impl App {
             self.needs_redraw = true;
             log::info!("Cancelled tab rename");
         }
+    }
+
+    fn invalidate_rename(&mut self) {
+        self.renaming_tab = None;
+        self.rename_buffer.clear();
+        self.rename_original.clear();
+        self.rename_cursor = 0;
     }
 
     fn handle_rename_key_input(&mut self, event: &winit::event::KeyEvent) -> bool {
@@ -1390,7 +1398,11 @@ impl App {
         let active_running = self.tabs[self.active_tab].child.is_running();
 
         // Remove any tabs whose children have exited
+        let old_len = self.tabs.len();
         self.tabs.retain(|tab| tab.child.is_running());
+        if self.tabs.len() != old_len {
+            self.invalidate_rename();
+        }
 
         // Adjust active tab index if needed
         if self.active_tab >= self.tabs.len() {
