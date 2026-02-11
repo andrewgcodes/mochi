@@ -330,7 +330,7 @@ impl App {
             return;
         }
         let title = self.tabs[index].title.clone();
-        let cursor = title.len();
+        let cursor = title.chars().count();
         self.rename_original_title = title.clone();
         self.renaming_tab = Some((index, title, cursor));
         self.needs_redraw = true;
@@ -1394,8 +1394,13 @@ impl App {
         // Check if active tab's child is running
         let active_running = self.tabs[self.active_tab].child.is_running();
 
-        // Remove any tabs whose children have exited
         self.tabs.retain(|tab| tab.child.is_running());
+
+        if let Some((idx, _, _)) = &self.renaming_tab {
+            if *idx >= self.tabs.len() {
+                self.renaming_tab = None;
+            }
+        }
 
         // Adjust active tab index if needed
         if self.active_tab >= self.tabs.len() {
