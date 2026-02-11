@@ -780,6 +780,7 @@ impl App {
             && self.renaming_tab.is_some()
         {
             self.cancel_rename();
+            return;
         }
 
         // Handle scrollbar dragging first (left button only)
