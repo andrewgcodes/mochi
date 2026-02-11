@@ -238,7 +238,11 @@ impl Terminal {
                     let status = if set { 1 } else { 2 };
                     let response = format!("\x1b[?{};{}$y", mode, status);
                     self.queue_response(response.into_bytes());
-                    log::debug!("DECRQM: query mode {} -> {}", mode, if set { "set" } else { "reset" });
+                    log::debug!(
+                        "DECRQM: query mode {} -> {}",
+                        mode,
+                        if set { "set" } else { "reset" }
+                    );
                 }
                 return;
             }
@@ -265,7 +269,11 @@ impl Terminal {
                     log::debug!("XTVERSION request: responding with {}", text);
                 }
                 _ => {
-                    log::debug!("Unknown CSI '>' sequence: {:?} {}", csi.params, csi.final_byte as char);
+                    log::debug!(
+                        "Unknown CSI '>' sequence: {:?} {}",
+                        csi.params,
+                        csi.final_byte as char
+                    );
                 }
             }
             return;
