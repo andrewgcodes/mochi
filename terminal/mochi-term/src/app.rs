@@ -36,8 +36,12 @@ fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
     cell_size.height as u32 + TAB_BAR_PADDING
 }
 
+/// Monotonically increasing counter for unique tab IDs
+static NEXT_TAB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// A single terminal tab
 struct Tab {
+    id: u64,
     terminal: Terminal,
     child: Child,
     title: String,
@@ -48,6 +52,7 @@ struct Tab {
 impl Tab {
     fn new(terminal: Terminal, child: Child) -> Self {
         Self {
+            id: NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             terminal,
             child,
             title: String::from("Terminal"),
@@ -98,14 +103,14 @@ pub struct App {
     scrollbar_drag_start_y: f64,
     /// Scroll offset when scrollbar drag started
     scrollbar_drag_start_offset: usize,
-    /// Tab being edited (index), None if not editing
-    editing_tab: Option<usize>,
+    /// ID of the tab being edited, None if not editing
+    editing_tab: Option<u64>,
     /// Text buffer for tab rename editing
     editing_text: String,
     /// Timestamp of last tab bar click for double-click detection
     last_tab_click_time: Option<Instant>,
-    /// Index of last clicked tab for double-click detection
-    last_tab_click_index: Option<usize>,
+    /// ID of last clicked tab for double-click detection
+    last_tab_click_index: Option<u64>,
 }
 
 impl App {
@@ -345,15 +350,22 @@ impl App {
                     } else if self.active_tab > tab_index {
                         self.active_tab -= 1;
                     }
+                    if let Some(editing_id) = self.editing_tab {
+                        if !self.tabs.iter().any(|t| t.id == editing_id) {
+                            self.editing_tab = None;
+                            self.editing_text.clear();
+                        }
+                    }
                     self.needs_redraw = true;
                     log::info!("Closed tab via click {}", tab_index + 1);
                 } else {
                     let now = Instant::now();
+                    let tab_id = self.tabs[tab_index].id;
                     let is_double_click = self
                         .last_tab_click_time
                         .map(|t| now.duration_since(t).as_millis() < 400)
                         .unwrap_or(false)
-                        && self.last_tab_click_index == Some(tab_index);
+                        && self.last_tab_click_index == Some(tab_id);
 
                     if is_double_click {
                         self.start_tab_rename(tab_index);
@@ -362,7 +374,7 @@ impl App {
                     } else {
                         self.switch_to_tab(tab_index);
                         self.last_tab_click_time = Some(now);
-                        self.last_tab_click_index = Some(tab_index);
+                        self.last_tab_click_index = Some(tab_id);
                     }
                 }
             }
@@ -373,32 +385,35 @@ impl App {
         if index >= self.tabs.len() {
             return;
         }
-        self.editing_tab = Some(index);
+        self.editing_tab = Some(self.tabs[index].id);
         self.editing_text = self.tabs[index].effective_title().to_string();
         self.needs_redraw = true;
         log::info!("Started renaming tab {}", index + 1);
     }
 
+    fn editing_tab_index(&self) -> Option<usize> {
+        let id = self.editing_tab?;
+        self.tabs.iter().position(|t| t.id == id)
+    }
+
     fn confirm_tab_rename(&mut self) {
-        if let Some(index) = self.editing_tab {
-            if index < self.tabs.len() {
-                let trimmed = self.editing_text.trim().to_string();
-                if trimmed.is_empty() {
-                    self.tabs[index].custom_title = None;
-                } else {
-                    self.tabs[index].custom_title = Some(trimmed);
-                }
-                if index == self.active_tab {
-                    if let Some(window) = &self.window {
-                        window.set_title(self.tabs[index].effective_title());
-                    }
-                }
-                log::info!(
-                    "Renamed tab {} to {:?}",
-                    index + 1,
-                    self.tabs[index].effective_title()
-                );
+        if let Some(index) = self.editing_tab_index() {
+            let trimmed = self.editing_text.trim().to_string();
+            if trimmed.is_empty() {
+                self.tabs[index].custom_title = None;
+            } else {
+                self.tabs[index].custom_title = Some(trimmed);
             }
+            if index == self.active_tab {
+                if let Some(window) = &self.window {
+                    window.set_title(self.tabs[index].effective_title());
+                }
+            }
+            log::info!(
+                "Renamed tab {} to {:?}",
+                index + 1,
+                self.tabs[index].effective_title()
+            );
         }
         self.editing_tab = None;
         self.editing_text.clear();
@@ -1274,14 +1289,13 @@ impl App {
             return;
         }
 
-        let editing_tab = self.editing_tab;
+        let editing_tab_id = self.editing_tab;
         let editing_text = &self.editing_text;
         let tab_infos: Vec<TabInfo<'_>> = self
             .tabs
             .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                if editing_tab == Some(i) {
+            .map(|t| {
+                if editing_tab_id == Some(t.id) {
                     TabInfo {
                         title: editing_text,
                         is_editing: true,
@@ -1322,15 +1336,12 @@ impl App {
         // Check if active tab's child is running
         let active_running = self.tabs[self.active_tab].child.is_running();
 
-        let old_len = self.tabs.len();
         self.tabs.retain(|tab| tab.child.is_running());
 
-        if self.tabs.len() != old_len {
-            if let Some(editing) = self.editing_tab {
-                if editing >= self.tabs.len() {
-                    self.editing_tab = None;
-                    self.editing_text.clear();
-                }
+        if let Some(editing_id) = self.editing_tab {
+            if !self.tabs.iter().any(|t| t.id == editing_id) {
+                self.editing_tab = None;
+                self.editing_text.clear();
             }
         }
 
