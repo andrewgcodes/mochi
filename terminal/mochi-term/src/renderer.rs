@@ -16,6 +16,8 @@ use crate::config::ColorScheme;
 /// Information about a tab for rendering
 pub struct TabInfo<'a> {
     pub title: &'a str,
+    pub is_renaming: bool,
+    pub rename_cursor: Option<usize>,
 }
 
 /// Cell dimensions in pixels
@@ -876,21 +878,63 @@ impl Renderer {
             let text_y = ((tab_bar_height as f32 - cell_size.height) / 2.0).max(0.0) as i32;
             let max_text_width = tab_width.saturating_sub(tab_padding * 2 + close_btn_width) as i32;
 
-            Self::draw_text_static(
-                buffer,
-                glyph_cache,
-                tab.title,
-                text_x,
-                text_y,
-                text_color,
-                cell_size.width,
-                cell_size.baseline,
-                buf_width,
-                buf_height,
-                max_text_width,
-            );
+            if tab.is_renaming {
+                let input_bg = Self::blend_color(bg_color, (255, 255, 255), 0.15);
+                Self::fill_rect_static(
+                    buffer,
+                    text_x - 2,
+                    text_y,
+                    max_text_width + 4,
+                    cell_size.height as i32,
+                    input_bg,
+                    buf_width,
+                    buf_height,
+                );
+                Self::draw_text_static(
+                    buffer,
+                    glyph_cache,
+                    tab.title,
+                    text_x,
+                    text_y,
+                    fg_color,
+                    cell_size.width,
+                    cell_size.baseline,
+                    buf_width,
+                    buf_height,
+                    max_text_width,
+                );
+                if let Some(cursor_pos) = tab.rename_cursor {
+                    let cursor_x = text_x + (cursor_pos as f32 * cell_size.width) as i32;
+                    if cursor_x - text_x < max_text_width {
+                        Self::fill_rect_static(
+                            buffer,
+                            cursor_x,
+                            text_y,
+                            2,
+                            cell_size.height as i32,
+                            fg_color,
+                            buf_width,
+                            buf_height,
+                        );
+                    }
+                }
+            } else {
+                Self::draw_text_static(
+                    buffer,
+                    glyph_cache,
+                    tab.title,
+                    text_x,
+                    text_y,
+                    text_color,
+                    cell_size.width,
+                    cell_size.baseline,
+                    buf_width,
+                    buf_height,
+                    max_text_width,
+                );
+            }
 
-            if tabs.len() > 1 {
+            if tabs.len() > 1 && !tab.is_renaming {
                 let close_x = tab_x + tab_width as i32 - close_btn_width as i32;
                 let close_y = text_y;
                 if let Some(glyph) = glyph_cache.get(&('x', false)) {
