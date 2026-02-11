@@ -141,6 +141,21 @@ impl Modes {
             9 => self.mouse_x10,
             25 => self.cursor_visible,
             1000 => self.mouse_vt200,
+    /// Get a DEC private mode by number
+    pub fn get_dec_mode(&self, mode: u16) -> bool {
+        match mode {
+            1 => self.cursor_keys_application,
+            2 => self.ansi_mode,
+            3 => self.column_132,
+            4 => self.smooth_scroll,
+            5 => self.reverse_video,
+            6 => self.origin_mode,
+            7 => self.auto_wrap,
+            8 => self.auto_repeat,
+            9 => self.mouse_x10,
+            25 => self.cursor_visible,
+            47 | 1047 => self.alternate_screen,
+            1000 => self.mouse_vt200,
             1002 => self.mouse_button_event,
             1003 => self.mouse_any_event,
             1004 => self.focus_events,
@@ -150,6 +165,10 @@ impl Modes {
             1049 => self.alternate_screen,
             2004 => self.bracketed_paste,
             2026 => self.synchronized_output,
+            _ => false,
+        }
+    }
+
             _ => false,
         }
     }
