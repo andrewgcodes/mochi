@@ -789,6 +789,7 @@ impl App {
             && state == ElementState::Pressed
         {
             self.confirm_tab_rename();
+            return;
         }
 
         // Handle scrollbar dragging first (left button only)
