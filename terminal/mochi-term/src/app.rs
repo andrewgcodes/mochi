@@ -1310,7 +1310,7 @@ impl App {
                 tab.title = tab.terminal.title().to_string();
                 if i == self.active_tab {
                     if let Some(window) = &self.window {
-                        window.set_title(self.tabs[i].display_title());
+                        window.set_title(tab.display_title());
                     }
                 }
             }
