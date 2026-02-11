@@ -18,6 +18,12 @@ pub struct TabInfo<'a> {
     pub title: &'a str,
 }
 
+/// Rename state passed from app to renderer
+pub struct RenameState<'a> {
+    pub tab_index: usize,
+    pub buffer: &'a str,
+}
+
 /// Cell dimensions in pixels
 #[derive(Debug, Clone, Copy)]
 pub struct CellSize {
@@ -175,6 +181,7 @@ impl Renderer {
     }
 
     /// Render the terminal screen
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         screen: &Screen,
@@ -183,6 +190,7 @@ impl Renderer {
         tab_bar_height: u32,
         tabs: &[TabInfo<'_>],
         active_tab: usize,
+        rename_state: Option<&RenameState<'_>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let width = self.width;
         let height = self.height;
@@ -219,8 +227,16 @@ impl Renderer {
                 }
             }
         }
+        if let Some(rs) = rename_state {
+            for c in rs.buffer.chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+        }
         self.ensure_glyph_cached('+', false);
         self.ensure_glyph_cached('x', false);
+        self.ensure_glyph_cached('|', false);
 
         // Pre-cache all glyphs we'll need (from both screen and scrollback if scrolled)
         for row in 0..rows {
@@ -284,6 +300,7 @@ impl Renderer {
                 &self.cell_size,
                 bg_color,
                 fg_color,
+                rename_state,
             );
         }
 
@@ -792,6 +809,7 @@ impl Renderer {
         cell_size: &CellSize,
         bg_color: (u8, u8, u8),
         fg_color: (u8, u8, u8),
+        rename_state: Option<&RenameState<'_>>,
     ) {
         let tab_padding: u32 = 10;
         let close_btn_width: u32 = 20;
@@ -826,6 +844,7 @@ impl Renderer {
 
         for (i, tab) in tabs.iter().enumerate() {
             let is_active = i == active_tab;
+            let is_renaming = rename_state.is_some_and(|rs| rs.tab_index == i);
             let tab_x = (i as u32 * tab_width) as i32;
             let tab_bg = if is_active {
                 active_tab_bg
@@ -876,19 +895,60 @@ impl Renderer {
             let text_y = ((tab_bar_height as f32 - cell_size.height) / 2.0).max(0.0) as i32;
             let max_text_width = tab_width.saturating_sub(tab_padding * 2 + close_btn_width) as i32;
 
-            Self::draw_text_static(
-                buffer,
-                glyph_cache,
-                tab.title,
-                text_x,
-                text_y,
-                text_color,
-                cell_size.width,
-                cell_size.baseline,
-                buf_width,
-                buf_height,
-                max_text_width,
-            );
+            if is_renaming {
+                let rs = rename_state.unwrap();
+                let input_bg = Self::blend_color(bg_color, (60, 60, 60), 0.5);
+                Self::fill_rect_static(
+                    buffer,
+                    text_x - 2,
+                    text_y,
+                    max_text_width + 4,
+                    cell_size.height as i32,
+                    input_bg,
+                    buf_width,
+                    buf_height,
+                );
+                Self::draw_text_static(
+                    buffer,
+                    glyph_cache,
+                    rs.buffer,
+                    text_x,
+                    text_y,
+                    fg_color,
+                    cell_size.width,
+                    cell_size.baseline,
+                    buf_width,
+                    buf_height,
+                    max_text_width,
+                );
+                let cursor_x = text_x + (rs.buffer.chars().count() as f32 * cell_size.width) as i32;
+                if cursor_x < text_x + max_text_width {
+                    Self::fill_rect_static(
+                        buffer,
+                        cursor_x,
+                        text_y + 1,
+                        2,
+                        cell_size.height as i32 - 2,
+                        fg_color,
+                        buf_width,
+                        buf_height,
+                    );
+                }
+            } else {
+                Self::draw_text_static(
+                    buffer,
+                    glyph_cache,
+                    tab.title,
+                    text_x,
+                    text_y,
+                    text_color,
+                    cell_size.width,
+                    cell_size.baseline,
+                    buf_width,
+                    buf_height,
+                    max_text_width,
+                );
+            }
 
             if tabs.len() > 1 {
                 let close_x = tab_x + tab_width as i32 - close_btn_width as i32;

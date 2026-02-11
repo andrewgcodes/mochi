@@ -19,7 +19,7 @@ use terminal_core::{Point, SelectionType};
 
 use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
-use crate::renderer::{Renderer, TabInfo};
+use crate::renderer::{RenameState as RenderRenameState, Renderer, TabInfo};
 use crate::terminal::Terminal;
 
 /// Padding added to cell height to compute tab bar height
@@ -41,6 +41,7 @@ struct Tab {
     terminal: Terminal,
     child: Child,
     title: String,
+    custom_title: Option<String>,
     scroll_offset: usize,
 }
 
@@ -50,8 +51,13 @@ impl Tab {
             terminal,
             child,
             title: String::from("Terminal"),
+            custom_title: None,
             scroll_offset: 0,
         }
+    }
+
+    fn display_title(&self) -> &str {
+        self.custom_title.as_deref().unwrap_or(&self.title)
     }
 }
 
@@ -92,6 +98,17 @@ pub struct App {
     scrollbar_drag_start_y: f64,
     /// Scroll offset when scrollbar drag started
     scrollbar_drag_start_offset: usize,
+    /// Tab rename state: which tab is being renamed and the current input buffer
+    renaming_tab: Option<TabRenameState>,
+    /// Timestamp of last left-click in tab bar for double-click detection
+    last_tab_click: Option<(Instant, usize)>,
+}
+
+struct TabRenameState {
+    tab_index: usize,
+    buffer: String,
+    #[allow(dead_code)]
+    original_title: String,
 }
 
 impl App {
@@ -115,6 +132,8 @@ impl App {
             scrollbar_dragging: false,
             scrollbar_drag_start_y: 0.0,
             scrollbar_drag_start_offset: 0,
+            renaming_tab: None,
+            last_tab_click: None,
         })
     }
 
@@ -310,6 +329,7 @@ impl App {
         let tabs_end = num_tabs * tab_width;
 
         if click_x >= tabs_end && click_x < tabs_end + NEW_TAB_BTN_WIDTH {
+            self.cancel_rename();
             self.create_new_tab();
             return;
         }
@@ -321,6 +341,7 @@ impl App {
                 let close_x_start = tab_start + tab_width.saturating_sub(CLOSE_BTN_WIDTH);
 
                 if click_x >= close_x_start && self.tabs.len() > 1 {
+                    self.cancel_rename();
                     self.tabs.remove(tab_index);
                     if self.active_tab >= self.tabs.len() {
                         self.active_tab = self.tabs.len() - 1;
@@ -330,9 +351,88 @@ impl App {
                     self.needs_redraw = true;
                     log::info!("Closed tab via click {}", tab_index + 1);
                 } else {
-                    self.switch_to_tab(tab_index);
+                    let now = Instant::now();
+                    let is_double_click = self
+                        .last_tab_click
+                        .map(|(t, idx)| idx == tab_index && now.duration_since(t).as_millis() < 400)
+                        .unwrap_or(false);
+
+                    if is_double_click {
+                        self.last_tab_click = None;
+                        self.start_rename(tab_index);
+                    } else {
+                        self.last_tab_click = Some((now, tab_index));
+                        self.cancel_rename();
+                        self.switch_to_tab(tab_index);
+                    }
                 }
             }
+        }
+    }
+
+    fn start_rename(&mut self, tab_index: usize) {
+        if tab_index >= self.tabs.len() {
+            return;
+        }
+        let current_title = self.tabs[tab_index].display_title().to_string();
+        self.renaming_tab = Some(TabRenameState {
+            tab_index,
+            buffer: current_title.clone(),
+            original_title: current_title,
+        });
+        self.needs_redraw = true;
+        log::info!("Started renaming tab {}", tab_index + 1);
+    }
+
+    fn confirm_rename(&mut self) {
+        if let Some(state) = self.renaming_tab.take() {
+            if state.tab_index < self.tabs.len() {
+                let new_title = state.buffer.trim().to_string();
+                if new_title.is_empty() {
+                    self.tabs[state.tab_index].custom_title = None;
+                } else {
+                    self.tabs[state.tab_index].custom_title = Some(new_title);
+                }
+                log::info!(
+                    "Renamed tab {} to '{}'",
+                    state.tab_index + 1,
+                    self.tabs[state.tab_index].display_title()
+                );
+            }
+            self.needs_redraw = true;
+        }
+    }
+
+    fn cancel_rename(&mut self) {
+        if self.renaming_tab.take().is_some() {
+            self.needs_redraw = true;
+            log::info!("Cancelled tab rename");
+        }
+    }
+
+    fn handle_rename_key_input(&mut self, event: &winit::event::KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Enter) => {
+                self.confirm_rename();
+            }
+            Key::Named(NamedKey::Escape) => {
+                self.cancel_rename();
+            }
+            Key::Named(NamedKey::Backspace) => {
+                if let Some(state) = &mut self.renaming_tab {
+                    state.buffer.pop();
+                    self.needs_redraw = true;
+                }
+            }
+            Key::Character(c) => {
+                if !self.modifiers.control_key() && !self.modifiers.super_key() {
+                    if let Some(state) = &mut self.renaming_tab {
+                        state.buffer.push_str(c);
+                        self.needs_redraw = true;
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -369,6 +469,11 @@ impl App {
     /// Handle keyboard input
     fn handle_key_input(&mut self, event: &winit::event::KeyEvent) {
         if event.state != ElementState::Pressed {
+            return;
+        }
+
+        if self.renaming_tab.is_some() {
+            self.handle_rename_key_input(event);
             return;
         }
 
@@ -666,6 +771,13 @@ impl App {
         {
             self.handle_tab_bar_click(self.mouse_pixel.0);
             return;
+        }
+
+        if button == MouseButton::Left
+            && state == ElementState::Pressed
+            && self.renaming_tab.is_some()
+        {
+            self.cancel_rename();
         }
 
         // Handle scrollbar dragging first (left button only)
@@ -1137,7 +1249,7 @@ impl App {
                 tab.title = tab.terminal.title().to_string();
                 if i == self.active_tab {
                     if let Some(window) = &self.window {
-                        window.set_title(&tab.title);
+                        window.set_title(tab.display_title());
                     }
                 }
             }
@@ -1170,8 +1282,14 @@ impl App {
         let tab_infos: Vec<TabInfo<'_>> = self
             .tabs
             .iter()
-            .map(|t| TabInfo { title: &t.title })
+            .map(|t| TabInfo {
+                title: t.display_title(),
+            })
             .collect();
+        let rename_state = self.renaming_tab.as_ref().map(|r| RenderRenameState {
+            tab_index: r.tab_index,
+            buffer: &r.buffer,
+        });
         let tab = &self.tabs[self.active_tab];
         let screen = tab.terminal.screen();
         let selection = screen.selection();
@@ -1183,6 +1301,7 @@ impl App {
             self.tab_bar_height,
             &tab_infos,
             self.active_tab,
+            rename_state.as_ref(),
         ) {
             log::warn!("Render error: {:?}", e);
         }
