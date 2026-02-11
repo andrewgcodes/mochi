@@ -23,6 +23,8 @@ pub struct Terminal {
     /// Pending responses to send back to the PTY
     /// Used for DSR (Device Status Report), DA1 (Primary Device Attributes), etc.
     pending_responses: Vec<Vec<u8>>,
+    /// Last printed character (for REP - CSI Ps b)
+    last_printed_char: Option<char>,
 }
 
 impl Terminal {
@@ -36,6 +38,7 @@ impl Terminal {
             bell: false,
             sync_output_first_enable: false,
             pending_responses: Vec::new(),
+            last_printed_char: None,
         }
     }
 
@@ -92,6 +95,7 @@ impl Terminal {
         match action {
             Action::Print(c) => {
                 self.screen.print(c);
+                self.last_printed_char = Some(c);
             }
             Action::Control(byte) => {
                 self.handle_control(byte);
@@ -328,6 +332,25 @@ impl Terminal {
                 let row = csi.param(0, 1) as usize;
                 self.screen.set_cursor_row(row);
             }
+            b'a' => {
+                // HPR - Cursor Forward (xterm alias)
+                let n = csi.param(0, 1) as usize;
+                self.screen.move_cursor_right(n);
+            }
+            b'e' => {
+                // VPR - Cursor Down (xterm alias)
+                let n = csi.param(0, 1) as usize;
+                self.screen.move_cursor_down(n);
+            }
+            b'b' => {
+                // REP - Repeat last printed character Ps times (default 1)
+                let count = csi.param(0, 1) as usize;
+                if let Some(ch) = self.last_printed_char {
+                    for _ in 0..count {
+                        self.screen.print(ch);
+                    }
+                }
+            }
             b'g' => {
                 // TBC - Tab Clear
                 let mode = csi.param(0, 0);
@@ -346,8 +369,27 @@ impl Terminal {
                 }
             }
             b'm' => {
-                // SGR - Select Graphic Rendition
-                self.handle_sgr(&csi);
+                // If this is a CSI > ... m (modifyOtherKeys), do not treat as SGR
+                if csi.prefix == 0 {
+                    self.handle_sgr(&csi);
+                } else {
+                    log::debug!("Ignoring non-SGR m with prefix {}", csi.prefix as char);
+                }
+            }
+            b'c' => {
+                // DA - Primary / Secondary Device Attributes
+                if csi.prefix == b'>' {
+                    // DA2: Report terminal version like xterm
+                    // Format: CSI > Pp ; Pv ; Pc c
+                    // We report a generic xterm-compatible: Pp=0 (VT100), Pv=136, Pc=0
+                    let response = b"\x1b[>0;136;0c".to_vec();
+                    self.queue_response(response);
+                    log::debug!("DA2 request: responding with xterm-like attributes");
+                } else {
+                    // DA1: Respond as VT100 with AVO
+                    self.queue_response(b"\x1b[?1;2c".to_vec());
+                    log::debug!("DA1 request: responding as VT100 with AVO");
+                }
             }
             b'n' => {
                 // DSR - Device Status Report
@@ -403,6 +445,20 @@ impl Terminal {
 
     /// Handle CSI sequences with private marker (?)
     fn handle_csi_private(&mut self, csi: &CsiAction) {
+        // Handle sequences with intermediates for private mode as well (e.g., DECRQM)
+        if !csi.intermediates.is_empty() {
+            // DECRQM - Request Mode (DEC Private Mode Query): CSI ? Ps $ p
+            if csi.intermediates.as_slice() == [b'$'] && csi.final_byte == b'p' {
+                for param in csi.params.iter() {
+                    let is_set = self.screen.modes().get_dec_mode(param);
+                    let state = if is_set { 1 } else { 2 }; // 1 = set, 2 = reset
+                    let response = format!("\x1b[?{};{}$y", param, state);
+                    self.queue_response(response.into_bytes());
+                    log::debug!("DECRQM: mode {} => {}", param, state);
+                }
+                return;
+            }
+        }
         match csi.final_byte {
             b'h' => {
                 // DECSET - DEC Private Mode Set
