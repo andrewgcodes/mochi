@@ -377,7 +377,7 @@ impl App {
         }
         self.rename_original = self.tabs[tab_index].title.clone();
         self.rename_buffer = self.tabs[tab_index].title.clone();
-        self.rename_cursor = self.rename_buffer.len();
+        self.rename_cursor = self.rename_buffer.chars().count();
         self.renaming_tab = Some(tab_index);
         self.needs_redraw = true;
         log::info!("Started renaming tab {}", tab_index + 1);
@@ -488,14 +488,14 @@ impl App {
             }
             Key::Character(c) => {
                 if !self.modifiers.control_key() && !self.modifiers.alt_key() {
-                    let byte_idx = self
-                        .rename_buffer
-                        .char_indices()
-                        .nth(self.rename_cursor)
-                        .map(|(i, _)| i)
-                        .unwrap_or(self.rename_buffer.len());
                     for ch in c.chars() {
                         if !ch.is_control() {
+                            let byte_idx = self
+                                .rename_buffer
+                                .char_indices()
+                                .nth(self.rename_cursor)
+                                .map(|(i, _)| i)
+                                .unwrap_or(self.rename_buffer.len());
                             self.rename_buffer.insert(byte_idx, ch);
                             self.rename_cursor += 1;
                         }
