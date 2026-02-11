@@ -230,7 +230,44 @@ impl Terminal {
 
         // Handle sequences with intermediates
         if !csi.intermediates.is_empty() {
+            // Handle DEC private mode report (DECRQM): CSI ? Ps $ p
+            if csi.private && csi.intermediates.as_slice() == [b'$'] && csi.final_byte == b'p' {
+                for mode in csi.params.iter() {
+                    let set = self.screen.modes().get_dec_mode(mode);
+                    // Response: CSI ? Ps ; 1 $ y if set, ; 2 $ y if reset
+                    let status = if set { 1 } else { 2 };
+                    let response = format!("\x1b[?{};{}$y", mode, status);
+                    self.queue_response(response.into_bytes());
+                    log::debug!("DECRQM: query mode {} -> {}", mode, if set { "set" } else { "reset" });
+                }
+                return;
+            }
             self.handle_csi_intermediate(&csi);
+            return;
+        }
+
+        // Handle CSI sequences with alternate private marker like '>' (xterm extensions)
+        if csi.marker == b'>' {
+            match csi.final_byte {
+                b'c' => {
+                    // DA2 - Secondary Device Attributes
+                    // Respond with xterm-like values: terminal type;version;options
+                    // Use 0 for type and options, 1000 as a placeholder version
+                    self.queue_response(b"\x1b[>0;1000;0c".to_vec());
+                    log::debug!("DA2 request: responding with xterm-like attributes");
+                }
+                b'q' => {
+                    // XTVERSION - Report terminal name and version
+                    // Response is a DCS: ESC P > | text ESC \\
+                    let text = "mochi-term 0.1";
+                    let resp = format!("\x1bP>|{}\x1b\\", text);
+                    self.queue_response(resp.into_bytes());
+                    log::debug!("XTVERSION request: responding with {}", text);
+                }
+                _ => {
+                    log::debug!("Unknown CSI '>' sequence: {:?} {}", csi.params, csi.final_byte as char);
+                }
+            }
             return;
         }
 
@@ -390,6 +427,23 @@ impl Terminal {
             b'u' => {
                 // Restore cursor (ANSI.SYS)
                 self.screen.restore_cursor();
+            }
+            b't' => {
+                // Window manipulation and reports (xterm)
+                let p0 = csi.param(0, 0);
+                match p0 {
+                    18 => {
+                        // Report size of text area in characters: CSI 8 ; height ; width t
+                        let rows = self.screen.rows();
+                        let cols = self.screen.cols();
+                        let response = format!("\x1b[8;{};{}t", rows, cols);
+                        self.queue_response(response.into_bytes());
+                        log::debug!("Report text size: rows={} cols={}", rows, cols);
+                    }
+                    _ => {
+                        log::debug!("Unhandled CSI t with parameter {}", p0);
+                    }
+                }
             }
             _ => {
                 log::debug!(
