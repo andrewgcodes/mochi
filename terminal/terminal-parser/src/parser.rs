@@ -68,6 +68,8 @@ pub struct Parser {
     intermediates: Vec<u8>,
     /// Whether CSI sequence starts with ?
     private_marker: bool,
+    /// The actual marker byte (b'?', b'>', b'<', b'=', or 0 for none)
+    marker_byte: u8,
     /// OSC/DCS string data
     osc_data: Vec<u8>,
     /// DCS parameters
@@ -85,6 +87,7 @@ impl Parser {
             params_buf: Vec::with_capacity(64),
             intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
             private_marker: false,
+            marker_byte: 0,
             osc_data: Vec::with_capacity(256),
             dcs_params: Vec::with_capacity(64),
             esc_intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
@@ -103,6 +106,7 @@ impl Parser {
         self.params_buf.clear();
         self.intermediates.clear();
         self.private_marker = false;
+        self.marker_byte = 0;
         self.osc_data.clear();
         self.dcs_params.clear();
         self.esc_intermediates.clear();
@@ -430,6 +434,7 @@ impl Parser {
         self.params_buf.clear();
         self.intermediates.clear();
         self.private_marker = false;
+        self.marker_byte = 0;
     }
 
     fn handle_csi_entry<F>(&mut self, byte: u8, callback: &mut F)
@@ -438,8 +443,8 @@ impl Parser {
     {
         match byte {
             b'?' | b'>' | b'<' | b'=' => {
-                // Private marker
                 self.private_marker = byte == b'?';
+                self.marker_byte = byte;
                 self.state = ParserState::CsiParam;
             }
             b'0'..=b'9' | b';' | b':' => {
@@ -529,6 +534,7 @@ impl Parser {
             intermediates: self.intermediates.clone(),
             final_byte,
             private: self.private_marker,
+            marker: self.marker_byte,
         };
         callback(Action::Csi(action));
     }

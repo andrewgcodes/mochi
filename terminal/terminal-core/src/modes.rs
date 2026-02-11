@@ -42,8 +42,12 @@ pub struct Modes {
     pub mouse_button_event: bool,
     /// Mouse tracking: any event tracking
     pub mouse_any_event: bool,
+    /// Mouse tracking: UTF-8 extended coordinates (mode 1005)
+    pub mouse_utf8: bool,
     /// Mouse tracking: SGR extended coordinates
     pub mouse_sgr: bool,
+    /// Mouse tracking: urxvt extended coordinates (mode 1015)
+    pub mouse_urxvt: bool,
     /// Focus in/out events
     pub focus_events: bool,
     /// Alternate screen buffer
@@ -79,7 +83,9 @@ impl Modes {
             mouse_vt200: false,
             mouse_button_event: false,
             mouse_any_event: false,
+            mouse_utf8: false,
             mouse_sgr: false,
+            mouse_urxvt: false,
             focus_events: false,
             alternate_screen: false,
             bracketed_paste: false,
@@ -109,7 +115,9 @@ impl Modes {
             1002 => self.mouse_button_event = value,
             1003 => self.mouse_any_event = value,
             1004 => self.focus_events = value,
+            1005 => self.mouse_utf8 = value,
             1006 => self.mouse_sgr = value,
+            1015 => self.mouse_urxvt = value,
             1049 => self.alternate_screen = value,
             2004 => self.bracketed_paste = value,
             2026 => self.synchronized_output = value,
@@ -133,13 +141,34 @@ impl Modes {
             9 => self.mouse_x10,
             25 => self.cursor_visible,
             1000 => self.mouse_vt200,
+    /// Get a DEC private mode by number
+    pub fn get_dec_mode(&self, mode: u16) -> bool {
+        match mode {
+            1 => self.cursor_keys_application,
+            2 => self.ansi_mode,
+            3 => self.column_132,
+            4 => self.smooth_scroll,
+            5 => self.reverse_video,
+            6 => self.origin_mode,
+            7 => self.auto_wrap,
+            8 => self.auto_repeat,
+            9 => self.mouse_x10,
+            25 => self.cursor_visible,
+            47 | 1047 => self.alternate_screen,
+            1000 => self.mouse_vt200,
             1002 => self.mouse_button_event,
             1003 => self.mouse_any_event,
             1004 => self.focus_events,
+            1005 => self.mouse_utf8,
             1006 => self.mouse_sgr,
+            1015 => self.mouse_urxvt,
             1049 => self.alternate_screen,
             2004 => self.bracketed_paste,
             2026 => self.synchronized_output,
+            _ => false,
+        }
+    }
+
             _ => false,
         }
     }
