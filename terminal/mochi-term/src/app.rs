@@ -290,7 +290,9 @@ impl App {
             return false;
         }
 
-        self.tabs.remove(self.active_tab);
+        let removed = self.active_tab;
+        self.tabs.remove(removed);
+        self.adjust_rename_after_removal(removed);
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
         }
@@ -1319,8 +1321,13 @@ impl App {
         // Check if active tab's child is running
         let active_running = self.tabs[self.active_tab].child.is_running();
 
-        // Remove any tabs whose children have exited
-        self.tabs.retain(|tab| tab.child.is_running());
+        // Remove dead tabs in reverse order so earlier indices stay valid
+        for i in (0..self.tabs.len()).rev() {
+            if !self.tabs[i].child.is_running() {
+                self.tabs.remove(i);
+                self.adjust_rename_after_removal(i);
+            }
+        }
 
         // Adjust active tab index if needed
         if self.active_tab >= self.tabs.len() {
@@ -1329,5 +1336,15 @@ impl App {
 
         // Return true if there are still tabs with running children
         !self.tabs.is_empty() && (active_running || self.tabs[self.active_tab].child.is_running())
+    }
+
+    fn adjust_rename_after_removal(&mut self, removed: usize) {
+        if let Some(state) = &mut self.renaming_tab {
+            if state.tab_index == removed {
+                self.renaming_tab = None;
+            } else if state.tab_index > removed {
+                state.tab_index -= 1;
+            }
+        }
     }
 }
