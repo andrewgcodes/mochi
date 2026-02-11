@@ -222,7 +222,10 @@ impl App {
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
         // Create first tab
-        let terminal = Terminal::new(cols.max(1), rows.max(1));
+        let mut terminal = Terminal::new(cols.max(1), rows.max(1));
+        let colors = self.config.effective_colors();
+        terminal.set_colors(colors.foreground_rgb(), colors.background_rgb());
+        terminal.set_pixel_size(size.width, size.height);
         let child = Child::spawn_shell(WindowSize::new(cols as u16, rows as u16))?;
         child.set_nonblocking(true)?;
 
@@ -249,7 +252,10 @@ impl App {
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        let terminal = Terminal::new(cols.max(1), rows.max(1));
+        let mut terminal = Terminal::new(cols.max(1), rows.max(1));
+        let colors = self.config.effective_colors();
+        terminal.set_colors(colors.foreground_rgb(), colors.background_rgb());
+        terminal.set_pixel_size(size.width, size.height);
         match Child::spawn_shell(WindowSize::new(cols as u16, rows as u16)) {
             Ok(child) => {
                 let _ = child.set_nonblocking(true);
@@ -357,10 +363,11 @@ impl App {
 
         // Resize all tabs
         if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-            }
+                        for tab in &mut self.tabs {
+                            tab.terminal.resize(cols, rows);
+                            tab.terminal.set_pixel_size(size.width, size.height);
+                            let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+                        }
         }
 
         self.needs_redraw = true;
@@ -613,10 +620,11 @@ impl App {
 
         // Resize all tabs
         if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-            }
+                        for tab in &mut self.tabs {
+                            tab.terminal.resize(cols, rows);
+                            tab.terminal.set_pixel_size(size.width, size.height);
+                            let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+                        }
         }
 
         self.needs_redraw = true;
@@ -644,10 +652,11 @@ impl App {
 
         // Resize all tabs
         if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-            }
+                        for tab in &mut self.tabs {
+                            tab.terminal.resize(cols, rows);
+                            tab.terminal.set_pixel_size(size.width, size.height);
+                            let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+                        }
         }
 
         self.needs_redraw = true;
@@ -1055,8 +1064,12 @@ impl App {
                 self.config.security = new_config.security.clone();
 
                 // Apply theme change
+                let colors = self.config.effective_colors();
                 if let Some(renderer) = &mut self.renderer {
-                    renderer.set_colors(self.config.effective_colors());
+                    renderer.set_colors(colors.clone());
+                }
+                for tab in &mut self.tabs {
+                    tab.terminal.set_colors(colors.foreground_rgb(), colors.background_rgb());
                 }
 
                 log::info!("Configuration reloaded successfully");
@@ -1080,8 +1093,12 @@ impl App {
 
         self.config.theme = new_theme;
 
+        let colors = self.config.effective_colors();
         if let Some(renderer) = &mut self.renderer {
-            renderer.set_colors(self.config.effective_colors());
+            renderer.set_colors(colors.clone());
+        }
+        for tab in &mut self.tabs {
+            tab.terminal.set_colors(colors.foreground_rgb(), colors.background_rgb());
         }
 
         self.needs_redraw = true;

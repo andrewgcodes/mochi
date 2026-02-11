@@ -23,6 +23,12 @@ pub struct Terminal {
     /// Pending responses to send back to the PTY
     /// Used for DSR (Device Status Report), DA1 (Primary Device Attributes), etc.
     pending_responses: Vec<Vec<u8>>,
+    /// Foreground color as (r, g, b) for OSC 10 query responses
+    fg_color: (u8, u8, u8),
+    /// Background color as (r, g, b) for OSC 11 query responses
+    bg_color: (u8, u8, u8),
+    /// Terminal pixel dimensions (width, height) for CSI 14 t responses
+    pixel_size: (u32, u32),
 }
 
 impl Terminal {
@@ -36,7 +42,19 @@ impl Terminal {
             bell: false,
             sync_output_first_enable: false,
             pending_responses: Vec::new(),
+            fg_color: (212, 212, 212),
+            bg_color: (30, 30, 30),
+            pixel_size: (0, 0),
         }
+    }
+
+    pub fn set_colors(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8)) {
+        self.fg_color = fg;
+        self.bg_color = bg;
+    }
+
+    pub fn set_pixel_size(&mut self, width: u32, height: u32) {
+        self.pixel_size = (width, height);
     }
 
     /// Get screen reference
@@ -222,6 +240,12 @@ impl Terminal {
 
     /// Handle CSI sequences
     fn handle_csi(&mut self, csi: CsiAction) {
+        // Handle CSI > sequences (DA2, XTVERSION, etc.)
+        if csi.marker == b'>' {
+            self.handle_csi_gt(&csi);
+            return;
+        }
+
         // Handle private sequences
         if csi.private {
             self.handle_csi_private(&csi);
@@ -383,6 +407,10 @@ impl Terminal {
                 let bottom = csi.param(1, self.screen.rows() as u16) as usize;
                 self.screen.set_scroll_region(top, bottom);
             }
+            b't' => {
+                // Window manipulation (XTWINOPS)
+                self.handle_window_ops(&csi);
+            }
             b's' => {
                 // Save cursor (ANSI.SYS)
                 self.screen.save_cursor();
@@ -394,6 +422,38 @@ impl Terminal {
             _ => {
                 log::debug!(
                     "Unknown CSI sequence: {:?} {}",
+                    csi.params,
+                    csi.final_byte as char
+                );
+            }
+        }
+    }
+
+    /// Handle CSI > sequences (DA2, XTVERSION, etc.)
+    fn handle_csi_gt(&mut self, csi: &CsiAction) {
+        match csi.final_byte {
+            b'c' => {
+                // DA2 - Secondary Device Attributes
+                // tmux uses this to detect terminal capabilities
+                // Response format: CSI > Pp ; Pv ; Pc c
+                // Pp=65 (xterm), Pv=version, Pc=0
+                // We identify as xterm patch level 377 for broad compatibility
+                self.queue_response(b"\x1b[>65;377;0c".to_vec());
+                log::debug!("DA2 request: responding as xterm 377");
+            }
+            b'q' => {
+                // XTVERSION - Report terminal name and version
+                // Response: DCS > | terminal-name(version) ST
+                self.queue_response(b"\x1bP>|mochi(0.1.0)\x1b\\".to_vec());
+                log::debug!("XTVERSION request: responding with mochi version");
+            }
+            b'm' | b'n' => {
+                // xterm modifyOtherKeys / modifyKeys - acknowledge but ignore
+                log::debug!("CSI > {} ignored", csi.final_byte as char);
+            }
+            _ => {
+                log::debug!(
+                    "Unknown CSI > sequence: {:?}{}",
                     csi.params,
                     csi.final_byte as char
                 );
@@ -418,13 +478,28 @@ impl Terminal {
             }
             b'c' => {
                 // DA1 - Primary Device Attributes
-                // Respond as VT220 with advanced video option
-                // Response: CSI ? 62 ; 1 ; 2 ; 6 ; 7 ; 8 ; 9 c
-                // This indicates: VT220, 132 columns, printer, selective erase,
-                // user-defined keys, national replacement character sets, technical characters
-                // A simpler response that works well: CSI ? 1 ; 2 c (VT100 with AVO)
-                self.queue_response(b"\x1b[?1;2c".to_vec());
-                log::debug!("DA1 request: responding as VT100 with AVO");
+                // Respond as VT220 with features tmux expects:
+                // 62 = VT220, 4 = sixel, 22 = ANSI color
+                // This tells tmux we support 256 colors and standard features
+                self.queue_response(b"\x1b[?62;22c".to_vec());
+                log::debug!("DA1 request: responding as VT220 with ANSI color");
+            }
+            b'n' => {
+                // DECDSR - DEC-specific Device Status Report
+                let mode = csi.param(0, 0);
+                match mode {
+                    6 => {
+                        // Extended cursor position report (DECXCPR)
+                        let row = self.screen.cursor().row + 1;
+                        let col = self.screen.cursor().col + 1;
+                        let response = format!("\x1b[?{};{}R", row, col);
+                        self.queue_response(response.into_bytes());
+                        log::debug!("DECXCPR: responding row={} col={}", row, col);
+                    }
+                    _ => {
+                        log::debug!("Unknown DECDSR mode: {}", mode);
+                    }
+                }
             }
             _ => {
                 log::debug!(
@@ -438,8 +513,8 @@ impl Terminal {
 
     /// Handle CSI sequences with intermediate bytes
     fn handle_csi_intermediate(&mut self, csi: &CsiAction) {
-        match (csi.intermediates.as_slice(), csi.final_byte) {
-            ([b' '], b'q') => {
+        match (csi.intermediates.as_slice(), csi.final_byte, csi.private) {
+            ([b' '], b'q', false) => {
                 // DECSCUSR - Set Cursor Style
                 let style = csi.param(0, 1);
                 let cursor = self.screen.cursor_mut();
@@ -471,6 +546,49 @@ impl Terminal {
                     _ => {}
                 }
             }
+            ([b'!'], b'p', false) => {
+                // DECSTR - Soft Terminal Reset
+                self.screen.modes_mut().reset();
+                self.screen.clear_scroll_region();
+                self.screen.cursor_mut().attrs = Default::default();
+                log::debug!("DECSTR: soft terminal reset");
+            }
+            ([b'$'], b'p', true) => {
+                // DECRQM - Request Mode (DEC private)
+                let mode = csi.param(0, 0);
+                let state = if self.screen.modes().get_dec_mode(mode) {
+                    1 // set
+                } else {
+                    2 // reset
+                };
+                let response = format!("\x1b[?{};{}$y", mode, state);
+                self.queue_response(response.into_bytes());
+                log::debug!("DECRQM: mode {} is {}", mode, state);
+            }
+            ([b'$'], b'p', false) => {
+                // ANSI DECRQM - Request Mode (standard)
+                let mode = csi.param(0, 0);
+                let state = match mode {
+                    4 => {
+                        if self.screen.modes().insert_mode {
+                            1
+                        } else {
+                            2
+                        }
+                    }
+                    20 => {
+                        if self.screen.modes().linefeed_mode {
+                            1
+                        } else {
+                            2
+                        }
+                    }
+                    _ => 0, // not recognized
+                };
+                let response = format!("\x1b[{};{}$y", mode, state);
+                self.queue_response(response.into_bytes());
+                log::debug!("ANSI DECRQM: mode {} is {}", mode, state);
+            }
             _ => {
                 log::debug!(
                     "Unknown CSI with intermediates: {:?} {:?} {}",
@@ -478,6 +596,39 @@ impl Terminal {
                     csi.params,
                     csi.final_byte as char
                 );
+            }
+        }
+    }
+
+    /// Handle CSI t - Window manipulation (XTWINOPS)
+    fn handle_window_ops(&mut self, csi: &CsiAction) {
+        let op = csi.param(0, 0);
+        match op {
+            14 => {
+                // Report window size in pixels
+                let (pw, ph) = self.pixel_size;
+                let response = format!("\x1b[4;{};{}t", ph, pw);
+                self.queue_response(response.into_bytes());
+                log::debug!("XTWINOPS 14: report pixel size {}x{}", pw, ph);
+            }
+            18 => {
+                // Report terminal size in characters
+                let rows = self.screen.rows();
+                let cols = self.screen.cols();
+                let response = format!("\x1b[8;{};{}t", rows, cols);
+                self.queue_response(response.into_bytes());
+                log::debug!("XTWINOPS 18: report char size {}x{}", cols, rows);
+            }
+            22 => {
+                // Push title to stack (tmux uses this)
+                log::debug!("XTWINOPS 22: push title (acknowledged)");
+            }
+            23 => {
+                // Pop title from stack (tmux uses this)
+                log::debug!("XTWINOPS 23: pop title (acknowledged)");
+            }
+            _ => {
+                log::debug!("XTWINOPS {}: ignored", op);
             }
         }
     }
@@ -736,10 +887,30 @@ impl Terminal {
                 log::debug!("Set color {}: {}", index, color);
             }
             OscAction::SetForegroundColor(color) => {
-                log::debug!("Set foreground color: {}", color);
+                if color == "?" {
+                    let (r, g, b) = self.fg_color;
+                    let response = format!(
+                        "\x1b]10;rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\",
+                        r, r, g, g, b, b
+                    );
+                    self.queue_response(response.into_bytes());
+                    log::debug!("OSC 10 query: responding with fg color");
+                } else {
+                    log::debug!("Set foreground color: {}", color);
+                }
             }
             OscAction::SetBackgroundColor(color) => {
-                log::debug!("Set background color: {}", color);
+                if color == "?" {
+                    let (r, g, b) = self.bg_color;
+                    let response = format!(
+                        "\x1b]11;rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\",
+                        r, r, g, g, b, b
+                    );
+                    self.queue_response(response.into_bytes());
+                    log::debug!("OSC 11 query: responding with bg color");
+                } else {
+                    log::debug!("Set background color: {}", color);
+                }
             }
             OscAction::SetCursorColor(color) => {
                 log::debug!("Set cursor color: {}", color);
