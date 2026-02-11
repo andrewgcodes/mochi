@@ -1322,10 +1322,18 @@ impl App {
         // Check if active tab's child is running
         let active_running = self.tabs[self.active_tab].child.is_running();
 
-        // Remove any tabs whose children have exited
+        let old_len = self.tabs.len();
         self.tabs.retain(|tab| tab.child.is_running());
 
-        // Adjust active tab index if needed
+        if self.tabs.len() != old_len {
+            if let Some(editing) = self.editing_tab {
+                if editing >= self.tabs.len() {
+                    self.editing_tab = None;
+                    self.editing_text.clear();
+                }
+            }
+        }
+
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }

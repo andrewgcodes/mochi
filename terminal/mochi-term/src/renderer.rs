@@ -902,7 +902,7 @@ impl Renderer {
                     buf_height,
                     max_text_width,
                 );
-                let cursor_x = text_x + (tab.title.len() as f32 * cell_size.width) as i32;
+                let cursor_x = text_x + (tab.title.chars().count() as f32 * cell_size.width) as i32;
                 if cursor_x < text_x + max_text_width {
                     Self::fill_rect_static(
                         buffer,
