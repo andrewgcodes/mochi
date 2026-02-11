@@ -289,7 +289,19 @@ impl App {
             return false;
         }
 
-        self.tabs.remove(self.active_tab);
+        let removed = self.active_tab;
+        self.tabs.remove(removed);
+
+        if let Some(renaming) = self.renaming_tab {
+            if renaming == removed {
+                self.renaming_tab = None;
+                self.rename_buffer.clear();
+                self.rename_cursor = 0;
+            } else if renaming > removed {
+                self.renaming_tab = Some(renaming - 1);
+            }
+        }
+
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
         }
@@ -377,7 +389,7 @@ impl App {
         }
         self.renaming_tab = Some(tab_index);
         self.rename_buffer = self.tabs[tab_index].display_title().to_string();
-        self.rename_cursor = self.rename_buffer.len();
+        self.rename_cursor = self.rename_buffer.chars().count();
         self.needs_redraw = true;
         log::info!("Started renaming tab {}", tab_index + 1);
     }
@@ -1395,18 +1407,39 @@ impl App {
             return false;
         }
 
-        // Check if active tab's child is running
         let active_running = self.tabs[self.active_tab].child.is_running();
 
-        // Remove any tabs whose children have exited
-        self.tabs.retain(|tab| tab.child.is_running());
+        if let Some(renaming) = self.renaming_tab {
+            if renaming < self.tabs.len() && !self.tabs[renaming].child.is_running() {
+                self.renaming_tab = None;
+                self.rename_buffer.clear();
+                self.rename_cursor = 0;
+            }
+        }
 
-        // Adjust active tab index if needed
+        let mut removed_before_rename = 0usize;
+        let mut i = 0;
+        self.tabs.retain(|tab| {
+            let keep = tab.child.is_running();
+            if !keep {
+                if let Some(r) = self.renaming_tab {
+                    if i < r {
+                        removed_before_rename += 1;
+                    }
+                }
+            }
+            i += 1;
+            keep
+        });
+
+        if let Some(r) = self.renaming_tab {
+            self.renaming_tab = Some(r - removed_before_rename);
+        }
+
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
 
-        // Return true if there are still tabs with running children
         !self.tabs.is_empty() && (active_running || self.tabs[self.active_tab].child.is_running())
     }
 }
