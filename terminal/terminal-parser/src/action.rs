@@ -85,6 +85,9 @@ pub struct CsiAction {
     pub final_byte: u8,
     /// Whether this is a private sequence (starts with ?)
     pub private: bool,
+    /// The prefix byte for the CSI sequence (0 = none, b'?' = ?, b'>' = >, etc.)
+    /// This preserves the actual prefix character for sequences like CSI > c (DA2)
+    pub prefix: u8,
 }
 
 impl CsiAction {
@@ -150,6 +153,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            prefix: 0,
         };
 
         assert_eq!(csi.param(0, 1), 10);
@@ -164,6 +168,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            prefix: 0,
         };
 
         assert!(csi.is(b'H'));
@@ -178,6 +183,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'h',
             private: true,
+            prefix: b'?',
         };
 
         assert!(csi.is_private(b'h'));

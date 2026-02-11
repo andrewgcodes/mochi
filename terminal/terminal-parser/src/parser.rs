@@ -66,8 +66,8 @@ pub struct Parser {
     params_buf: Vec<u8>,
     /// CSI intermediate bytes
     intermediates: Vec<u8>,
-    /// Whether CSI sequence starts with ?
-    private_marker: bool,
+    /// CSI prefix byte (0 = none, b'?' = ?, b'>' = >, b'<' = <, b'=' = =)
+    csi_prefix: u8,
     /// OSC/DCS string data
     osc_data: Vec<u8>,
     /// DCS parameters
@@ -84,7 +84,7 @@ impl Parser {
             utf8: Utf8Decoder::new(),
             params_buf: Vec::with_capacity(64),
             intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
-            private_marker: false,
+            csi_prefix: 0,
             osc_data: Vec::with_capacity(256),
             dcs_params: Vec::with_capacity(64),
             esc_intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
@@ -439,8 +439,8 @@ impl Parser {
         match byte {
             b'?' | b'>' | b'<' | b'=' => {
                 // Private marker
-                self.private_marker = byte == b'?';
-                self.state = ParserState::CsiParam;
+                    self.csi_prefix = byte;
+                    self.state = ParserState::CsiParam;
             }
             b'0'..=b'9' | b';' | b':' => {
                 self.params_buf.push(byte);
@@ -528,7 +528,8 @@ impl Parser {
             params,
             intermediates: self.intermediates.clone(),
             final_byte,
-            private: self.private_marker,
+            private: self.csi_prefix == b'?',
+            prefix: self.csi_prefix,
         };
         callback(Action::Csi(action));
     }
