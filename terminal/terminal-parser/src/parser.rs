@@ -102,7 +102,7 @@ impl Parser {
         self.utf8.reset();
         self.params_buf.clear();
         self.intermediates.clear();
-        self.private_marker = false;
+        self.csi_prefix = 0;
         self.osc_data.clear();
         self.dcs_params.clear();
         self.esc_intermediates.clear();
@@ -429,7 +429,7 @@ impl Parser {
         self.state = ParserState::CsiEntry;
         self.params_buf.clear();
         self.intermediates.clear();
-        self.private_marker = false;
+        self.csi_prefix = 0;
     }
 
     fn handle_csi_entry<F>(&mut self, byte: u8, callback: &mut F)
@@ -439,8 +439,8 @@ impl Parser {
         match byte {
             b'?' | b'>' | b'<' | b'=' => {
                 // Private marker
-                    self.csi_prefix = byte;
-                    self.state = ParserState::CsiParam;
+                self.csi_prefix = byte;
+                self.state = ParserState::CsiParam;
             }
             b'0'..=b'9' | b';' | b':' => {
                 self.params_buf.push(byte);
