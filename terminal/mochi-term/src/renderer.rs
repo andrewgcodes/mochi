@@ -183,6 +183,7 @@ impl Renderer {
         tab_bar_height: u32,
         tabs: &[TabInfo<'_>],
         active_tab: usize,
+        renaming: Option<(usize, &str, usize)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let width = self.width;
         let height = self.height;
@@ -211,9 +212,16 @@ impl Renderer {
         let scrollback = screen.scrollback();
         let scrollback_len = scrollback.len();
 
-        // Pre-cache glyphs for tab titles
+        // Pre-cache glyphs for tab titles (and rename text if active)
         for tab in tabs {
             for c in tab.title.chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+        }
+        if let Some((_, rename_text, _)) = &renaming {
+            for c in rename_text.chars() {
                 if c != ' ' {
                     self.ensure_glyph_cached(c, false);
                 }
@@ -284,6 +292,7 @@ impl Renderer {
                 &self.cell_size,
                 bg_color,
                 fg_color,
+                renaming.as_ref().copied(),
             );
         }
 
@@ -792,6 +801,7 @@ impl Renderer {
         cell_size: &CellSize,
         bg_color: (u8, u8, u8),
         fg_color: (u8, u8, u8),
+        renaming: Option<(usize, &str, usize)>,
     ) {
         let tab_padding: u32 = 10;
         let close_btn_width: u32 = 20;
@@ -876,10 +886,16 @@ impl Renderer {
             let text_y = ((tab_bar_height as f32 - cell_size.height) / 2.0).max(0.0) as i32;
             let max_text_width = tab_width.saturating_sub(tab_padding * 2 + close_btn_width) as i32;
 
+            let (is_renaming_this, rename_text, rename_cursor) = match renaming {
+                Some((idx, txt, cur)) if idx == i => (true, Some(txt), Some(cur)),
+                _ => (false, None, None),
+            };
+            let draw_text = rename_text.unwrap_or(tab.title);
+
             Self::draw_text_static(
                 buffer,
                 glyph_cache,
-                tab.title,
+                draw_text,
                 text_x,
                 text_y,
                 text_color,
@@ -889,6 +905,28 @@ impl Renderer {
                 buf_height,
                 max_text_width,
             );
+
+            // Draw caret if renaming this tab
+            if is_renaming_this {
+                if let Some(cur) = rename_cursor {
+                    let max_chars = (max_text_width as f32 / cell_size.width).floor() as usize;
+                    let visible_cur = cur.min(max_chars);
+                    let caret_x = text_x + (visible_cur as f32 * cell_size.width) as i32;
+                    let caret_h = cell_size.height as i32 - 2;
+                    let caret_y = text_y + 1;
+                    let caret_color = Self::blend_color(text_color, (255, 255, 255), 0.2);
+                    Self::fill_rect_static(
+                        buffer,
+                        caret_x,
+                        caret_y,
+                        2,
+                        caret_h,
+                        caret_color,
+                        buf_width,
+                        buf_height,
+                    );
+                }
+            }
 
             if tabs.len() > 1 {
                 let close_x = tab_x + tab_width as i32 - close_btn_width as i32;

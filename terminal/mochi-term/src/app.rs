@@ -4,7 +4,7 @@
 
 use std::io;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
 use terminal_pty::{Child, WindowSize};
@@ -41,6 +41,7 @@ struct Tab {
     terminal: Terminal,
     child: Child,
     title: String,
+    custom_title: Option<String>,
     scroll_offset: usize,
 }
 
@@ -50,8 +51,13 @@ impl Tab {
             terminal,
             child,
             title: String::from("Terminal"),
+            custom_title: None,
             scroll_offset: 0,
         }
+    }
+
+    fn display_title(&self) -> &str {
+        self.custom_title.as_deref().unwrap_or(&self.title)
     }
 }
 
@@ -92,6 +98,16 @@ pub struct App {
     scrollbar_drag_start_y: f64,
     /// Scroll offset when scrollbar drag started
     scrollbar_drag_start_offset: usize,
+    /// Tab being renamed (index), None if not renaming
+    renaming_tab: Option<usize>,
+    /// Current rename input text
+    rename_input: String,
+    /// Cursor position in rename input
+    rename_cursor: usize,
+    /// Last click time for double-click detection on tab bar
+    last_tab_click_time: Instant,
+    /// Last clicked tab index for double-click detection
+    last_tab_click_index: Option<usize>,
 }
 
 impl App {
@@ -115,6 +131,11 @@ impl App {
             scrollbar_dragging: false,
             scrollbar_drag_start_y: 0.0,
             scrollbar_drag_start_offset: 0,
+            renaming_tab: None,
+            rename_input: String::new(),
+            rename_cursor: 0,
+            last_tab_click_time: Instant::now(),
+            last_tab_click_index: None,
         })
     }
 
@@ -310,6 +331,7 @@ impl App {
         let tabs_end = num_tabs * tab_width;
 
         if click_x >= tabs_end && click_x < tabs_end + NEW_TAB_BTN_WIDTH {
+            self.cancel_rename();
             self.create_new_tab();
             return;
         }
@@ -321,6 +343,7 @@ impl App {
                 let close_x_start = tab_start + tab_width.saturating_sub(CLOSE_BTN_WIDTH);
 
                 if click_x >= close_x_start && self.tabs.len() > 1 {
+                    self.cancel_rename();
                     self.tabs.remove(tab_index);
                     if self.active_tab >= self.tabs.len() {
                         self.active_tab = self.tabs.len() - 1;
@@ -330,9 +353,154 @@ impl App {
                     self.needs_redraw = true;
                     log::info!("Closed tab via click {}", tab_index + 1);
                 } else {
-                    self.switch_to_tab(tab_index);
+                    let now = Instant::now();
+                    let double_click = self.last_tab_click_index == Some(tab_index)
+                        && now.duration_since(self.last_tab_click_time)
+                            < Duration::from_millis(400);
+                    self.last_tab_click_time = now;
+                    self.last_tab_click_index = Some(tab_index);
+
+                    if double_click {
+                        self.start_rename(tab_index);
+                    } else {
+                        if self.renaming_tab.is_some() {
+                            self.confirm_rename();
+                        }
+                        self.switch_to_tab(tab_index);
+                    }
                 }
             }
+        } else {
+            if self.renaming_tab.is_some() {
+                self.confirm_rename();
+            }
+        }
+    }
+
+    fn start_rename(&mut self, tab_index: usize) {
+        if tab_index >= self.tabs.len() {
+            return;
+        }
+        self.renaming_tab = Some(tab_index);
+        self.rename_input = self.tabs[tab_index].display_title().to_string();
+        self.rename_cursor = self.rename_input.len();
+        self.needs_redraw = true;
+        log::info!("Started renaming tab {}", tab_index + 1);
+    }
+
+    fn confirm_rename(&mut self) {
+        if let Some(idx) = self.renaming_tab.take() {
+            if idx < self.tabs.len() {
+                let trimmed = self.rename_input.trim().to_string();
+                if trimmed.is_empty() {
+                    self.tabs[idx].custom_title = None;
+                } else {
+                    self.tabs[idx].custom_title = Some(trimmed);
+                }
+                if idx == self.active_tab {
+                    if let Some(window) = &self.window {
+                        window.set_title(self.tabs[idx].display_title());
+                    }
+                }
+                log::info!(
+                    "Renamed tab {} to {:?}",
+                    idx + 1,
+                    self.tabs[idx].display_title()
+                );
+            }
+            self.rename_input.clear();
+            self.rename_cursor = 0;
+            self.needs_redraw = true;
+        }
+    }
+
+    fn cancel_rename(&mut self) {
+        if self.renaming_tab.take().is_some() {
+            self.rename_input.clear();
+            self.rename_cursor = 0;
+            self.needs_redraw = true;
+        }
+    }
+
+    fn handle_rename_key_input(&mut self, event: &winit::event::KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Enter) => {
+                self.confirm_rename();
+            }
+            Key::Named(NamedKey::Escape) => {
+                self.cancel_rename();
+            }
+            Key::Named(NamedKey::Backspace) => {
+                if self.rename_cursor > 0 {
+                    let mut iter = self.rename_input.char_indices();
+                    let byte_idx = iter
+                        .nth(self.rename_cursor - 1)
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    let next_byte_idx = iter
+                        .next()
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.rename_input.len());
+                    self.rename_input.replace_range(byte_idx..next_byte_idx, "");
+                    self.rename_cursor -= 1;
+                    self.needs_redraw = true;
+                }
+            }
+            Key::Named(NamedKey::Delete) => {
+                let char_count = self.rename_input.chars().count();
+                if self.rename_cursor < char_count {
+                    let mut iter = self.rename_input.char_indices();
+                    let byte_idx = iter
+                        .nth(self.rename_cursor)
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.rename_input.len());
+                    let next_byte_idx = iter
+                        .next()
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.rename_input.len());
+                    self.rename_input.replace_range(byte_idx..next_byte_idx, "");
+                    self.needs_redraw = true;
+                }
+            }
+            Key::Named(NamedKey::ArrowLeft) => {
+                if self.rename_cursor > 0 {
+                    self.rename_cursor -= 1;
+                    self.needs_redraw = true;
+                }
+            }
+            Key::Named(NamedKey::ArrowRight) => {
+                let char_count = self.rename_input.chars().count();
+                if self.rename_cursor < char_count {
+                    self.rename_cursor += 1;
+                    self.needs_redraw = true;
+                }
+            }
+            Key::Named(NamedKey::Home) => {
+                if self.rename_cursor > 0 {
+                    self.rename_cursor = 0;
+                    self.needs_redraw = true;
+                }
+            }
+            Key::Named(NamedKey::End) => {
+                let char_count = self.rename_input.chars().count();
+                if self.rename_cursor < char_count {
+                    self.rename_cursor = char_count;
+                    self.needs_redraw = true;
+                }
+            }
+            Key::Character(c) => {
+                if !self.modifiers.control_key() && !self.modifiers.super_key() {
+                    let mut iter = self.rename_input.char_indices();
+                    let byte_idx = iter
+                        .nth(self.rename_cursor)
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.rename_input.len());
+                    self.rename_input.insert_str(byte_idx, c.as_str());
+                    self.rename_cursor += c.chars().count();
+                    self.needs_redraw = true;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -369,6 +537,11 @@ impl App {
     /// Handle keyboard input
     fn handle_key_input(&mut self, event: &winit::event::KeyEvent) {
         if event.state != ElementState::Pressed {
+            return;
+        }
+
+        if self.renaming_tab.is_some() {
+            self.handle_rename_key_input(event);
             return;
         }
 
@@ -1137,7 +1310,7 @@ impl App {
                 tab.title = tab.terminal.title().to_string();
                 if i == self.active_tab {
                     if let Some(window) = &self.window {
-                        window.set_title(&tab.title);
+                        window.set_title(self.tabs[i].display_title());
                     }
                 }
             }
@@ -1170,11 +1343,17 @@ impl App {
         let tab_infos: Vec<TabInfo<'_>> = self
             .tabs
             .iter()
-            .map(|t| TabInfo { title: &t.title })
+            .map(|t| TabInfo {
+                title: t.display_title(),
+            })
             .collect();
         let tab = &self.tabs[self.active_tab];
         let screen = tab.terminal.screen();
         let selection = screen.selection();
+
+        let renaming = self
+            .renaming_tab
+            .map(|idx| (idx, self.rename_input.as_str(), self.rename_cursor));
 
         if let Err(e) = renderer.render(
             screen,
@@ -1183,6 +1362,7 @@ impl App {
             self.tab_bar_height,
             &tab_infos,
             self.active_tab,
+            renaming,
         ) {
             log::warn!("Render error: {:?}", e);
         }
