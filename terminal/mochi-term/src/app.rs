@@ -7,6 +7,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use arboard::Clipboard;
+use regex::Regex;
 use terminal_pty::{Child, WindowSize};
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent};
@@ -19,7 +20,7 @@ use terminal_core::{Point, SelectionType};
 
 use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
-use crate::renderer::{Renderer, TabInfo};
+use crate::renderer::{Renderer, SearchBarInfo, SearchMatch, TabInfo};
 use crate::terminal::Terminal;
 
 /// Padding added to cell height to compute tab bar height
@@ -36,12 +37,83 @@ fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
     cell_size.height as u32 + TAB_BAR_PADDING
 }
 
+/// A single search match position
+#[derive(Debug, Clone)]
+struct MatchPosition {
+    /// Line index in unified space: 0..scrollback_len are scrollback lines,
+    /// scrollback_len..scrollback_len+rows are screen lines
+    line_idx: usize,
+    /// Start column of the match
+    start_col: usize,
+    /// End column of the match (exclusive)
+    end_col: usize,
+}
+
+/// Search state for a tab
+#[derive(Debug, Clone)]
+struct SearchState {
+    /// Whether the search bar is active
+    active: bool,
+    /// Current search query
+    query: String,
+    /// Whether to use regex mode
+    regex_mode: bool,
+    /// All matches found
+    matches: Vec<MatchPosition>,
+    /// Index of the current (focused) match
+    current_match: usize,
+    /// Compiled regex (cached)
+    compiled_regex: Option<Regex>,
+    /// Whether the regex is invalid
+    regex_error: bool,
+}
+
+impl SearchState {
+    fn new() -> Self {
+        Self {
+            active: false,
+            query: String::new(),
+            regex_mode: false,
+            matches: Vec::new(),
+            current_match: 0,
+            compiled_regex: None,
+            regex_error: false,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.active = false;
+        self.query.clear();
+        self.matches.clear();
+        self.current_match = 0;
+        self.compiled_regex = None;
+        self.regex_error = false;
+    }
+
+    fn next_match(&mut self) {
+        if !self.matches.is_empty() {
+            self.current_match = (self.current_match + 1) % self.matches.len();
+        }
+    }
+
+    fn prev_match(&mut self) {
+        if !self.matches.is_empty() {
+            if self.current_match == 0 {
+                self.current_match = self.matches.len() - 1;
+            } else {
+                self.current_match -= 1;
+            }
+        }
+    }
+}
+
 /// A single terminal tab
 struct Tab {
     terminal: Terminal,
     child: Child,
     title: String,
     scroll_offset: usize,
+    search: SearchState,
 }
 
 impl Tab {
@@ -51,6 +123,7 @@ impl Tab {
             child,
             title: String::from("Terminal"),
             scroll_offset: 0,
+            search: SearchState::new(),
         }
     }
 }
@@ -368,6 +441,11 @@ impl App {
 
     /// Handle keyboard input
     fn handle_key_input(&mut self, event: &winit::event::KeyEvent) {
+        // If search bar is active, route input there first
+        if self.handle_search_input(event) {
+            return;
+        }
+
         if event.state != ElementState::Pressed {
             return;
         }
@@ -1007,11 +1085,228 @@ impl App {
         }
     }
 
-    /// Handle find (Ctrl+Shift+F)
-    ///
-    /// Search UI is planned for a future release.
+    /// Handle find (Ctrl+Shift+F) - toggle search bar
     fn handle_find(&mut self) {
-        log::info!("Find requested (Ctrl+Shift+F) - search UI not yet implemented");
+        if self.tabs.is_empty() {
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        if tab.search.active {
+            tab.search.clear();
+        } else {
+            tab.search.active = true;
+            tab.search.query.clear();
+            tab.search.matches.clear();
+            tab.search.current_match = 0;
+            tab.search.regex_error = false;
+        }
+        self.needs_redraw = true;
+    }
+
+    fn line_text_and_boundaries(line: &terminal_core::Line) -> (String, Vec<(usize, usize)>) {
+        let mut text = String::new();
+        let mut boundaries = Vec::with_capacity(line.cols() + 1);
+        let mut byte_idx = 0usize;
+        let mut col = 0usize;
+
+        for i in 0..line.cols() {
+            let cell = line.cell(i);
+            if cell.is_continuation() {
+                continue;
+            }
+
+            boundaries.push((byte_idx, col));
+
+            let content = if cell.content().is_empty() {
+                " "
+            } else {
+                cell.content()
+            };
+            text.push_str(content);
+
+            byte_idx += content.len();
+            col += cell.width() as usize;
+        }
+
+        boundaries.push((byte_idx, col));
+        (text, boundaries)
+    }
+
+    fn byte_idx_to_col(boundaries: &[(usize, usize)], byte_idx: usize) -> usize {
+        match boundaries.binary_search_by_key(&byte_idx, |(b, _)| *b) {
+            Ok(i) => boundaries[i].1,
+            Err(i) => {
+                if i == 0 {
+                    0
+                } else {
+                    boundaries[i - 1].1
+                }
+            }
+        }
+    }
+
+    /// Run incremental search over scrollback + visible screen for the active tab
+    fn run_search(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        tab.search.matches.clear();
+        tab.search.current_match = 0;
+        tab.search.regex_error = false;
+
+        if tab.search.query.is_empty() {
+            return;
+        }
+
+        let screen = tab.terminal.screen();
+        let scrollback = screen.scrollback();
+        let scrollback_len = scrollback.len();
+        let rows = screen.rows();
+
+        let compiled = if tab.search.regex_mode {
+            match Regex::new(&tab.search.query) {
+                Ok(re) => Some(re),
+                Err(_) => {
+                    tab.search.regex_error = true;
+                    return;
+                }
+            }
+        } else {
+            Regex::new(&regex::escape(&tab.search.query)).ok()
+        };
+
+        let Some(re) = compiled else { return };
+
+        // Search scrollback lines (oldest to newest)
+        for i in 0..scrollback_len {
+            if let Some(line) = scrollback.get(i) {
+                let (text, boundaries) = Self::line_text_and_boundaries(line);
+                for mat in re.find_iter(&text) {
+                    let start_col = Self::byte_idx_to_col(&boundaries, mat.start());
+                    let end_col = Self::byte_idx_to_col(&boundaries, mat.end());
+                    tab.search.matches.push(MatchPosition {
+                        line_idx: i,
+                        start_col,
+                        end_col,
+                    });
+                }
+            }
+        }
+
+        // Search visible screen lines
+        for row in 0..rows {
+            let line = screen.line(row);
+            let (text, boundaries) = Self::line_text_and_boundaries(line);
+            for mat in re.find_iter(&text) {
+                let start_col = Self::byte_idx_to_col(&boundaries, mat.start());
+                let end_col = Self::byte_idx_to_col(&boundaries, mat.end());
+                tab.search.matches.push(MatchPosition {
+                    line_idx: scrollback_len + row,
+                    start_col,
+                    end_col,
+                });
+            }
+        }
+
+        tab.search.compiled_regex = Some(re);
+    }
+
+    /// Scroll viewport so the current search match is visible
+    fn scroll_to_current_match(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        if tab.search.matches.is_empty() {
+            return;
+        }
+
+        let current = &tab.search.matches[tab.search.current_match];
+        let scrollback_len = tab.terminal.screen().scrollback().len();
+        let rows = tab.terminal.screen().rows();
+
+        if current.line_idx < scrollback_len {
+            // Match is in scrollback: compute scroll_offset so match line is visible
+            let lines_from_end = scrollback_len - current.line_idx;
+            // Place the match roughly in the middle of the screen
+            let half_screen = rows / 2;
+            tab.scroll_offset = if lines_from_end > half_screen {
+                lines_from_end - half_screen
+            } else {
+                0
+            };
+            tab.scroll_offset = tab.scroll_offset.min(scrollback_len);
+        } else {
+            // Match is on the visible screen - just scroll to bottom
+            tab.scroll_offset = 0;
+        }
+    }
+
+    /// Handle keyboard input when search bar is active.
+    /// Returns true if the event was consumed by the search bar.
+    fn handle_search_input(&mut self, event: &winit::event::KeyEvent) -> bool {
+        if self.tabs.is_empty() {
+            return false;
+        }
+        if !self.tabs[self.active_tab].search.active {
+            return false;
+        }
+        if event.state != ElementState::Pressed {
+            return true; // consume release events too
+        }
+
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.tabs[self.active_tab].search.clear();
+                self.needs_redraw = true;
+            }
+            Key::Named(NamedKey::Enter) => {
+                if self.modifiers.shift_key() {
+                    self.tabs[self.active_tab].search.prev_match();
+                } else {
+                    self.tabs[self.active_tab].search.next_match();
+                }
+                self.scroll_to_current_match();
+                self.needs_redraw = true;
+            }
+            Key::Named(NamedKey::Backspace) => {
+                self.tabs[self.active_tab].search.query.pop();
+                self.run_search();
+                if !self.tabs[self.active_tab].search.matches.is_empty() {
+                    self.scroll_to_current_match();
+                }
+                self.needs_redraw = true;
+            }
+            Key::Named(NamedKey::Tab) => {
+                // Toggle regex mode
+                let tab = &mut self.tabs[self.active_tab];
+                tab.search.regex_mode = !tab.search.regex_mode;
+                self.run_search();
+                self.needs_redraw = true;
+            }
+            Key::Character(c) => {
+                // Don't consume Ctrl+Shift+F (allow toggling search off)
+                if self.modifiers.control_key() && self.modifiers.shift_key() {
+                    return false;
+                }
+                // Ignore other ctrl combos in search
+                if self.modifiers.control_key() || self.modifiers.super_key() {
+                    return true;
+                }
+                self.tabs[self.active_tab]
+                    .search
+                    .query
+                    .push_str(c.as_str());
+                self.run_search();
+                if !self.tabs[self.active_tab].search.matches.is_empty() {
+                    self.scroll_to_current_match();
+                }
+                self.needs_redraw = true;
+            }
+            _ => {}
+        }
+        true
     }
 
     /// Handle new window (Cmd+N on macOS)
@@ -1175,6 +1470,64 @@ impl App {
         let tab = &self.tabs[self.active_tab];
         let screen = tab.terminal.screen();
         let selection = screen.selection();
+        let scrollback_len = screen.scrollback().len();
+        let rows = screen.rows();
+
+        // Build search info for the renderer
+        let search_bar = if tab.search.active {
+            Some(SearchBarInfo {
+                query: &tab.search.query,
+                regex_mode: tab.search.regex_mode,
+                match_count: tab.search.matches.len(),
+                current_match: if tab.search.matches.is_empty() {
+                    0
+                } else {
+                    tab.search.current_match + 1
+                },
+                regex_error: tab.search.regex_error,
+            })
+        } else {
+            None
+        };
+
+        // Build visible search matches for the renderer
+        let search_matches: Vec<SearchMatch> = if tab.search.active {
+            let scroll_offset = tab.scroll_offset;
+            tab.search
+                .matches
+                .iter()
+                .enumerate()
+                .filter_map(|(i, m)| {
+                    // Convert unified line_idx to a display row
+                    let display_row = if scroll_offset > 0 {
+                        let view_start = scrollback_len.saturating_sub(scroll_offset);
+                        let view_end = view_start + rows;
+                        if m.line_idx >= view_start && m.line_idx < view_end {
+                            Some((m.line_idx - view_start) as usize)
+                        } else {
+                            None
+                        }
+                    } else {
+                        // No scroll: only screen lines are visible
+                        if m.line_idx >= scrollback_len
+                            && m.line_idx < scrollback_len + rows
+                        {
+                            Some(m.line_idx - scrollback_len)
+                        } else {
+                            None
+                        }
+                    };
+                    display_row.map(|row| SearchMatch {
+                        row,
+                        start_col: m.start_col,
+                        end_col: m.end_col,
+                        is_current: i == tab.search.current_match,
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         if let Err(e) = renderer.render(
             screen,
@@ -1183,6 +1536,8 @@ impl App {
             self.tab_bar_height,
             &tab_infos,
             self.active_tab,
+            search_bar.as_ref(),
+            &search_matches,
         ) {
             log::warn!("Render error: {:?}", e);
         }

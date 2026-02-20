@@ -23,6 +23,9 @@ softbuffer = "0.4"
 fontdue = "0.9"
 arboard = "3.4"
 
+# Search
+regex = "1.10"
+
 # Config
 serde = { workspace = true }
 serde_json = { workspace = true }
