@@ -18,6 +18,23 @@ pub struct TabInfo<'a> {
     pub title: &'a str,
 }
 
+/// Information about the search bar for rendering
+pub struct SearchBarInfo<'a> {
+    pub query: &'a str,
+    pub regex_mode: bool,
+    pub match_count: usize,
+    pub current_match: usize,
+    pub regex_error: bool,
+}
+
+/// A visible search match to highlight during rendering
+pub struct SearchMatch {
+    pub row: usize,
+    pub start_col: usize,
+    pub end_col: usize,
+    pub is_current: bool,
+}
+
 /// Cell dimensions in pixels
 #[derive(Debug, Clone, Copy)]
 pub struct CellSize {
@@ -175,6 +192,7 @@ impl Renderer {
     }
 
     /// Render the terminal screen
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         screen: &Screen,
@@ -183,6 +201,8 @@ impl Renderer {
         tab_bar_height: u32,
         tabs: &[TabInfo<'_>],
         active_tab: usize,
+        search_bar: Option<&SearchBarInfo<'_>>,
+        search_matches: &[SearchMatch],
     ) -> Result<(), Box<dyn std::error::Error>> {
         let width = self.width;
         let height = self.height;
@@ -210,6 +230,20 @@ impl Renderer {
         let rows = screen.rows();
         let scrollback = screen.scrollback();
         let scrollback_len = scrollback.len();
+
+        // Pre-cache glyphs needed for the search bar
+        if let Some(sb) = search_bar {
+            for c in "Find...No matches.* of 0123456789".chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+            for c in sb.query.chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+        }
 
         // Pre-cache glyphs for tab titles
         for tab in tabs {
@@ -289,8 +323,15 @@ impl Renderer {
 
         let cursor = screen.cursor();
 
+        let mut match_spans_per_row: Vec<Vec<(usize, usize, bool)>> = vec![Vec::new(); rows];
+        for sm in search_matches {
+            if sm.row < rows {
+                match_spans_per_row[sm.row].push((sm.start_col, sm.end_col, sm.is_current));
+            }
+        }
+
         // Render each cell
-        for row in 0..rows {
+        for (row, row_match_spans) in match_spans_per_row.iter().enumerate().take(rows) {
             // Calculate which line to render based on scroll offset
             let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
                 let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
@@ -328,6 +369,16 @@ impl Renderer {
                 // Determine colors
                 // Don't highlight empty selections (single click without drag)
                 let is_selected = !selection.is_empty() && selection.contains(col, row as isize);
+                // Check if this cell is part of a search match
+                let mut is_search_match = false;
+                let mut is_current_match = false;
+                for (start_col, end_col, is_current) in row_match_spans {
+                    if col >= *start_col && col < *end_col {
+                        is_search_match = true;
+                        is_current_match = *is_current;
+                        break;
+                    }
+                }
                 // Check if this is the cursor position (regardless of visibility)
                 let is_cursor_position = !is_from_scrollback
                     && scroll_offset == 0
@@ -337,7 +388,13 @@ impl Renderer {
                 let is_solid_cursor = is_cursor_position && cursor.visible;
                 let is_outline_cursor = is_cursor_position && !cursor.visible;
 
-                let (fg, bg) = if is_selected {
+                let (fg, bg) = if is_current_match {
+                    // Current search match: orange background
+                    ((0, 0, 0), (255, 165, 0))
+                } else if is_search_match {
+                    // Other search matches: yellow background
+                    ((0, 0, 0), (255, 255, 0))
+                } else if is_selected {
                     (fg_color, sel_color)
                 } else if is_solid_cursor {
                     (bg_color, cursor_color)
@@ -410,10 +467,145 @@ impl Renderer {
             );
         }
 
+        // Draw search bar overlay if active
+        if let Some(sb) = search_bar {
+            Self::draw_search_bar_static(
+                &mut buffer,
+                &self.glyph_cache,
+                sb,
+                &self.cell_size,
+                width,
+                height,
+                tab_bar_height,
+            );
+        }
+
         // Present
         buffer.present()?;
 
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_search_bar_static(
+        buffer: &mut [u32],
+        glyph_cache: &HashMap<(char, bool), GlyphEntry>,
+        info: &SearchBarInfo<'_>,
+        cell_size: &CellSize,
+        buf_width: u32,
+        buf_height: u32,
+        tab_bar_height: u32,
+    ) {
+        let padding = 8u32;
+        let height = (cell_size.height * 1.5) as u32;
+        let width = 400.min(buf_width.saturating_sub(20));
+        let x = buf_width.saturating_sub(width + 20);
+        let y = tab_bar_height + 10;
+
+        let bg_color = (40, 40, 40);
+        let border_color = if info.regex_error {
+            (200, 50, 50)
+        } else {
+            (100, 100, 100)
+        };
+        let text_color = (220, 220, 220);
+        let match_info_color = (150, 150, 150);
+
+        Self::fill_rect_static(
+            buffer,
+            x as i32,
+            y as i32,
+            width as i32,
+            height as i32,
+            bg_color,
+            buf_width,
+            buf_height,
+        );
+        Self::draw_rect_outline_static(
+            buffer,
+            x as i32,
+            y as i32,
+            width as i32,
+            height as i32,
+            border_color,
+            buf_width,
+            buf_height,
+        );
+
+        let text_x = x + padding;
+        let text_y = y + (height as f32 - cell_size.height) as u32 / 2;
+
+        let display_text = if info.query.is_empty() {
+            "Find..."
+        } else {
+            info.query
+        };
+
+        let query_color = if info.query.is_empty() {
+            (100, 100, 100)
+        } else {
+            text_color
+        };
+
+        Self::draw_text_static(
+            buffer,
+            glyph_cache,
+            display_text,
+            text_x as i32,
+            text_y as i32,
+            query_color,
+            cell_size.width,
+            cell_size.baseline,
+            buf_width,
+            buf_height,
+            (width - padding * 2) as i32,
+        );
+
+        if !info.query.is_empty() {
+            let cursor_x =
+                text_x as i32 + (info.query.chars().count() as f32 * cell_size.width) as i32;
+            Self::fill_rect_static(
+                buffer,
+                cursor_x,
+                text_y as i32,
+                2,
+                cell_size.height as i32,
+                text_color,
+                buf_width,
+                buf_height,
+            );
+        }
+
+        let mut right_text = String::new();
+        if info.regex_mode {
+            right_text.push_str(".* ");
+        }
+        if !info.query.is_empty() {
+            if info.match_count > 0 {
+                right_text.push_str(&format!("{} of {}", info.current_match, info.match_count));
+            } else {
+                right_text.push_str("No matches");
+            }
+        }
+
+        if !right_text.is_empty() {
+            let right_text_width = right_text.chars().count() as f32 * cell_size.width;
+            let right_text_x = x + width - padding - right_text_width as u32;
+
+            Self::draw_text_static(
+                buffer,
+                glyph_cache,
+                &right_text,
+                right_text_x as i32,
+                text_y as i32,
+                match_info_color,
+                cell_size.width,
+                cell_size.baseline,
+                buf_width,
+                buf_height,
+                (width - padding * 2) as i32,
+            );
+        }
     }
 
     /// Draw a scrollbar on the right side of the terminal (static version)

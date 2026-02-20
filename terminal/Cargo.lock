@@ -1136,6 +1136,7 @@ dependencies = [
  "fontdue",
  "log",
  "proptest",
+ "regex",
  "serde",
  "serde_json",
  "softbuffer",
