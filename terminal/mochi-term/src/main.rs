@@ -5,6 +5,8 @@
 mod app;
 mod config;
 mod event;
+#[cfg(feature = "gpu")]
+mod gpu_renderer;
 mod input;
 mod renderer;
 mod terminal;
