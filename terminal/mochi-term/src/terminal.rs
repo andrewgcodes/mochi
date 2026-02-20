@@ -3,7 +3,7 @@
 //! Integrates the parser and screen model to handle terminal emulation.
 
 use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
-use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
+use terminal_parser::{Action, CsiAction, EscAction, OscAction, Params, Parser};
 
 /// Terminal emulator state
 pub struct Terminal {
@@ -105,9 +105,8 @@ impl Terminal {
             Action::Osc(osc) => {
                 self.handle_osc(osc);
             }
-            Action::Dcs { .. } => {
-                // DCS sequences are currently not implemented
-                log::debug!("DCS sequence ignored");
+            Action::Dcs { params, data } => {
+                self.handle_dcs(params, &data);
             }
             Action::Apc(_) | Action::Pm(_) | Action::Sos(_) => {
                 // These are consumed but ignored
@@ -179,12 +178,12 @@ impl Terminal {
                 self.parser.reset();
             }
             EscAction::ApplicationKeypad => {
-                // Application keypad mode - affects key encoding
+                self.screen.modes_mut().application_keypad = true;
                 log::debug!("Application keypad mode enabled");
             }
             EscAction::NormalKeypad => {
-                // Normal keypad mode
-                log::debug!("Normal keypad mode enabled");
+                self.screen.modes_mut().application_keypad = false;
+                log::debug!("Normal keypad mode disabled");
             }
             EscAction::DesignateG0(c) => {
                 // Character set designation for G0
@@ -225,6 +224,12 @@ impl Terminal {
         // Handle private sequences
         if csi.private {
             self.handle_csi_private(&csi);
+            return;
+        }
+
+        // Handle sequences with '>' marker (e.g., DA2: CSI > c)
+        if csi.has_marker(b'>') {
+            self.handle_csi_gt(&csi);
             return;
         }
 
@@ -391,9 +396,59 @@ impl Terminal {
                 // Restore cursor (ANSI.SYS)
                 self.screen.restore_cursor();
             }
+            b'c' => {
+                // DA1 - Primary Device Attributes (without ? prefix)
+                // CSI 0 c or CSI c
+                self.queue_response(b"\x1b[?62;1;2;4;6;9;15;22c".to_vec());
+                log::debug!("DA1 request (non-private): responding as VT220");
+            }
+            b't' => {
+                // Window manipulation (dtterm/xterm)
+                let op = csi.param(0, 0);
+                match op {
+                    21 => {
+                        // Report window title
+                        // Response: OSC l title ST
+                        let title = self.title().to_string();
+                        let response = format!("\x1b]l{}\x1b\\", title);
+                        self.queue_response(response.into_bytes());
+                        log::debug!("Window title query: {}", title);
+                    }
+                    _ => {
+                        log::debug!("Window manipulation op {}: ignored", op);
+                    }
+                }
+            }
             _ => {
                 log::debug!(
                     "Unknown CSI sequence: {:?} {}",
+                    csi.params,
+                    csi.final_byte as char
+                );
+            }
+        }
+    }
+
+    /// Handle CSI sequences with '>' marker (e.g., DA2)
+    fn handle_csi_gt(&mut self, csi: &CsiAction) {
+        match csi.final_byte {
+            b'c' => {
+                // DA2 - Secondary Device Attributes
+                // Response: CSI > Pp ; Pv ; Pc c
+                // Pp=1 (VT220), Pv=version, Pc=0
+                // We report as "mochi" terminal: type 1, version 100
+                self.queue_response(b"\x1b[>1;100;0c".to_vec());
+                log::debug!("DA2 request: responding with terminal version");
+            }
+            b'q' => {
+                // XTVERSION - Request terminal version string
+                // Response: DCS > | version ST
+                self.queue_response(b"\x1bP>|mochi 0.1.0\x1b\\".to_vec());
+                log::debug!("XTVERSION request: responding with mochi version");
+            }
+            _ => {
+                log::debug!(
+                    "Unknown CSI > sequence: {:?}{}",
                     csi.params,
                     csi.final_byte as char
                 );
@@ -418,13 +473,29 @@ impl Terminal {
             }
             b'c' => {
                 // DA1 - Primary Device Attributes
-                // Respond as VT220 with advanced video option
-                // Response: CSI ? 62 ; 1 ; 2 ; 6 ; 7 ; 8 ; 9 c
-                // This indicates: VT220, 132 columns, printer, selective erase,
-                // user-defined keys, national replacement character sets, technical characters
-                // A simpler response that works well: CSI ? 1 ; 2 c (VT100 with AVO)
-                self.queue_response(b"\x1b[?1;2c".to_vec());
-                log::debug!("DA1 request: responding as VT100 with AVO");
+                // Respond as VT220 with capabilities:
+                // 62 = VT220, 1 = 132 columns, 2 = printer, 4 = sixel,
+                // 6 = selective erase, 9 = national replacement charsets,
+                // 15 = technical chars, 22 = ANSI color
+                self.queue_response(b"\x1b[?62;1;2;4;6;9;15;22c".to_vec());
+                log::debug!("DA1 request: responding as VT220");
+            }
+            b'n' => {
+                // DSR - Device Status Report (private)
+                let mode = csi.param(0, 0);
+                match mode {
+                    6 => {
+                        // DECXCPR - Extended cursor position report
+                        let row = self.screen.cursor().row + 1;
+                        let col = self.screen.cursor().col + 1;
+                        let response = format!("\x1b[?{};{}R", row, col);
+                        self.queue_response(response.into_bytes());
+                        log::debug!("DECXCPR: row={} col={}", row, col);
+                    }
+                    _ => {
+                        log::debug!("Unknown private DSR mode: {}", mode);
+                    }
+                }
             }
             _ => {
                 log::debug!(
@@ -470,6 +541,48 @@ impl Terminal {
                     }
                     _ => {}
                 }
+            }
+            ([b'$'], b'p') if csi.private => {
+                // DECRQM - Request Mode (DEC private)
+                // Response: CSI ? Ps ; Pm $ y
+                // Pm: 0=not recognized, 1=set, 2=reset, 3=permanently set, 4=permanently reset
+                let mode = csi.param(0, 0);
+                let status = if self.screen.modes().get_dec_mode(mode) {
+                    1 // set
+                } else {
+                    match mode {
+                        1 | 6 | 7 | 25 | 47 | 1000 | 1002 | 1003 | 1004 | 1006 | 1047
+                        | 1048 | 1049 | 2004 | 2026 => 2, // reset (known mode)
+                        _ => 0,                           // not recognized
+                    }
+                };
+                let response = format!("\x1b[?{};{}$y", mode, status);
+                self.queue_response(response.into_bytes());
+                log::debug!("DECRQM: mode {} -> status {}", mode, status);
+            }
+            ([b'$'], b'p') => {
+                // DECRQM - Request Mode (ANSI)
+                let mode = csi.param(0, 0);
+                let status = match mode {
+                    4 => {
+                        if self.screen.modes().insert_mode {
+                            1
+                        } else {
+                            2
+                        }
+                    }
+                    20 => {
+                        if self.screen.modes().linefeed_mode {
+                            1
+                        } else {
+                            2
+                        }
+                    }
+                    _ => 0,
+                };
+                let response = format!("\x1b[{};{}$y", mode, status);
+                self.queue_response(response.into_bytes());
+                log::debug!("DECRQM (ANSI): mode {} -> status {}", mode, status);
             }
             _ => {
                 log::debug!(
@@ -756,6 +869,75 @@ impl Terminal {
             OscAction::Unknown { command, data } => {
                 log::debug!("Unknown OSC {}: {}", command, data);
             }
+        }
+    }
+
+    /// Handle DCS (Device Control String) sequences
+    fn handle_dcs(&mut self, _params: Params, data: &[u8]) {
+        let data_str = String::from_utf8_lossy(data);
+
+        if let Some(inner) = data_str.strip_prefix("tmux;") {
+            // tmux passthrough: DCS tmux; <escaped-data> ST
+            // The escaped data has ESC doubled (ESC ESC -> ESC)
+            let unescaped: Vec<u8> = {
+                let bytes = inner.as_bytes();
+                let mut result = Vec::with_capacity(bytes.len());
+                let mut i = 0;
+                while i < bytes.len() {
+                    if i + 1 < bytes.len() && bytes[i] == 0x1b && bytes[i + 1] == 0x1b {
+                        result.push(0x1b);
+                        i += 2;
+                    } else {
+                        result.push(bytes[i]);
+                        i += 1;
+                    }
+                }
+                result
+            };
+            self.process(&unescaped);
+            log::debug!("DCS tmux passthrough: {} bytes", unescaped.len());
+        } else if let Some(hex_names) = data_str.strip_prefix("+q") {
+            // XTGETTCAP - Request terminfo capabilities
+            // DCS + q <hex-encoded-cap-name> ST
+            // Response: DCS 1 + r <hex-name> = <hex-value> ST (success)
+            //       or: DCS 0 + r <hex-name> ST (not found)
+            for hex_name in hex_names.split(';') {
+                let cap_name: String = hex_name
+                    .as_bytes()
+                    .chunks(2)
+                    .filter_map(|chunk| {
+                        if chunk.len() == 2 {
+                            let s = std::str::from_utf8(chunk).ok()?;
+                            u8::from_str_radix(s, 16).ok().map(|b| b as char)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let response_value = match cap_name.as_str() {
+                    "TN" | "name" => Some("mochi"),
+                    "RGB" => Some("8/8/8"),
+                    "Se" => Some("\x1b[2 q"),
+                    "Ss" => Some("\x1b[%p1%d q"),
+                    "Cs" => Some("\x1b]12;%p1%s\x07"),
+                    "Cr" => Some("\x1b]112\x07"),
+                    "Ms" => Some("\x1b]52;%p1%s;%p2%s\x07"),
+                    _ => None,
+                };
+
+                if let Some(val) = response_value {
+                    let hex_val: String = val.bytes().map(|b| format!("{:02x}", b)).collect();
+                    let response = format!("\x1bP1+r{}={}\x1b\\", hex_name, hex_val);
+                    self.queue_response(response.into_bytes());
+                } else {
+                    let response = format!("\x1bP0+r{}\x1b\\", hex_name);
+                    self.queue_response(response.into_bytes());
+                }
+                log::debug!("XTGETTCAP: {} -> {:?}", cap_name, response_value);
+            }
+        } else {
+            log::debug!("DCS sequence: {:?}", data_str);
         }
     }
 
