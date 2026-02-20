@@ -42,12 +42,18 @@ pub struct Modes {
     pub mouse_button_event: bool,
     /// Mouse tracking: any event tracking
     pub mouse_any_event: bool,
+    /// Mouse tracking: UTF-8 extended coordinates (mode 1005)
+    pub mouse_utf8: bool,
     /// Mouse tracking: SGR extended coordinates
     pub mouse_sgr: bool,
     /// Focus in/out events
     pub focus_events: bool,
+    /// Cursor blink (mode 12)
+    pub cursor_blink: bool,
     /// Alternate screen buffer
     pub alternate_screen: bool,
+    /// Alternate scroll mode (mode 1007) - scroll wheel sends arrow keys in alt screen
+    pub alternate_scroll: bool,
     /// Bracketed paste mode
     pub bracketed_paste: bool,
     /// Synchronized output mode (DEC 2026) - used by TUI apps like Claude Code
@@ -79,9 +85,12 @@ impl Modes {
             mouse_vt200: false,
             mouse_button_event: false,
             mouse_any_event: false,
+            mouse_utf8: false,
             mouse_sgr: false,
             focus_events: false,
+            cursor_blink: true,
             alternate_screen: false,
+            alternate_scroll: false,
             bracketed_paste: false,
             synchronized_output: false,
         }
@@ -104,12 +113,17 @@ impl Modes {
             7 => self.auto_wrap = value,
             8 => self.auto_repeat = value,
             9 => self.mouse_x10 = value,
+            12 => self.cursor_blink = value,
             25 => self.cursor_visible = value,
+            47 => self.alternate_screen = value,
             1000 => self.mouse_vt200 = value,
             1002 => self.mouse_button_event = value,
             1003 => self.mouse_any_event = value,
             1004 => self.focus_events = value,
+            1005 => self.mouse_utf8 = value,
             1006 => self.mouse_sgr = value,
+            1007 => self.alternate_scroll = value,
+            1047 => self.alternate_screen = value,
             1049 => self.alternate_screen = value,
             2004 => self.bracketed_paste = value,
             2026 => self.synchronized_output = value,
@@ -131,12 +145,17 @@ impl Modes {
             7 => self.auto_wrap,
             8 => self.auto_repeat,
             9 => self.mouse_x10,
+            12 => self.cursor_blink,
             25 => self.cursor_visible,
+            47 => self.alternate_screen,
             1000 => self.mouse_vt200,
             1002 => self.mouse_button_event,
             1003 => self.mouse_any_event,
             1004 => self.focus_events,
+            1005 => self.mouse_utf8,
             1006 => self.mouse_sgr,
+            1007 => self.alternate_scroll,
+            1047 => self.alternate_screen,
             1049 => self.alternate_screen,
             2004 => self.bracketed_paste,
             2026 => self.synchronized_output,

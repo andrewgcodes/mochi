@@ -23,6 +23,16 @@ pub struct Terminal {
     /// Pending responses to send back to the PTY
     /// Used for DSR (Device Status Report), DA1 (Primary Device Attributes), etc.
     pending_responses: Vec<Vec<u8>>,
+    /// Window pixel dimensions (width, height) for CSI 14t responses
+    window_pixel_size: (u32, u32),
+    /// Cell pixel dimensions (width, height) for CSI 16t responses
+    cell_pixel_size: (u32, u32),
+    /// Foreground color RGB for OSC 10 query responses
+    fg_color: (u8, u8, u8),
+    /// Background color RGB for OSC 11 query responses
+    bg_color: (u8, u8, u8),
+    /// Cursor color RGB for OSC 12 query responses
+    cursor_color: (u8, u8, u8),
 }
 
 impl Terminal {
@@ -36,6 +46,11 @@ impl Terminal {
             bell: false,
             sync_output_first_enable: false,
             pending_responses: Vec::new(),
+            window_pixel_size: (0, 0),
+            cell_pixel_size: (0, 0),
+            fg_color: (212, 212, 212),
+            bg_color: (30, 30, 30),
+            cursor_color: (255, 255, 255),
         }
     }
 
@@ -105,9 +120,8 @@ impl Terminal {
             Action::Osc(osc) => {
                 self.handle_osc(osc);
             }
-            Action::Dcs { .. } => {
-                // DCS sequences are currently not implemented
-                log::debug!("DCS sequence ignored");
+            Action::Dcs { params, data } => {
+                self.handle_dcs(params, &data);
             }
             Action::Apc(_) | Action::Pm(_) | Action::Sos(_) => {
                 // These are consumed but ignored
@@ -222,13 +236,16 @@ impl Terminal {
 
     /// Handle CSI sequences
     fn handle_csi(&mut self, csi: CsiAction) {
-        // Handle private sequences
+        if csi.prefix == b'>' {
+            self.handle_csi_gt(&csi);
+            return;
+        }
+
         if csi.private {
             self.handle_csi_private(&csi);
             return;
         }
 
-        // Handle sequences with intermediates
         if !csi.intermediates.is_empty() {
             self.handle_csi_intermediate(&csi);
             return;
@@ -350,32 +367,24 @@ impl Terminal {
                 self.handle_sgr(&csi);
             }
             b'n' => {
-                // DSR - Device Status Report
                 let mode = csi.param(0, 0);
                 match mode {
                     5 => {
-                        // Status report - respond with "OK"
-                        // Response: CSI 0 n
                         self.queue_response(b"\x1b[0n".to_vec());
-                        log::debug!("DSR mode 5: status report, responding OK");
                     }
                     6 => {
-                        // Cursor position report
-                        // Response: CSI row ; col R (1-indexed)
                         let row = self.screen.cursor().row + 1;
                         let col = self.screen.cursor().col + 1;
                         let response = format!("\x1b[{};{}R", row, col);
                         self.queue_response(response.into_bytes());
-                        log::debug!(
-                            "DSR mode 6: cursor position report, responding row={} col={}",
-                            row,
-                            col
-                        );
                     }
                     _ => {
                         log::debug!("DSR request with unknown mode: {}", mode);
                     }
                 }
+            }
+            b't' => {
+                self.handle_window_ops(&csi);
             }
             b'r' => {
                 // DECSTBM - Set Top and Bottom Margins
@@ -401,30 +410,52 @@ impl Terminal {
         }
     }
 
+    /// Handle CSI sequences with `>` prefix (DA2, XTVERSION, etc.)
+    fn handle_csi_gt(&mut self, csi: &CsiAction) {
+        match csi.final_byte {
+            b'c' => {
+                self.queue_response(b"\x1b[>0;10;1c".to_vec());
+            }
+            b'q' => {
+                let version = env!("CARGO_PKG_VERSION");
+                let response = format!("\x1bP>|Mochi({})\x1b\\", version);
+                self.queue_response(response.into_bytes());
+            }
+            _ => {
+                log::debug!("Unknown CSI > {:?} {}", csi.params, csi.final_byte as char);
+            }
+        }
+    }
+
     /// Handle CSI sequences with private marker (?)
     fn handle_csi_private(&mut self, csi: &CsiAction) {
         match csi.final_byte {
             b'h' => {
-                // DECSET - DEC Private Mode Set
                 for param in csi.params.iter() {
                     self.set_dec_mode(param, true);
                 }
             }
             b'l' => {
-                // DECRST - DEC Private Mode Reset
                 for param in csi.params.iter() {
                     self.set_dec_mode(param, false);
                 }
             }
             b'c' => {
-                // DA1 - Primary Device Attributes
-                // Respond as VT220 with advanced video option
-                // Response: CSI ? 62 ; 1 ; 2 ; 6 ; 7 ; 8 ; 9 c
-                // This indicates: VT220, 132 columns, printer, selective erase,
-                // user-defined keys, national replacement character sets, technical characters
-                // A simpler response that works well: CSI ? 1 ; 2 c (VT100 with AVO)
-                self.queue_response(b"\x1b[?1;2c".to_vec());
-                log::debug!("DA1 request: responding as VT100 with AVO");
+                self.queue_response(b"\x1b[?62;22c".to_vec());
+            }
+            b'n' => {
+                let mode = csi.param(0, 0);
+                match mode {
+                    6 => {
+                        let row = self.screen.cursor().row + 1;
+                        let col = self.screen.cursor().col + 1;
+                        let response = format!("\x1b[?{};{}R", row, col);
+                        self.queue_response(response.into_bytes());
+                    }
+                    _ => {
+                        log::debug!("Unknown private DSR mode: {}", mode);
+                    }
+                }
             }
             _ => {
                 log::debug!(
@@ -438,9 +469,8 @@ impl Terminal {
 
     /// Handle CSI sequences with intermediate bytes
     fn handle_csi_intermediate(&mut self, csi: &CsiAction) {
-        match (csi.intermediates.as_slice(), csi.final_byte) {
-            ([b' '], b'q') => {
-                // DECSCUSR - Set Cursor Style
+        match (csi.intermediates.as_slice(), csi.final_byte, csi.prefix) {
+            ([b' '], b'q', 0) => {
                 let style = csi.param(0, 1);
                 let cursor = self.screen.cursor_mut();
                 match style {
@@ -471,6 +501,20 @@ impl Terminal {
                     _ => {}
                 }
             }
+            ([b'$'], b'p', b'?') => {
+                let mode = csi.param(0, 0);
+                let known_modes: &[u16] = &[
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 47, 1000, 1002, 1003,
+                    1004, 1005, 1006, 1007, 1047, 1049, 2004, 2026,
+                ];
+                let ps = if known_modes.contains(&mode) {
+                    if self.screen.modes().get_dec_mode(mode) { 1 } else { 2 }
+                } else {
+                    0
+                };
+                let response = format!("\x1b[?{};{}$y", mode, ps);
+                self.queue_response(response.into_bytes());
+            }
             _ => {
                 log::debug!(
                     "Unknown CSI with intermediates: {:?} {:?} {}",
@@ -478,6 +522,38 @@ impl Terminal {
                     csi.params,
                     csi.final_byte as char
                 );
+            }
+        }
+    }
+
+    /// Handle CSI t window operations (used by tmux for size queries)
+    fn handle_window_ops(&mut self, csi: &CsiAction) {
+        let op = csi.param(0, 0);
+        match op {
+            14 => {
+                let (w, h) = self.window_pixel_size;
+                let response = format!("\x1b[4;{};{}t", h, w);
+                self.queue_response(response.into_bytes());
+            }
+            16 => {
+                let (cw, ch) = self.cell_pixel_size;
+                let response = format!("\x1b[6;{};{}t", ch, cw);
+                self.queue_response(response.into_bytes());
+            }
+            18 => {
+                let rows = self.screen.rows();
+                let cols = self.screen.cols();
+                let response = format!("\x1b[8;{};{}t", rows, cols);
+                self.queue_response(response.into_bytes());
+            }
+            22 => {
+                log::debug!("CSI 22t: push title (ignored)");
+            }
+            23 => {
+                log::debug!("CSI 23t: pop title (ignored)");
+            }
+            _ => {
+                log::debug!("Unknown window op: {}", op);
             }
         }
     }
@@ -736,13 +812,46 @@ impl Terminal {
                 log::debug!("Set color {}: {}", index, color);
             }
             OscAction::SetForegroundColor(color) => {
-                log::debug!("Set foreground color: {}", color);
+                if color == "?" {
+                    let (r, g, b) = self.fg_color;
+                    let response = format!(
+                        "\x1b]10;rgb:{:04x}/{:04x}/{:04x}\x07",
+                        (r as u16) << 8 | r as u16,
+                        (g as u16) << 8 | g as u16,
+                        (b as u16) << 8 | b as u16,
+                    );
+                    self.queue_response(response.into_bytes());
+                } else {
+                    log::debug!("Set foreground color: {}", color);
+                }
             }
             OscAction::SetBackgroundColor(color) => {
-                log::debug!("Set background color: {}", color);
+                if color == "?" {
+                    let (r, g, b) = self.bg_color;
+                    let response = format!(
+                        "\x1b]11;rgb:{:04x}/{:04x}/{:04x}\x07",
+                        (r as u16) << 8 | r as u16,
+                        (g as u16) << 8 | g as u16,
+                        (b as u16) << 8 | b as u16,
+                    );
+                    self.queue_response(response.into_bytes());
+                } else {
+                    log::debug!("Set background color: {}", color);
+                }
             }
             OscAction::SetCursorColor(color) => {
-                log::debug!("Set cursor color: {}", color);
+                if color == "?" {
+                    let (r, g, b) = self.cursor_color;
+                    let response = format!(
+                        "\x1b]12;rgb:{:04x}/{:04x}/{:04x}\x07",
+                        (r as u16) << 8 | r as u16,
+                        (g as u16) << 8 | g as u16,
+                        (b as u16) << 8 | b as u16,
+                    );
+                    self.queue_response(response.into_bytes());
+                } else {
+                    log::debug!("Set cursor color: {}", color);
+                }
             }
             OscAction::SetCurrentDirectory(dir) => {
                 log::debug!("Set current directory: {}", dir);
@@ -786,6 +895,58 @@ impl Terminal {
     /// Queue a response to be sent back to the PTY
     fn queue_response(&mut self, response: Vec<u8>) {
         self.pending_responses.push(response);
+    }
+
+    /// Handle DCS (Device Control String) sequences
+    fn handle_dcs(&mut self, params: terminal_parser::Params, data: &[u8]) {
+        let data_str = String::from_utf8_lossy(data);
+        if let Some(query) = data_str.strip_prefix("$q") {
+            match query {
+                "m" => {
+                    self.queue_response(b"\x1bP1$r0m\x1b\\".to_vec());
+                }
+                " q" => {
+                    let style = match self.screen.cursor().style {
+                        CursorStyle::Block => {
+                            if self.screen.cursor().blinking { 1 } else { 2 }
+                        }
+                        CursorStyle::Underline => {
+                            if self.screen.cursor().blinking { 3 } else { 4 }
+                        }
+                        CursorStyle::Bar => {
+                            if self.screen.cursor().blinking { 5 } else { 6 }
+                        }
+                    };
+                    let response = format!("\x1bP1$r{} q\x1b\\", style);
+                    self.queue_response(response.into_bytes());
+                }
+                "r" => {
+                    let (top, bottom) = self.screen.scroll_region();
+                    let response = format!("\x1bP1$r{};{}r\x1b\\", top + 1, bottom);
+                    self.queue_response(response.into_bytes());
+                }
+                _ => {
+                    self.queue_response(b"\x1bP0$r\x1b\\".to_vec());
+                    log::debug!("Unknown DECRQSS query: {}", query);
+                }
+            }
+        } else {
+            log::debug!("Unhandled DCS: params={:?} data={}", params, data_str);
+        }
+    }
+
+    pub fn set_window_pixel_size(&mut self, width: u32, height: u32) {
+        self.window_pixel_size = (width, height);
+    }
+
+    pub fn set_cell_pixel_size(&mut self, width: u32, height: u32) {
+        self.cell_pixel_size = (width, height);
+    }
+
+    pub fn set_colors(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8), cursor: (u8, u8, u8)) {
+        self.fg_color = fg;
+        self.bg_color = bg;
+        self.cursor_color = cursor;
     }
 }
 
