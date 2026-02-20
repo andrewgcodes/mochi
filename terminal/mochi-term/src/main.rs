@@ -5,6 +5,7 @@
 mod app;
 mod config;
 mod event;
+mod gpu_renderer;
 mod input;
 mod renderer;
 mod terminal;

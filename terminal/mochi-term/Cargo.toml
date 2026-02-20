@@ -23,6 +23,11 @@ softbuffer = "0.4"
 fontdue = "0.9"
 arboard = "3.4"
 
+# GPU rendering
+wgpu = "23"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+
 # Config
 serde = { workspace = true }
 serde_json = { workspace = true }
