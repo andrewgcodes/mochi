@@ -222,7 +222,15 @@ impl App {
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
         // Create first tab
-        let terminal = Terminal::new(cols.max(1), rows.max(1));
+        let mut terminal = Terminal::new(cols.max(1), rows.max(1));
+        terminal.set_window_pixel_size(size.width, terminal_height);
+        terminal.set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
+        let colors = self.config.effective_colors();
+        terminal.set_colors(
+            colors.foreground_rgb(),
+            colors.background_rgb(),
+            colors.cursor_rgb(),
+        );
         let child = Child::spawn_shell(WindowSize::new(cols as u16, rows as u16))?;
         child.set_nonblocking(true)?;
 
@@ -249,7 +257,15 @@ impl App {
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        let terminal = Terminal::new(cols.max(1), rows.max(1));
+        let mut terminal = Terminal::new(cols.max(1), rows.max(1));
+        terminal.set_window_pixel_size(size.width, terminal_height);
+        terminal.set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
+        let colors = self.config.effective_colors();
+        terminal.set_colors(
+            colors.foreground_rgb(),
+            colors.background_rgb(),
+            colors.cursor_rgb(),
+        );
         match Child::spawn_shell(WindowSize::new(cols as u16, rows as u16)) {
             Ok(child) => {
                 let _ = child.set_nonblocking(true);
@@ -355,10 +371,13 @@ impl App {
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        // Resize all tabs
         if cols > 0 && rows > 0 {
             for tab in &mut self.tabs {
                 tab.terminal.resize(cols, rows);
+                tab.terminal
+                    .set_window_pixel_size(size.width, terminal_height);
+                tab.terminal
+                    .set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
                 let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
             }
         }
@@ -603,7 +622,6 @@ impl App {
 
         renderer.set_font_size(new_size);
 
-        // Recalculate terminal dimensions (account for tab bar)
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
@@ -611,10 +629,13 @@ impl App {
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        // Resize all tabs
         if cols > 0 && rows > 0 {
             for tab in &mut self.tabs {
                 tab.terminal.resize(cols, rows);
+                tab.terminal
+                    .set_window_pixel_size(size.width, terminal_height);
+                tab.terminal
+                    .set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
                 let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
             }
         }
@@ -622,7 +643,7 @@ impl App {
         self.needs_redraw = true;
     }
 
-    /// Reset font size to default (scaled for HiDPI)
+    /// Reset font size to default(scaled for HiDPI)
     fn reset_font_size(&mut self) {
         let Some(renderer) = &mut self.renderer else {
             return;
@@ -634,7 +655,6 @@ impl App {
 
         renderer.set_font_size(default_size);
 
-        // Recalculate terminal dimensions (account for tab bar)
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
@@ -642,10 +662,13 @@ impl App {
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        // Resize all tabs
         if cols > 0 && rows > 0 {
             for tab in &mut self.tabs {
                 tab.terminal.resize(cols, rows);
+                tab.terminal
+                    .set_window_pixel_size(size.width, terminal_height);
+                tab.terminal
+                    .set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
                 let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
             }
         }
