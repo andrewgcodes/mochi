@@ -1,6 +1,7 @@
 //! Main application logic
 //!
 //! Ties together the terminal, PTY, and renderer.
+//! Supports split panes (horizontal/vertical terminal multiplexing) within each tab.
 
 use std::io;
 use std::rc::Rc;
@@ -19,34 +20,341 @@ use terminal_core::{Point, SelectionType};
 
 use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
-use crate::renderer::{Renderer, TabInfo};
+use crate::renderer::{PaneRenderInfo, Renderer, TabInfo};
 use crate::terminal::Terminal;
 
-/// Padding added to cell height to compute tab bar height
 const TAB_BAR_PADDING: u32 = 8;
-/// Maximum width of a single tab in pixels
 const TAB_MAX_WIDTH: u32 = 200;
-/// Width of the close button area in each tab
 const CLOSE_BTN_WIDTH: u32 = 20;
-/// Width of the new tab (+) button
 const NEW_TAB_BTN_WIDTH: u32 = 32;
+const SPLIT_DIVIDER_WIDTH: u32 = 4;
 
-/// Compute tab bar height from the current cell size so it scales with HiDPI / font size.
 fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
     cell_size.height as u32 + TAB_BAR_PADDING
 }
 
-/// A single terminal tab
-struct Tab {
+type PaneId = usize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SplitDirection {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Rect {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl Rect {
+    fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    fn contains(&self, px: f64, py: f64) -> bool {
+        px >= self.x as f64
+            && px < (self.x + self.width) as f64
+            && py >= self.y as f64
+            && py < (self.y + self.height) as f64
+    }
+}
+
+#[derive(Debug)]
+enum SplitNode {
+    Leaf {
+        pane_id: PaneId,
+    },
+    Split {
+        direction: SplitDirection,
+        ratio: f64,
+        first: Box<SplitNode>,
+        second: Box<SplitNode>,
+    },
+}
+
+impl SplitNode {
+    fn new_leaf(pane_id: PaneId) -> Self {
+        SplitNode::Leaf { pane_id }
+    }
+
+    fn collect_pane_ids(&self) -> Vec<PaneId> {
+        match self {
+            SplitNode::Leaf { pane_id } => vec![*pane_id],
+            SplitNode::Split { first, second, .. } => {
+                let mut ids = first.collect_pane_ids();
+                ids.extend(second.collect_pane_ids());
+                ids
+            }
+        }
+    }
+
+    fn compute_rects(&self, area: Rect) -> Vec<(PaneId, Rect)> {
+        match self {
+            SplitNode::Leaf { pane_id } => vec![(*pane_id, area)],
+            SplitNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
+                let divider = SPLIT_DIVIDER_WIDTH;
+                let (first_area, second_area) = match direction {
+                    SplitDirection::Horizontal => {
+                        let first_w = ((area.width.saturating_sub(divider)) as f64 * ratio) as u32;
+                        let second_x = area.x + first_w + divider;
+                        let second_w = area.width.saturating_sub(first_w + divider);
+                        (
+                            Rect::new(area.x, area.y, first_w, area.height),
+                            Rect::new(second_x, area.y, second_w, area.height),
+                        )
+                    }
+                    SplitDirection::Vertical => {
+                        let first_h = ((area.height.saturating_sub(divider)) as f64 * ratio) as u32;
+                        let second_y = area.y + first_h + divider;
+                        let second_h = area.height.saturating_sub(first_h + divider);
+                        (
+                            Rect::new(area.x, area.y, area.width, first_h),
+                            Rect::new(area.x, second_y, area.width, second_h),
+                        )
+                    }
+                };
+                let mut rects = first.compute_rects(first_area);
+                rects.extend(second.compute_rects(second_area));
+                rects
+            }
+        }
+    }
+
+    fn compute_dividers(&self, area: Rect) -> Vec<(Rect, SplitDirection)> {
+        match self {
+            SplitNode::Leaf { .. } => vec![],
+            SplitNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
+                let divider = SPLIT_DIVIDER_WIDTH;
+                let (first_area, divider_rect, second_area) = match direction {
+                    SplitDirection::Horizontal => {
+                        let first_w = ((area.width.saturating_sub(divider)) as f64 * ratio) as u32;
+                        let div_rect = Rect::new(area.x + first_w, area.y, divider, area.height);
+                        let second_x = area.x + first_w + divider;
+                        let second_w = area.width.saturating_sub(first_w + divider);
+                        (
+                            Rect::new(area.x, area.y, first_w, area.height),
+                            div_rect,
+                            Rect::new(second_x, area.y, second_w, area.height),
+                        )
+                    }
+                    SplitDirection::Vertical => {
+                        let first_h = ((area.height.saturating_sub(divider)) as f64 * ratio) as u32;
+                        let div_rect = Rect::new(area.x, area.y + first_h, area.width, divider);
+                        let second_y = area.y + first_h + divider;
+                        let second_h = area.height.saturating_sub(first_h + divider);
+                        (
+                            Rect::new(area.x, area.y, area.width, first_h),
+                            div_rect,
+                            Rect::new(area.x, second_y, area.width, second_h),
+                        )
+                    }
+                };
+                let mut dividers = vec![(divider_rect, *direction)];
+                dividers.extend(first.compute_dividers(first_area));
+                dividers.extend(second.compute_dividers(second_area));
+                dividers
+            }
+        }
+    }
+
+    fn split_pane(
+        &mut self,
+        target_pane_id: PaneId,
+        new_pane_id: PaneId,
+        direction: SplitDirection,
+    ) -> bool {
+        match self {
+            SplitNode::Leaf { pane_id } if *pane_id == target_pane_id => {
+                let old_leaf = Box::new(SplitNode::new_leaf(target_pane_id));
+                let new_leaf = Box::new(SplitNode::new_leaf(new_pane_id));
+                *self = SplitNode::Split {
+                    direction,
+                    ratio: 0.5,
+                    first: old_leaf,
+                    second: new_leaf,
+                };
+                true
+            }
+            SplitNode::Leaf { .. } => false,
+            SplitNode::Split { first, second, .. } => {
+                first.split_pane(target_pane_id, new_pane_id, direction)
+                    || second.split_pane(target_pane_id, new_pane_id, direction)
+            }
+        }
+    }
+
+    fn remove_pane(&mut self, target_pane_id: PaneId) -> Option<SplitNode> {
+        match self {
+            SplitNode::Leaf { pane_id } if *pane_id == target_pane_id => None,
+            SplitNode::Leaf { .. } => None,
+            SplitNode::Split { first, second, .. } => {
+                if let SplitNode::Leaf { pane_id } = first.as_ref() {
+                    if *pane_id == target_pane_id {
+                        return Some(std::mem::replace(second.as_mut(), SplitNode::new_leaf(0)));
+                    }
+                }
+                if let SplitNode::Leaf { pane_id } = second.as_ref() {
+                    if *pane_id == target_pane_id {
+                        return Some(std::mem::replace(first.as_mut(), SplitNode::new_leaf(0)));
+                    }
+                }
+                if let Some(replacement) = first.remove_pane(target_pane_id) {
+                    *first.as_mut() = replacement;
+                    return None;
+                }
+                if let Some(replacement) = second.remove_pane(target_pane_id) {
+                    *second.as_mut() = replacement;
+                    return None;
+                }
+                None
+            }
+        }
+    }
+
+    fn find_neighbor(
+        &self,
+        target_pane_id: PaneId,
+        direction: NeighborDirection,
+        area: Rect,
+    ) -> Option<PaneId> {
+        let rects = self.compute_rects(area);
+        let target_rect = rects.iter().find(|(id, _)| *id == target_pane_id)?.1;
+
+        let (target_cx, target_cy) = (
+            target_rect.x as f64 + target_rect.width as f64 / 2.0,
+            target_rect.y as f64 + target_rect.height as f64 / 2.0,
+        );
+
+        let mut best: Option<(PaneId, f64)> = None;
+
+        for (id, rect) in &rects {
+            if *id == target_pane_id {
+                continue;
+            }
+            let cx = rect.x as f64 + rect.width as f64 / 2.0;
+            let cy = rect.y as f64 + rect.height as f64 / 2.0;
+
+            let is_valid = match direction {
+                NeighborDirection::Left => cx < target_cx,
+                NeighborDirection::Right => cx > target_cx,
+                NeighborDirection::Up => cy < target_cy,
+                NeighborDirection::Down => cy > target_cy,
+            };
+
+            if is_valid {
+                let dist = (cx - target_cx).powi(2) + (cy - target_cy).powi(2);
+                if best.is_none() || dist < best.unwrap().1 {
+                    best = Some((*id, dist));
+                }
+            }
+        }
+
+        best.map(|(id, _)| id)
+    }
+
+    fn adjust_divider_at(
+        &mut self,
+        px: f64,
+        py: f64,
+        area: Rect,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> bool {
+        match self {
+            SplitNode::Leaf { .. } => false,
+            SplitNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
+                let divider = SPLIT_DIVIDER_WIDTH;
+                let (first_area, div_rect, second_area) = match direction {
+                    SplitDirection::Horizontal => {
+                        let first_w = ((area.width.saturating_sub(divider)) as f64 * *ratio) as u32;
+                        let div_rect = Rect::new(area.x + first_w, area.y, divider, area.height);
+                        let second_x = area.x + first_w + divider;
+                        let second_w = area.width.saturating_sub(first_w + divider);
+                        (
+                            Rect::new(area.x, area.y, first_w, area.height),
+                            div_rect,
+                            Rect::new(second_x, area.y, second_w, area.height),
+                        )
+                    }
+                    SplitDirection::Vertical => {
+                        let first_h =
+                            ((area.height.saturating_sub(divider)) as f64 * *ratio) as u32;
+                        let div_rect = Rect::new(area.x, area.y + first_h, area.width, divider);
+                        let second_y = area.y + first_h + divider;
+                        let second_h = area.height.saturating_sub(first_h + divider);
+                        (
+                            Rect::new(area.x, area.y, area.width, first_h),
+                            div_rect,
+                            Rect::new(area.x, second_y, area.width, second_h),
+                        )
+                    }
+                };
+
+                if div_rect.contains(px, py) {
+                    let available = match direction {
+                        SplitDirection::Horizontal => area.width.saturating_sub(divider) as f64,
+                        SplitDirection::Vertical => area.height.saturating_sub(divider) as f64,
+                    };
+                    if available > 0.0 {
+                        let delta = match direction {
+                            SplitDirection::Horizontal => delta_x,
+                            SplitDirection::Vertical => delta_y,
+                        };
+                        *ratio = (*ratio + delta / available).clamp(0.1, 0.9);
+                    }
+                    return true;
+                }
+
+                first.adjust_divider_at(px, py, first_area, delta_x, delta_y)
+                    || second.adjust_divider_at(px, py, second_area, delta_x, delta_y)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum NeighborDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+struct Pane {
+    id: PaneId,
     terminal: Terminal,
     child: Child,
     title: String,
     scroll_offset: usize,
 }
 
-impl Tab {
-    fn new(terminal: Terminal, child: Child) -> Self {
+impl Pane {
+    fn new(id: PaneId, terminal: Terminal, child: Child) -> Self {
         Self {
+            id,
             terminal,
             child,
             title: String::from("Terminal"),
@@ -55,47 +363,77 @@ impl Tab {
     }
 }
 
-/// Application state
+struct Tab {
+    panes: Vec<Pane>,
+    split_root: SplitNode,
+    active_pane_id: PaneId,
+    next_pane_id: PaneId,
+}
+
+impl Tab {
+    fn new(terminal: Terminal, child: Child) -> Self {
+        let pane_id = 0;
+        let pane = Pane::new(pane_id, terminal, child);
+        Self {
+            panes: vec![pane],
+            split_root: SplitNode::new_leaf(pane_id),
+            active_pane_id: pane_id,
+            next_pane_id: 1,
+        }
+    }
+
+    fn active_pane(&self) -> Option<&Pane> {
+        self.panes.iter().find(|p| p.id == self.active_pane_id)
+    }
+
+    fn active_pane_mut(&mut self) -> Option<&mut Pane> {
+        let id = self.active_pane_id;
+        self.panes.iter_mut().find(|p| p.id == id)
+    }
+
+    fn pane_by_id(&self, id: PaneId) -> Option<&Pane> {
+        self.panes.iter().find(|p| p.id == id)
+    }
+
+    fn pane_by_id_mut(&mut self, id: PaneId) -> Option<&mut Pane> {
+        self.panes.iter_mut().find(|p| p.id == id)
+    }
+
+    fn title(&self) -> &str {
+        self.active_pane()
+            .map(|p| p.title.as_str())
+            .unwrap_or("Terminal")
+    }
+
+    fn has_running_children(&self) -> bool {
+        self.panes.iter().any(|p| p.child.is_running())
+    }
+}
+
 pub struct App {
-    /// Configuration
     config: Config,
-    /// Window (created on resume)
     window: Option<Rc<Window>>,
-    /// Renderer
     renderer: Option<Renderer>,
-    /// Tabs (each tab has its own terminal and child process)
     tabs: Vec<Tab>,
-    /// Active tab index
     active_tab: usize,
-    /// Clipboard
     #[allow(dead_code)]
     clipboard: Option<Clipboard>,
-    /// Current modifiers state
     modifiers: ModifiersState,
-    /// Mouse position (in cells)
     mouse_cell: (u16, u16),
-    /// Mouse position (in pixels)
     mouse_pixel: (f64, f64),
-    /// Mouse button state
     mouse_buttons: [bool; 3],
-    /// Last render time
     last_render: Instant,
-    /// Needs redraw
     needs_redraw: bool,
-    /// Is focused
     focused: bool,
-    /// Current tab bar height in physical pixels (scales with font / HiDPI)
     tab_bar_height: u32,
-    /// Whether we're currently dragging the scrollbar
     scrollbar_dragging: bool,
-    /// Y position where scrollbar drag started (in pixels)
     scrollbar_drag_start_y: f64,
-    /// Scroll offset when scrollbar drag started
     scrollbar_drag_start_offset: usize,
+    divider_dragging: bool,
+    divider_drag_last: (f64, f64),
 }
 
 impl App {
-    /// Create a new application
     pub fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             config,
@@ -115,14 +453,14 @@ impl App {
             scrollbar_dragging: false,
             scrollbar_drag_start_y: 0.0,
             scrollbar_drag_start_offset: 0,
+            divider_dragging: false,
+            divider_drag_last: (0.0, 0.0),
         })
     }
 
-    /// Run the application
     pub fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         let event_loop = EventLoop::new()?;
 
-        // Create window
         let window = WindowBuilder::new()
             .with_title("Mochi Terminal")
             .with_inner_size(LogicalSize::new(800, 600))
@@ -130,10 +468,8 @@ impl App {
 
         let window = Rc::new(window);
 
-        // Initialize graphics
         self.init_graphics(window.clone())?;
 
-        // Run event loop
         event_loop.run(move |event, elwt| {
             elwt.set_control_flow(ControlFlow::Poll);
 
@@ -142,18 +478,14 @@ impl App {
                     self.handle_window_event(event, elwt);
                 }
                 Event::AboutToWait => {
-                    // Poll PTY
                     self.poll_pty();
 
-                    // Check if child exited
                     if !self.check_child() {
                         log::info!("Child process exited");
                         elwt.exit();
                         return;
                     }
 
-                    // Render directly if needed (more reliable than request_redraw on macOS)
-                    // This ensures TUI apps like Claude Code render immediately
                     if self.needs_redraw {
                         self.render();
                     }
@@ -165,7 +497,6 @@ impl App {
         Ok(())
     }
 
-    /// Handle window events
     fn handle_window_event(
         &mut self,
         event: WindowEvent,
@@ -203,25 +534,21 @@ impl App {
         }
     }
 
-    /// Initialize graphics
     fn init_graphics(&mut self, window: Rc<Window>) -> Result<(), Box<dyn std::error::Error>> {
         let size = window.inner_size();
 
-        // Create renderer with effective colors based on theme
         let renderer = Renderer::new(
             window.clone(),
             self.config.font_size(),
             self.config.effective_colors(),
         )?;
 
-        // Calculate terminal dimensions (account for tab bar height)
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
         let cols = (size.width as f32 / cell_size.width) as usize;
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        // Create first tab
         let terminal = Terminal::new(cols.max(1), rows.max(1));
         let child = Child::spawn_shell(WindowSize::new(cols as u16, rows as u16))?;
         child.set_nonblocking(true)?;
@@ -236,7 +563,6 @@ impl App {
         Ok(())
     }
 
-    /// Create a new tab
     fn create_new_tab(&mut self) {
         let Some(renderer) = &self.renderer else {
             return;
@@ -265,7 +591,6 @@ impl App {
         }
     }
 
-    /// Close the current tab
     fn close_current_tab(&mut self) -> bool {
         if self.tabs.len() <= 1 {
             return false;
@@ -280,7 +605,6 @@ impl App {
         true
     }
 
-    /// Switch to a specific tab (used by Cmd+1-9 on macOS)
     #[allow(dead_code)]
     fn switch_to_tab(&mut self, index: usize) {
         if index < self.tabs.len() && index != self.active_tab {
@@ -290,7 +614,6 @@ impl App {
         }
     }
 
-    /// Handle a click in the tab bar area
     fn handle_tab_bar_click(&mut self, x: f64) {
         if self.tabs.is_empty() {
             return;
@@ -336,7 +659,140 @@ impl App {
         }
     }
 
-    /// Handle window resize
+    fn content_area(&self) -> Rect {
+        let Some(window) = &self.window else {
+            return Rect::new(0, 0, 0, 0);
+        };
+        let size = window.inner_size();
+        Rect::new(
+            0,
+            self.tab_bar_height,
+            size.width,
+            size.height.saturating_sub(self.tab_bar_height),
+        )
+    }
+
+    fn split_active_pane(&mut self, direction: SplitDirection) {
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
+
+        if self.tabs.is_empty() {
+            return;
+        }
+
+        let cell_size = renderer.cell_size();
+        let content = self.content_area();
+        let tab = &mut self.tabs[self.active_tab];
+        let active_id = tab.active_pane_id;
+        let new_id = tab.next_pane_id;
+        tab.next_pane_id += 1;
+
+        if !tab.split_root.split_pane(active_id, new_id, direction) {
+            return;
+        }
+
+        let rects = tab.split_root.compute_rects(content);
+        let new_rect = rects
+            .iter()
+            .find(|(id, _)| *id == new_id)
+            .map(|(_, r)| *r)
+            .unwrap_or(content);
+
+        let cols = (new_rect.width as f32 / cell_size.width) as usize;
+        let rows = (new_rect.height as f32 / cell_size.height) as usize;
+
+        let terminal = Terminal::new(cols.max(1), rows.max(1));
+        match Child::spawn_shell(WindowSize::new(cols.max(1) as u16, rows.max(1) as u16)) {
+            Ok(child) => {
+                let _ = child.set_nonblocking(true);
+                let pane = Pane::new(new_id, terminal, child);
+                tab.panes.push(pane);
+                tab.active_pane_id = new_id;
+
+                self.resize_all_panes_in_tab();
+                self.needs_redraw = true;
+                log::info!("Split pane {:?}, new pane {}", direction, new_id);
+            }
+            Err(e) => {
+                log::error!("Failed to split pane: {}", e);
+            }
+        }
+    }
+
+    fn close_active_pane(&mut self) -> bool {
+        if self.tabs.is_empty() {
+            return false;
+        }
+
+        let tab = &mut self.tabs[self.active_tab];
+
+        if tab.panes.len() <= 1 {
+            return self.close_current_tab();
+        }
+
+        let active_id = tab.active_pane_id;
+
+        if let Some(replacement) = tab.split_root.remove_pane(active_id) {
+            tab.split_root = replacement;
+        }
+
+        tab.panes.retain(|p| p.id != active_id);
+
+        let remaining_ids = tab.split_root.collect_pane_ids();
+        if !remaining_ids.contains(&tab.active_pane_id) {
+            tab.active_pane_id = remaining_ids[0];
+        }
+
+        self.resize_all_panes_in_tab();
+        self.needs_redraw = true;
+        log::info!("Closed pane {}", active_id);
+        true
+    }
+
+    fn navigate_pane(&mut self, direction: NeighborDirection) {
+        if self.tabs.is_empty() {
+            return;
+        }
+
+        let content = self.content_area();
+        let tab = &self.tabs[self.active_tab];
+        let active_id = tab.active_pane_id;
+
+        if let Some(neighbor_id) = tab.split_root.find_neighbor(active_id, direction, content) {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.active_pane_id = neighbor_id;
+            self.needs_redraw = true;
+            log::info!("Navigated to pane {}", neighbor_id);
+        }
+    }
+
+    fn resize_all_panes_in_tab(&mut self) {
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
+
+        if self.tabs.is_empty() {
+            return;
+        }
+
+        let cell_size = renderer.cell_size();
+        let content = self.content_area();
+        let tab = &mut self.tabs[self.active_tab];
+        let rects = tab.split_root.compute_rects(content);
+
+        for (pane_id, rect) in &rects {
+            let cols = (rect.width as f32 / cell_size.width) as usize;
+            let rows = (rect.height as f32 / cell_size.height) as usize;
+            if cols > 0 && rows > 0 {
+                if let Some(pane) = tab.pane_by_id_mut(*pane_id) {
+                    pane.terminal.resize(cols, rows);
+                    let _ = pane.child.resize(WindowSize::new(cols as u16, rows as u16));
+                }
+            }
+        }
+    }
+
     fn handle_resize(&mut self, size: PhysicalSize<u32>) {
         if size.width == 0 || size.height == 0 {
             return;
@@ -346,69 +802,91 @@ impl App {
             return;
         };
 
-        // Update renderer
         renderer.resize(size.width, size.height);
 
-        // Calculate new terminal dimensions (account for tab bar)
         let cell_size = renderer.cell_size();
-        let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
-        let rows = (terminal_height as f32 / cell_size.height) as usize;
+        let content_area = Rect::new(
+            0,
+            self.tab_bar_height,
+            size.width,
+            size.height.saturating_sub(self.tab_bar_height),
+        );
 
-        // Resize all tabs
-        if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+        for tab in &mut self.tabs {
+            let rects = tab.split_root.compute_rects(content_area);
+            for (pane_id, rect) in &rects {
+                let cols = (rect.width as f32 / cell_size.width) as usize;
+                let rows = (rect.height as f32 / cell_size.height) as usize;
+                if cols > 0 && rows > 0 {
+                    if let Some(pane) = tab.pane_by_id_mut(*pane_id) {
+                        pane.terminal.resize(cols, rows);
+                        let _ = pane.child.resize(WindowSize::new(cols as u16, rows as u16));
+                    }
+                }
             }
         }
 
         self.needs_redraw = true;
     }
 
-    /// Handle keyboard input
     fn handle_key_input(&mut self, event: &winit::event::KeyEvent) {
         if event.state != ElementState::Pressed {
             return;
         }
 
-        // Check for app shortcuts (Ctrl+Shift combinations)
         let ctrl_shift = self.modifiers.control_key() && self.modifiers.shift_key();
 
         if ctrl_shift {
             match &event.logical_key {
-                // Copy: Ctrl+Shift+C
                 Key::Character(c) if c.to_lowercase() == "c" => {
                     self.handle_copy();
                     return;
                 }
-                // Paste: Ctrl+Shift+V
                 Key::Character(c) if c.to_lowercase() == "v" => {
                     self.handle_paste();
                     return;
                 }
-                // Find: Ctrl+Shift+F
                 Key::Character(c) if c.to_lowercase() == "f" => {
                     self.handle_find();
                     return;
                 }
-                // Reload config: Ctrl+Shift+R
                 Key::Character(c) if c.to_lowercase() == "r" => {
                     self.handle_reload_config();
                     return;
                 }
-                // Toggle theme: Ctrl+Shift+T (macOS only; on Linux Ctrl+Shift+T is new tab)
                 #[cfg(target_os = "macos")]
                 Key::Character(c) if c.to_lowercase() == "t" => {
                     self.handle_toggle_theme();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "d" => {
+                    self.split_active_pane(SplitDirection::Horizontal);
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "e" => {
+                    self.split_active_pane(SplitDirection::Vertical);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowLeft) => {
+                    self.navigate_pane(NeighborDirection::Left);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowRight) => {
+                    self.navigate_pane(NeighborDirection::Right);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowUp) => {
+                    self.navigate_pane(NeighborDirection::Up);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowDown) => {
+                    self.navigate_pane(NeighborDirection::Down);
                     return;
                 }
                 _ => {}
             }
         }
 
-        // macOS: Cmd+V for paste, Cmd+C for copy, Cmd+N for new window, Cmd+T for new tab,
-        // Cmd+W to close tab, Cmd+1-9 to switch tabs (standard macOS shortcuts)
         #[cfg(target_os = "macos")]
         if self.modifiers.super_key() && !self.modifiers.control_key() && !self.modifiers.alt_key()
         {
@@ -430,10 +908,13 @@ impl App {
                     return;
                 }
                 Key::Character(c) if c.to_lowercase() == "w" => {
-                    if !self.close_current_tab() {
-                        // Only one tab left - close the terminal window
+                    if !self.close_active_pane() {
                         self.tabs.clear();
                     }
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "d" => {
+                    self.split_active_pane(SplitDirection::Horizontal);
                     return;
                 }
                 Key::Character(c) if c == "1" => {
@@ -476,7 +957,6 @@ impl App {
             }
         }
 
-        // Linux: Ctrl+Shift+T for new tab, Ctrl+Shift+W to close tab
         #[cfg(not(target_os = "macos"))]
         if ctrl_shift {
             match &event.logical_key {
@@ -485,8 +965,7 @@ impl App {
                     return;
                 }
                 Key::Character(c) if c.to_lowercase() == "w" => {
-                    if !self.close_current_tab() {
-                        // Only one tab left - close the terminal window
+                    if !self.close_active_pane() {
                         self.tabs.clear();
                     }
                     return;
@@ -499,21 +978,13 @@ impl App {
             return;
         }
         let tab = &mut self.tabs[self.active_tab];
+        let Some(pane) = tab.active_pane_mut() else {
+            return;
+        };
 
-        // IMPORTANT: Handle control characters FIRST, before any other shortcut processing
-        // This fixes the modifier state synchronization issue where ModifiersChanged and
-        // KeyboardInput events can arrive out of sync.
-        //
-        // Use text_with_all_modifiers() from KeyEventExtModifierSupplement trait.
-        // This is the proper way to get control characters in winit - it returns the text
-        // with ALL modifiers applied, including Ctrl. For example:
-        // - Ctrl+C produces Some("\x03")
-        // - Ctrl+A produces Some("\x01")
-        // The regular `text` field does NOT include Ctrl modifier effects.
         if let Some(text) = event.text_with_all_modifiers() {
             if !text.is_empty() {
                 let first_char = text.chars().next().unwrap();
-                // Check if it's a control character (0x01-0x1A) or DEL (0x7F)
                 let char_code = first_char as u32;
                 if (1..=26).contains(&char_code) || char_code == 0x7F {
                     log::debug!(
@@ -521,14 +992,12 @@ impl App {
                         first_char,
                         first_char as u8
                     );
-                    let _ = tab.child.write_all(&[first_char as u8]);
+                    let _ = pane.child.write_all(&[first_char as u8]);
                     return;
                 }
             }
         }
 
-        // Fallback: Check if logical_key is a control character directly
-        // This handles edge cases where text_with_all_modifiers might not be available
         if let Key::Character(c) = &event.logical_key {
             if let Some(ch) = c.chars().next() {
                 let char_code = ch as u32;
@@ -538,15 +1007,12 @@ impl App {
                         ch,
                         ch as u8
                     );
-                    let _ = tab.child.write_all(&[ch as u8]);
+                    let _ = pane.child.write_all(&[ch as u8]);
                     return;
                 }
             }
         }
 
-        // Check for font zoom shortcuts
-        // On macOS: Cmd+=/- for zoom (standard macOS behavior)
-        // On Linux: Ctrl+Shift+=/- for zoom (Ctrl+arrows are used by terminal apps for word navigation)
         #[cfg(target_os = "macos")]
         let zoom_modifier = self.modifiers.super_key();
         #[cfg(not(target_os = "macos"))]
@@ -578,16 +1044,15 @@ impl App {
             }
         }
 
-        let application_cursor_keys = tab.terminal.screen().modes().cursor_keys_application;
+        let application_cursor_keys = pane.terminal.screen().modes().cursor_keys_application;
 
         if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
         {
             log::debug!("Sending key data: {:?}", data);
-            let _ = tab.child.write_all(&data);
+            let _ = pane.child.write_all(&data);
         }
     }
 
-    /// Change font size by delta
     fn change_font_size(&mut self, delta: f32) {
         let Some(renderer) = &mut self.renderer else {
             return;
@@ -603,26 +1068,33 @@ impl App {
 
         renderer.set_font_size(new_size);
 
-        // Recalculate terminal dimensions (account for tab bar)
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
-        let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
-        let rows = (terminal_height as f32 / cell_size.height) as usize;
+        let content_area = Rect::new(
+            0,
+            self.tab_bar_height,
+            size.width,
+            size.height.saturating_sub(self.tab_bar_height),
+        );
 
-        // Resize all tabs
-        if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+        for tab in &mut self.tabs {
+            let rects = tab.split_root.compute_rects(content_area);
+            for (pane_id, rect) in &rects {
+                let cols = (rect.width as f32 / cell_size.width) as usize;
+                let rows = (rect.height as f32 / cell_size.height) as usize;
+                if cols > 0 && rows > 0 {
+                    if let Some(pane) = tab.pane_by_id_mut(*pane_id) {
+                        pane.terminal.resize(cols, rows);
+                        let _ = pane.child.resize(WindowSize::new(cols as u16, rows as u16));
+                    }
+                }
             }
         }
 
         self.needs_redraw = true;
     }
 
-    /// Reset font size to default (scaled for HiDPI)
     fn reset_font_size(&mut self) {
         let Some(renderer) = &mut self.renderer else {
             return;
@@ -634,32 +1106,73 @@ impl App {
 
         renderer.set_font_size(default_size);
 
-        // Recalculate terminal dimensions (account for tab bar)
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
-        let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
-        let rows = (terminal_height as f32 / cell_size.height) as usize;
+        let content_area = Rect::new(
+            0,
+            self.tab_bar_height,
+            size.width,
+            size.height.saturating_sub(self.tab_bar_height),
+        );
 
-        // Resize all tabs
-        if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
+        for tab in &mut self.tabs {
+            let rects = tab.split_root.compute_rects(content_area);
+            for (pane_id, rect) in &rects {
+                let cols = (rect.width as f32 / cell_size.width) as usize;
+                let rows = (rect.height as f32 / cell_size.height) as usize;
+                if cols > 0 && rows > 0 {
+                    if let Some(pane) = tab.pane_by_id_mut(*pane_id) {
+                        pane.terminal.resize(cols, rows);
+                        let _ = pane.child.resize(WindowSize::new(cols as u16, rows as u16));
+                    }
+                }
             }
         }
 
         self.needs_redraw = true;
     }
 
-    /// Handle mouse input
+    fn pane_at_pixel(&self, px: f64, py: f64) -> Option<PaneId> {
+        if self.tabs.is_empty() {
+            return None;
+        }
+        let content = self.content_area();
+        let tab = &self.tabs[self.active_tab];
+        let rects = tab.split_root.compute_rects(content);
+        for (pane_id, rect) in &rects {
+            if rect.contains(px, py) {
+                return Some(*pane_id);
+            }
+        }
+        None
+    }
+
+    fn pane_rect(&self, pane_id: PaneId) -> Option<Rect> {
+        if self.tabs.is_empty() {
+            return None;
+        }
+        let content = self.content_area();
+        let tab = &self.tabs[self.active_tab];
+        let rects = tab.split_root.compute_rects(content);
+        rects.iter().find(|(id, _)| *id == pane_id).map(|(_, r)| *r)
+    }
+
+    fn is_on_divider(&self, px: f64, py: f64) -> bool {
+        if self.tabs.is_empty() {
+            return false;
+        }
+        let content = self.content_area();
+        let tab = &self.tabs[self.active_tab];
+        let dividers = tab.split_root.compute_dividers(content);
+        dividers.iter().any(|(rect, _)| rect.contains(px, py))
+    }
+
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
         if self.tabs.is_empty() {
             return;
         }
 
-        // Handle tab bar clicks
         if button == MouseButton::Left
             && state == ElementState::Pressed
             && self.mouse_pixel.1 < self.tab_bar_height as f64
@@ -668,10 +1181,14 @@ impl App {
             return;
         }
 
-        // Handle scrollbar dragging first (left button only)
         if button == MouseButton::Left {
             if state == ElementState::Pressed {
-                // Check if click is on scrollbar (right 12 pixels of window)
+                if self.is_on_divider(self.mouse_pixel.0, self.mouse_pixel.1) {
+                    self.divider_dragging = true;
+                    self.divider_drag_last = self.mouse_pixel;
+                    return;
+                }
+
                 if let Some(window) = &self.window {
                     let window_width = window.inner_size().width as f64;
                     let scrollbar_width = 12.0;
@@ -680,18 +1197,32 @@ impl App {
                         && self.mouse_pixel.1 >= self.tab_bar_height as f64
                     {
                         let tab = &self.tabs[self.active_tab];
-                        let scrollback_len = tab.terminal.screen().scrollback().len();
-                        if scrollback_len > 0 {
-                            // Start scrollbar dragging
-                            self.scrollbar_dragging = true;
-                            self.scrollbar_drag_start_y = self.mouse_pixel.1;
-                            self.scrollbar_drag_start_offset = tab.scroll_offset;
-                            return;
+                        if let Some(pane) = tab.active_pane() {
+                            let scrollback_len = pane.terminal.screen().scrollback().len();
+                            if scrollback_len > 0 {
+                                self.scrollbar_dragging = true;
+                                self.scrollbar_drag_start_y = self.mouse_pixel.1;
+                                self.scrollbar_drag_start_offset = pane.scroll_offset;
+                                return;
+                            }
                         }
                     }
                 }
+
+                if let Some(clicked_pane) =
+                    self.pane_at_pixel(self.mouse_pixel.0, self.mouse_pixel.1)
+                {
+                    let tab = &mut self.tabs[self.active_tab];
+                    if tab.active_pane_id != clicked_pane {
+                        tab.active_pane_id = clicked_pane;
+                        self.needs_redraw = true;
+                    }
+                }
             } else {
-                // Mouse released - stop dragging
+                if self.divider_dragging {
+                    self.divider_dragging = false;
+                    return;
+                }
                 if self.scrollbar_dragging {
                     self.scrollbar_dragging = false;
                     return;
@@ -700,27 +1231,27 @@ impl App {
         }
 
         let tab = &mut self.tabs[self.active_tab];
-        let modes = tab.terminal.screen().modes().clone();
+        let active_id = tab.active_pane_id;
+        let Some(pane) = tab.pane_by_id_mut(active_id) else {
+            return;
+        };
+        let modes = pane.terminal.screen().modes().clone();
 
-        // Handle text selection when mouse tracking is NOT enabled
         if !modes.mouse_tracking_enabled() {
             if button == MouseButton::Left {
                 let col = self.mouse_cell.0 as usize;
-                let row = self.mouse_cell.1 as isize - tab.scroll_offset as isize;
+                let row = self.mouse_cell.1 as isize - pane.scroll_offset as isize;
 
                 if state == ElementState::Pressed {
-                    // Start a new selection
-                    tab.terminal
+                    pane.terminal
                         .screen_mut()
                         .selection_mut()
                         .start(Point::new(col, row), SelectionType::Normal);
                     self.needs_redraw = true;
                 } else {
-                    // Finish selection
-                    tab.terminal.screen_mut().selection_mut().finish();
+                    pane.terminal.screen_mut().selection_mut().finish();
                 }
             }
-            // Track button state for selection dragging
             let idx = match button {
                 MouseButton::Left => 0,
                 MouseButton::Middle => 1,
@@ -731,7 +1262,6 @@ impl App {
             return;
         }
 
-        // Mouse tracking is enabled - send events to PTY
         let event = if state == ElementState::Pressed {
             MouseEvent::Press(button, self.mouse_cell.0, self.mouse_cell.1)
         } else {
@@ -744,10 +1274,9 @@ impl App {
             modes.mouse_button_event,
             modes.mouse_any_event,
         ) {
-            let _ = tab.child.write_all(&data);
+            let _ = pane.child.write_all(&data);
         }
 
-        // Track button state
         let idx = match button {
             MouseButton::Left => 0,
             MouseButton::Middle => 1,
@@ -757,49 +1286,60 @@ impl App {
         self.mouse_buttons[idx] = state == ElementState::Pressed;
     }
 
-    /// Handle mouse motion
     fn handle_mouse_motion(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
-        // Update pixel position
+        let old_pixel = self.mouse_pixel;
         self.mouse_pixel = (position.x, position.y);
 
         if self.tabs.is_empty() {
             return;
         }
 
-        // Handle scrollbar dragging
+        if self.divider_dragging {
+            let delta_x = position.x - self.divider_drag_last.0;
+            let delta_y = position.y - self.divider_drag_last.1;
+            let content = self.content_area();
+            let tab = &mut self.tabs[self.active_tab];
+            if tab
+                .split_root
+                .adjust_divider_at(old_pixel.0, old_pixel.1, content, delta_x, delta_y)
+            {
+                self.divider_drag_last = (position.x, position.y);
+                self.resize_all_panes_in_tab();
+                self.needs_redraw = true;
+            }
+            return;
+        }
+
         if self.scrollbar_dragging {
             if let Some(window) = &self.window {
                 let tab = &mut self.tabs[self.active_tab];
-                let window_height =
-                    (window.inner_size().height as f64 - self.tab_bar_height as f64).max(1.0);
-                let scrollback_len = tab.terminal.screen().scrollback().len();
-                let visible_rows = tab.terminal.screen().rows();
+                let active_id = tab.active_pane_id;
+                if let Some(pane) = tab.pane_by_id_mut(active_id) {
+                    let window_height =
+                        (window.inner_size().height as f64 - self.tab_bar_height as f64).max(1.0);
+                    let scrollback_len = pane.terminal.screen().scrollback().len();
+                    let visible_rows = pane.terminal.screen().rows();
 
-                if scrollback_len > 0 && window_height > 0.0 {
-                    // Calculate how much the mouse has moved
-                    let delta_y = position.y - self.scrollbar_drag_start_y;
+                    if scrollback_len > 0 && window_height > 0.0 {
+                        let delta_y = position.y - self.scrollbar_drag_start_y;
+                        let total_lines = scrollback_len + visible_rows;
+                        let thumb_height =
+                            ((visible_rows as f64 / total_lines as f64) * window_height).max(20.0);
+                        let scroll_range = window_height - thumb_height;
 
-                    // Calculate the scroll range (total scrollable area)
-                    let total_lines = scrollback_len + visible_rows;
-                    let thumb_height =
-                        ((visible_rows as f64 / total_lines as f64) * window_height).max(20.0);
-                    let scroll_range = window_height - thumb_height;
+                        if scroll_range > 0.0 {
+                            let scroll_delta =
+                                (-delta_y / scroll_range * scrollback_len as f64) as isize;
+                            let new_offset = (self.scrollbar_drag_start_offset as isize
+                                + scroll_delta)
+                                .max(0)
+                                .min(scrollback_len as isize)
+                                as usize;
 
-                    if scroll_range > 0.0 {
-                        // Convert pixel delta to scroll offset delta
-                        // Moving down (positive delta) should decrease scroll_offset (show newer content)
-                        // Moving up (negative delta) should increase scroll_offset (show older content)
-                        let scroll_delta =
-                            (-delta_y / scroll_range * scrollback_len as f64) as isize;
-
-                        let new_offset = (self.scrollbar_drag_start_offset as isize + scroll_delta)
-                            .max(0)
-                            .min(scrollback_len as isize)
-                            as usize;
-
-                        if new_offset != tab.scroll_offset {
-                            tab.scroll_offset = new_offset;
-                            self.needs_redraw = true;
+                            if new_offset != pane.scroll_offset {
+                                pane.scroll_offset = new_offset;
+                                self.needs_redraw = true;
+                            }
                         }
                     }
                 }
@@ -812,8 +1352,13 @@ impl App {
         };
 
         let cell_size = renderer.cell_size();
-        let col = (position.x / cell_size.width as f64) as u16;
-        let adjusted_y = (position.y - self.tab_bar_height as f64).max(0.0);
+        let tab = &self.tabs[self.active_tab];
+        let active_id = tab.active_pane_id;
+
+        let pane_rect = self.pane_rect(active_id).unwrap_or(self.content_area());
+        let adjusted_x = (position.x - pane_rect.x as f64).max(0.0);
+        let adjusted_y = (position.y - pane_rect.y as f64).max(0.0);
+        let col = (adjusted_x / cell_size.width as f64) as u16;
         let row = (adjusted_y / cell_size.height as f64) as u16;
 
         if col == self.mouse_cell.0 && row == self.mouse_cell.1 {
@@ -823,14 +1368,15 @@ impl App {
         self.mouse_cell = (col, row);
 
         let tab = &mut self.tabs[self.active_tab];
-        let modes = tab.terminal.screen().modes().clone();
+        let Some(pane) = tab.pane_by_id_mut(active_id) else {
+            return;
+        };
+        let modes = pane.terminal.screen().modes().clone();
 
-        // Handle text selection dragging when mouse tracking is NOT enabled
         if !modes.mouse_tracking_enabled() && self.mouse_buttons[0] {
-            // Left button is held - update selection
             let sel_col = col as usize;
-            let sel_row = row as isize - tab.scroll_offset as isize;
-            tab.terminal
+            let sel_row = row as isize - pane.scroll_offset as isize;
+            pane.terminal
                 .screen_mut()
                 .selection_mut()
                 .update(Point::new(sel_col, sel_row));
@@ -838,7 +1384,6 @@ impl App {
             return;
         }
 
-        // Mouse tracking is enabled - send events to PTY
         if modes.mouse_any_event
             || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
         {
@@ -849,19 +1394,22 @@ impl App {
                 modes.mouse_button_event,
                 modes.mouse_any_event,
             ) {
-                let _ = tab.child.write_all(&data);
+                let _ = pane.child.write_all(&data);
             }
         }
     }
 
-    /// Handle mouse scroll
     fn handle_mouse_scroll(&mut self, delta: MouseScrollDelta) {
         if self.tabs.is_empty() {
             return;
         }
 
         let tab = &mut self.tabs[self.active_tab];
-        let modes = tab.terminal.screen().modes().clone();
+        let active_id = tab.active_pane_id;
+        let Some(pane) = tab.pane_by_id_mut(active_id) else {
+            return;
+        };
+        let modes = pane.terminal.screen().modes().clone();
         let lines = match delta {
             MouseScrollDelta::LineDelta(_, y) => y as i32,
             MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as i32,
@@ -871,7 +1419,6 @@ impl App {
             return;
         }
 
-        // If mouse tracking is enabled or in alternate screen, send to PTY
         if modes.mouse_tracking_enabled() || modes.alternate_screen {
             let event = MouseEvent::Scroll {
                 x: self.mouse_cell.0,
@@ -884,37 +1431,35 @@ impl App {
                 modes.mouse_button_event,
                 modes.mouse_any_event,
             ) {
-                let _ = tab.child.write_all(&data);
+                let _ = pane.child.write_all(&data);
             }
         } else {
-            // Scroll the viewport through scrollback history
-            let scrollback_len = tab.terminal.screen().scrollback().len();
+            let scrollback_len = pane.terminal.screen().scrollback().len();
             if lines > 0 {
-                // Scroll up (show older content)
-                tab.scroll_offset = (tab.scroll_offset + lines as usize).min(scrollback_len);
+                pane.scroll_offset = (pane.scroll_offset + lines as usize).min(scrollback_len);
             } else {
-                // Scroll down (show newer content)
-                tab.scroll_offset = tab.scroll_offset.saturating_sub((-lines) as usize);
+                pane.scroll_offset = pane.scroll_offset.saturating_sub((-lines) as usize);
             }
             self.needs_redraw = true;
         }
     }
 
-    /// Handle copy (Ctrl+Shift+C)
     fn handle_copy(&mut self) {
         if self.tabs.is_empty() {
             return;
         }
         let tab = &self.tabs[self.active_tab];
+        let Some(pane) = tab.active_pane() else {
+            return;
+        };
 
-        let screen = tab.terminal.screen();
+        let screen = pane.terminal.screen();
         let selection = screen.selection();
 
         if selection.is_empty() {
             return;
         }
 
-        // Get selected text using the Line::text() method
         let (start, end) = selection.bounds();
         let mut text = String::new();
         let cols = screen.cols();
@@ -923,9 +1468,7 @@ impl App {
             let start_col = if row == start.row { start.col } else { 0 };
             let end_col = if row == end.row { end.col } else { cols };
 
-            // Get line from screen or scrollback
             if row < 0 {
-                // Line is in scrollback
                 let scrollback_idx = (-row - 1) as usize;
                 if let Some(line) = screen.scrollback().get_from_end(scrollback_idx) {
                     let line_text = line.text();
@@ -935,7 +1478,6 @@ impl App {
                     }
                 }
             } else if (row as usize) < screen.grid().rows() {
-                // Line is in visible grid
                 let line = screen.line(row as usize);
                 let line_text = line.text();
                 let chars: Vec<char> = line_text.chars().collect();
@@ -944,9 +1486,7 @@ impl App {
                 }
             }
 
-            // Add newline between lines (but not after the last line)
             if row < end.row {
-                // Trim trailing spaces before newline
                 while text.ends_with(' ') {
                     text.pop();
                 }
@@ -954,14 +1494,12 @@ impl App {
             }
         }
 
-        // Trim trailing whitespace
         let text = text.trim_end().to_string();
 
         if text.is_empty() {
             return;
         }
 
-        // Now copy to clipboard
         let Some(clipboard) = &mut self.clipboard else {
             return;
         };
@@ -973,7 +1511,6 @@ impl App {
         }
     }
 
-    /// Handle paste (Ctrl+Shift+V)
     fn handle_paste(&mut self) {
         let Some(clipboard) = &mut self.clipboard else {
             log::warn!("Clipboard not available");
@@ -984,18 +1521,21 @@ impl App {
         }
 
         let tab = &mut self.tabs[self.active_tab];
+        let Some(pane) = tab.active_pane_mut() else {
+            return;
+        };
 
         match clipboard.get_text() {
             Ok(text) => {
                 if text.is_empty() {
                     return;
                 }
-                let data = if tab.terminal.screen().modes().bracketed_paste {
+                let data = if pane.terminal.screen().modes().bracketed_paste {
                     encode_bracketed_paste(&text)
                 } else {
                     text.into_bytes()
                 };
-                if let Err(e) = tab.child.write_all(&data) {
+                if let Err(e) = pane.child.write_all(&data) {
                     log::warn!("Failed to write paste data to PTY: {}", e);
                 } else {
                     log::debug!("Pasted {} bytes", data.len());
@@ -1007,27 +1547,18 @@ impl App {
         }
     }
 
-    /// Handle find (Ctrl+Shift+F)
-    ///
-    /// Search UI is planned for a future release.
     fn handle_find(&mut self) {
         log::info!("Find requested (Ctrl+Shift+F) - search UI not yet implemented");
     }
 
-    /// Handle new window (Cmd+N on macOS)
-    ///
-    /// Spawns a new instance of the Mochi terminal.
     #[cfg(target_os = "macos")]
     fn handle_new_window(&mut self) {
         log::info!("Opening new terminal window...");
 
-        // Get the path to the current executable
         if let Ok(exe_path) = std::env::current_exe() {
             match std::process::Command::new(&exe_path).spawn() {
                 Ok(child) => {
                     log::info!("New terminal window spawned successfully");
-                    // Spawn a thread to wait on the child process to prevent zombie processes.
-                    // When the child exits, this thread will reap it by calling wait().
                     std::thread::spawn(move || {
                         let mut child = child;
                         let _ = child.wait();
@@ -1042,19 +1573,16 @@ impl App {
         }
     }
 
-    /// Handle reload config (Ctrl+Shift+R)
     fn handle_reload_config(&mut self) {
         log::info!("Reloading configuration...");
 
         match Config::load() {
             Some(new_config) => {
-                // Update theme
                 self.config.theme = new_config.theme;
                 self.config.font = new_config.font.clone();
                 self.config.keybindings = new_config.keybindings.clone();
                 self.config.security = new_config.security.clone();
 
-                // Apply theme change
                 if let Some(renderer) = &mut self.renderer {
                     renderer.set_colors(self.config.effective_colors());
                 }
@@ -1068,7 +1596,6 @@ impl App {
         }
     }
 
-    /// Handle toggle theme (Ctrl+Shift+T on macOS)
     #[allow(dead_code)]
     fn handle_toggle_theme(&mut self) {
         let new_theme = self.config.theme.next();
@@ -1087,7 +1614,6 @@ impl App {
         self.needs_redraw = true;
     }
 
-    /// Handle focus change
     fn handle_focus(&mut self, focused: bool) {
         self.focused = focused;
 
@@ -1095,94 +1621,115 @@ impl App {
             return;
         }
         let tab = &mut self.tabs[self.active_tab];
-
-        if tab.terminal.screen().modes().focus_events {
-            let data = encode_focus(focused);
-            let _ = tab.child.write_all(&data);
-        }
-    }
-
-    /// Poll PTY for output from all tabs
-    fn poll_pty(&mut self) {
-        let mut buf = [0u8; 65536];
-
-        // Poll all tabs for output
-        for (i, tab) in self.tabs.iter_mut().enumerate() {
-            let mut received_output = false;
-
-            loop {
-                match tab.child.pty_mut().try_read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        tab.terminal.process(&buf[..n]);
-                        received_output = true;
-                        // Only trigger redraw if synchronized output mode is disabled
-                        // and this is the active tab
-                        if i == self.active_tab && !tab.terminal.is_synchronized_output() {
-                            self.needs_redraw = true;
-                        }
-                    }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(_) => break,
-                }
-            }
-
-            // Reset scroll offset when new output arrives (auto-scroll to bottom)
-            if received_output && tab.scroll_offset > 0 {
-                tab.scroll_offset = 0;
-            }
-
-            // Check for title change (only update window title for active tab)
-            if tab.terminal.take_title_changed() {
-                tab.title = tab.terminal.title().to_string();
-                if i == self.active_tab {
-                    if let Some(window) = &self.window {
-                        window.set_title(&tab.title);
-                    }
-                }
-            }
-
-            // Check for bell
-            if tab.terminal.take_bell() {
-                log::debug!("Bell!");
-            }
-
-            // Send any pending responses back to the PTY (DSR, DA1, etc.)
-            let responses = tab.terminal.take_pending_responses();
-            for response in responses {
-                if let Err(e) = tab.child.write_all(&response) {
-                    log::warn!("Failed to send response to PTY: {}", e);
-                }
-            }
-        }
-    }
-
-    /// Render the terminal
-    fn render(&mut self) {
-        let Some(renderer) = &mut self.renderer else {
+        let Some(pane) = tab.active_pane_mut() else {
             return;
         };
 
-        if self.tabs.is_empty() {
+        if pane.terminal.screen().modes().focus_events {
+            let data = encode_focus(focused);
+            let _ = pane.child.write_all(&data);
+        }
+    }
+
+    fn poll_pty(&mut self) {
+        let mut buf = [0u8; 65536];
+
+        for (tab_idx, tab) in self.tabs.iter_mut().enumerate() {
+            for pane in &mut tab.panes {
+                let mut received_output = false;
+
+                loop {
+                    match pane.child.pty_mut().try_read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            pane.terminal.process(&buf[..n]);
+                            received_output = true;
+                            if tab_idx == self.active_tab && !pane.terminal.is_synchronized_output()
+                            {
+                                self.needs_redraw = true;
+                            }
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(_) => break,
+                    }
+                }
+
+                if received_output && pane.scroll_offset > 0 {
+                    pane.scroll_offset = 0;
+                }
+
+                if pane.terminal.take_title_changed() {
+                    pane.title = pane.terminal.title().to_string();
+                    if tab_idx == self.active_tab && pane.id == tab.active_pane_id {
+                        if let Some(window) = &self.window {
+                            window.set_title(&pane.title);
+                        }
+                    }
+                }
+
+                if pane.terminal.take_bell() {
+                    log::debug!("Bell!");
+                }
+
+                let responses = pane.terminal.take_pending_responses();
+                for response in responses {
+                    if let Err(e) = pane.child.write_all(&response) {
+                        log::warn!("Failed to send response to PTY: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    fn render(&mut self) {
+        if self.renderer.is_none() || self.tabs.is_empty() {
             return;
         }
+
+        let content = self.content_area();
+        let tab_bar_height = self.tab_bar_height;
+        let active_tab = self.active_tab;
 
         let tab_infos: Vec<TabInfo<'_>> = self
             .tabs
             .iter()
-            .map(|t| TabInfo { title: &t.title })
+            .map(|t| TabInfo { title: t.title() })
             .collect();
-        let tab = &self.tabs[self.active_tab];
-        let screen = tab.terminal.screen();
-        let selection = screen.selection();
 
-        if let Err(e) = renderer.render(
-            screen,
-            selection,
-            tab.scroll_offset,
-            self.tab_bar_height,
+        let tab = &self.tabs[active_tab];
+        let rects = tab.split_root.compute_rects(content);
+        let dividers = tab.split_root.compute_dividers(content);
+
+        let mut pane_infos: Vec<PaneRenderInfo<'_>> = Vec::new();
+        for (pane_id, rect) in &rects {
+            if let Some(pane) = tab.pane_by_id(*pane_id) {
+                let screen = pane.terminal.screen();
+                let selection = screen.selection();
+                pane_infos.push(PaneRenderInfo {
+                    screen,
+                    selection,
+                    scroll_offset: pane.scroll_offset,
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                    is_active: *pane_id == tab.active_pane_id,
+                });
+            }
+        }
+
+        let divider_rects: Vec<(u32, u32, u32, u32)> = dividers
+            .iter()
+            .map(|(r, _)| (r.x, r.y, r.width, r.height))
+            .collect();
+
+        let renderer = self.renderer.as_mut().unwrap();
+        if let Err(e) = renderer.render_split(
+            &pane_infos,
+            &divider_rects,
+            tab_bar_height,
             &tab_infos,
-            self.active_tab,
+            active_tab,
         ) {
             log::warn!("Render error: {:?}", e);
         }
@@ -1191,24 +1738,40 @@ impl App {
         self.last_render = Instant::now();
     }
 
-    /// Check if active tab's child is still running
     fn check_child(&mut self) -> bool {
         if self.tabs.is_empty() {
             return false;
         }
 
-        // Check if active tab's child is running
-        let active_running = self.tabs[self.active_tab].child.is_running();
+        for tab in &mut self.tabs {
+            tab.panes.retain(|pane| pane.child.is_running());
 
-        // Remove any tabs whose children have exited
-        self.tabs.retain(|tab| tab.child.is_running());
+            if tab.panes.is_empty() {
+                continue;
+            }
 
-        // Adjust active tab index if needed
+            let remaining_ids = tab.split_root.collect_pane_ids();
+            let live_ids: Vec<PaneId> = tab.panes.iter().map(|p| p.id).collect();
+
+            for id in &remaining_ids {
+                if !live_ids.contains(id) {
+                    if let Some(replacement) = tab.split_root.remove_pane(*id) {
+                        tab.split_root = replacement;
+                    }
+                }
+            }
+
+            if !live_ids.contains(&tab.active_pane_id) {
+                tab.active_pane_id = tab.panes[0].id;
+            }
+        }
+
+        self.tabs.retain(|tab| tab.has_running_children());
+
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
 
-        // Return true if there are still tabs with running children
-        !self.tabs.is_empty() && (active_running || self.tabs[self.active_tab].child.is_running())
+        !self.tabs.is_empty()
     }
 }
