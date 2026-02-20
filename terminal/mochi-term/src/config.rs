@@ -112,7 +112,6 @@ impl ThemeName {
     }
 
     /// Cycle to the next theme (for toggle keybinding)
-    #[allow(dead_code)]
     pub fn next(self) -> Self {
         match self {
             ThemeName::Mochi => ThemeName::Dark,
@@ -123,6 +122,20 @@ impl ThemeName {
             ThemeName::Dracula => ThemeName::Nord,
             ThemeName::Nord => ThemeName::Mochi,
             ThemeName::Custom => ThemeName::Mochi,
+        }
+    }
+
+    /// Get a short display name for the theme (used in the tab bar button)
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ThemeName::Mochi => "Mochi",
+            ThemeName::Dark => "Dark",
+            ThemeName::Light => "Light",
+            ThemeName::SolarizedDark => "Sol-D",
+            ThemeName::SolarizedLight => "Sol-L",
+            ThemeName::Dracula => "Dracula",
+            ThemeName::Nord => "Nord",
+            ThemeName::Custom => "Custom",
         }
     }
 }

@@ -30,6 +30,8 @@ const TAB_MAX_WIDTH: u32 = 200;
 const CLOSE_BTN_WIDTH: u32 = 20;
 /// Width of the new tab (+) button
 const NEW_TAB_BTN_WIDTH: u32 = 32;
+/// Padding inside the theme button
+const THEME_BTN_PADDING: u32 = 8;
 
 /// Compute tab bar height from the current cell size so it scales with HiDPI / font size.
 fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
@@ -290,6 +292,17 @@ impl App {
         }
     }
 
+    /// Compute the theme button width based on the current theme name
+    fn theme_btn_width(&self) -> u32 {
+        let name_len = self.config.theme.display_name().len() as u32;
+        let cell_width = self
+            .renderer
+            .as_ref()
+            .map(|r| r.cell_size().width as u32)
+            .unwrap_or(8);
+        name_len * cell_width + THEME_BTN_PADDING * 2
+    }
+
     /// Handle a click in the tab bar area
     fn handle_tab_bar_click(&mut self, x: f64) {
         if self.tabs.is_empty() {
@@ -298,8 +311,11 @@ impl App {
         let Some(window) = &self.window else { return };
 
         let window_width = window.inner_size().width;
+        let theme_btn_width = self.theme_btn_width();
         let num_tabs = self.tabs.len() as u32;
-        let available_width = window_width.saturating_sub(NEW_TAB_BTN_WIDTH);
+        let available_width = window_width
+            .saturating_sub(NEW_TAB_BTN_WIDTH)
+            .saturating_sub(theme_btn_width);
         let tab_width = if num_tabs > 0 {
             (available_width / num_tabs).min(TAB_MAX_WIDTH)
         } else {
@@ -308,6 +324,13 @@ impl App {
 
         let click_x = x as u32;
         let tabs_end = num_tabs * tab_width;
+
+        // Check if click is on the theme button (right side of tab bar)
+        let theme_btn_x = window_width.saturating_sub(theme_btn_width);
+        if click_x >= theme_btn_x {
+            self.handle_toggle_theme();
+            return;
+        }
 
         if click_x >= tabs_end && click_x < tabs_end + NEW_TAB_BTN_WIDTH {
             self.create_new_tab();
@@ -400,6 +423,11 @@ impl App {
                 // Toggle theme: Ctrl+Shift+T (macOS only; on Linux Ctrl+Shift+T is new tab)
                 #[cfg(target_os = "macos")]
                 Key::Character(c) if c.to_lowercase() == "t" => {
+                    self.handle_toggle_theme();
+                    return;
+                }
+                // Toggle theme: Ctrl+Shift+H (all platforms)
+                Key::Character(c) if c.to_lowercase() == "h" => {
                     self.handle_toggle_theme();
                     return;
                 }
@@ -1069,7 +1097,6 @@ impl App {
     }
 
     /// Handle toggle theme (Ctrl+Shift+T on macOS)
-    #[allow(dead_code)]
     fn handle_toggle_theme(&mut self) {
         let new_theme = self.config.theme.next();
         log::info!(
@@ -1176,6 +1203,7 @@ impl App {
         let screen = tab.terminal.screen();
         let selection = screen.selection();
 
+        let theme_name = self.config.theme.display_name();
         if let Err(e) = renderer.render(
             screen,
             selection,
@@ -1183,6 +1211,7 @@ impl App {
             self.tab_bar_height,
             &tab_infos,
             self.active_tab,
+            theme_name,
         ) {
             log::warn!("Render error: {:?}", e);
         }

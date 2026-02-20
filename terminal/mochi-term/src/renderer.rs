@@ -175,6 +175,7 @@ impl Renderer {
     }
 
     /// Render the terminal screen
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         screen: &Screen,
@@ -183,6 +184,7 @@ impl Renderer {
         tab_bar_height: u32,
         tabs: &[TabInfo<'_>],
         active_tab: usize,
+        theme_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let width = self.width;
         let height = self.height;
@@ -211,12 +213,17 @@ impl Renderer {
         let scrollback = screen.scrollback();
         let scrollback_len = scrollback.len();
 
-        // Pre-cache glyphs for tab titles
+        // Pre-cache glyphs for tab titles and theme button
         for tab in tabs {
             for c in tab.title.chars() {
                 if c != ' ' {
                     self.ensure_glyph_cached(c, false);
                 }
+            }
+        }
+        for c in theme_name.chars() {
+            if c != ' ' {
+                self.ensure_glyph_cached(c, false);
             }
         }
         self.ensure_glyph_cached('+', false);
@@ -284,6 +291,7 @@ impl Renderer {
                 &self.cell_size,
                 bg_color,
                 fg_color,
+                theme_name,
             );
         }
 
@@ -792,11 +800,15 @@ impl Renderer {
         cell_size: &CellSize,
         bg_color: (u8, u8, u8),
         fg_color: (u8, u8, u8),
+        theme_name: &str,
     ) {
         let tab_padding: u32 = 10;
         let close_btn_width: u32 = 20;
         let new_tab_btn_width: u32 = 32;
         let tab_max_width: u32 = 200;
+        let theme_btn_padding: u32 = 8;
+        let theme_btn_width: u32 =
+            (theme_name.len() as u32) * (cell_size.width as u32) + theme_btn_padding * 2;
 
         let tab_bar_bg = Self::blend_color(bg_color, (0, 0, 0), 0.3);
         let active_tab_bg = bg_color;
@@ -817,7 +829,9 @@ impl Renderer {
         );
 
         let num_tabs = tabs.len() as u32;
-        let available_width = buf_width.saturating_sub(new_tab_btn_width);
+        let available_width = buf_width
+            .saturating_sub(new_tab_btn_width)
+            .saturating_sub(theme_btn_width);
         let tab_width = if num_tabs > 0 {
             (available_width / num_tabs).min(tab_max_width)
         } else {
@@ -934,6 +948,58 @@ impl Renderer {
                 buf_height,
             );
         }
+
+        // Draw theme switch button on the right side
+        let theme_btn_x = (buf_width - theme_btn_width) as i32;
+        let theme_btn_bg = Self::blend_color(tab_bar_bg, bg_color, 0.15);
+        let theme_accent = Self::blend_color(fg_color, (100, 149, 237), 0.5);
+        Self::fill_rect_static(
+            buffer,
+            theme_btn_x,
+            0,
+            theme_btn_width as i32,
+            tab_bar_height as i32,
+            theme_btn_bg,
+            buf_width,
+            buf_height,
+        );
+        // Accent underline for the theme button
+        Self::fill_rect_static(
+            buffer,
+            theme_btn_x,
+            (tab_bar_height - 2) as i32,
+            theme_btn_width as i32,
+            2,
+            theme_accent,
+            buf_width,
+            buf_height,
+        );
+        // Separator to the left of the theme button
+        Self::fill_rect_static(
+            buffer,
+            theme_btn_x,
+            4,
+            1,
+            (tab_bar_height - 8) as i32,
+            separator_color,
+            buf_width,
+            buf_height,
+        );
+        let theme_text_x = theme_btn_x + theme_btn_padding as i32;
+        let theme_text_y = ((tab_bar_height as f32 - cell_size.height) / 2.0).max(0.0) as i32;
+        Self::draw_text_static(
+            buffer,
+            glyph_cache,
+            theme_name,
+            theme_text_x,
+            theme_text_y,
+            theme_accent,
+            cell_size.width,
+            cell_size.baseline,
+            buf_width,
+            buf_height,
+            theme_btn_width as i32,
+        );
 
         Self::fill_rect_static(
             buffer,
