@@ -111,8 +111,20 @@ impl ThemeName {
         ]
     }
 
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ThemeName::Mochi => "mochi",
+            ThemeName::Dark => "dark",
+            ThemeName::Light => "light",
+            ThemeName::SolarizedDark => "sol-dark",
+            ThemeName::SolarizedLight => "sol-light",
+            ThemeName::Dracula => "dracula",
+            ThemeName::Nord => "nord",
+            ThemeName::Custom => "custom",
+        }
+    }
+
     /// Cycle to the next theme (for toggle keybinding)
-    #[allow(dead_code)]
     pub fn next(self) -> Self {
         match self {
             ThemeName::Mochi => ThemeName::Dark,
