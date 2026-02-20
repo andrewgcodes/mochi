@@ -179,12 +179,10 @@ impl Terminal {
                 self.parser.reset();
             }
             EscAction::ApplicationKeypad => {
-                // Application keypad mode - affects key encoding
-                log::debug!("Application keypad mode enabled");
+                self.screen.modes_mut().application_keypad = true;
             }
             EscAction::NormalKeypad => {
-                // Normal keypad mode
-                log::debug!("Normal keypad mode enabled");
+                self.screen.modes_mut().application_keypad = false;
             }
             EscAction::DesignateG0(c) => {
                 // Character set designation for G0

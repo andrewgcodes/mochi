@@ -10,6 +10,7 @@ pub fn encode_key(
     key: &Key,
     modifiers: ModifiersState,
     application_cursor_keys: bool,
+    application_keypad: bool,
 ) -> Option<Vec<u8>> {
     let ctrl = modifiers.control_key();
     let alt = modifiers.alt_key();
@@ -55,7 +56,7 @@ pub fn encode_key(
             // Regular character
             Some(c.to_string().into_bytes())
         }
-        Key::Named(named) => encode_named_key(named, modifiers, application_cursor_keys),
+        Key::Named(named) => encode_named_key(named, modifiers, application_cursor_keys, application_keypad),
         Key::Unidentified(_) | Key::Dead(_) => None,
     }
 }
@@ -65,6 +66,7 @@ fn encode_named_key(
     key: &NamedKey,
     modifiers: ModifiersState,
     application_cursor_keys: bool,
+    _application_keypad: bool,
 ) -> Option<Vec<u8>> {
     let ctrl = modifiers.control_key();
     let alt = modifiers.alt_key();
@@ -316,42 +318,42 @@ mod tests {
     #[test]
     fn test_encode_character() {
         let key = Key::Character("a".into());
-        let result = encode_key(&key, ModifiersState::empty(), false);
+        let result = encode_key(&key, ModifiersState::empty(), false, false);
         assert_eq!(result, Some(b"a".to_vec()));
     }
 
     #[test]
     fn test_encode_ctrl_c() {
         let key = Key::Character("c".into());
-        let result = encode_key(&key, ModifiersState::CONTROL, false);
+        let result = encode_key(&key, ModifiersState::CONTROL, false, false);
         assert_eq!(result, Some(vec![3])); // ETX
     }
 
     #[test]
     fn test_encode_alt_a() {
         let key = Key::Character("a".into());
-        let result = encode_key(&key, ModifiersState::ALT, false);
+        let result = encode_key(&key, ModifiersState::ALT, false, false);
         assert_eq!(result, Some(vec![0x1b, b'a']));
     }
 
     #[test]
     fn test_encode_arrow_keys() {
         let key = Key::Named(NamedKey::ArrowUp);
-        let result = encode_key(&key, ModifiersState::empty(), false);
+        let result = encode_key(&key, ModifiersState::empty(), false, false);
         assert_eq!(result, Some(b"\x1b[A".to_vec()));
 
-        let result = encode_key(&key, ModifiersState::empty(), true);
+        let result = encode_key(&key, ModifiersState::empty(), true, false);
         assert_eq!(result, Some(b"\x1bOA".to_vec()));
     }
 
     #[test]
     fn test_encode_function_keys() {
         let key = Key::Named(NamedKey::F1);
-        let result = encode_key(&key, ModifiersState::empty(), false);
+        let result = encode_key(&key, ModifiersState::empty(), false, false);
         assert_eq!(result, Some(b"\x1bOP".to_vec()));
 
         let key = Key::Named(NamedKey::F5);
-        let result = encode_key(&key, ModifiersState::empty(), false);
+        let result = encode_key(&key, ModifiersState::empty(), false, false);
         assert_eq!(result, Some(b"\x1b[15~".to_vec()));
     }
 
@@ -380,12 +382,12 @@ mod tests {
     fn test_encode_direct_control_char() {
         // On macOS, Ctrl+C might produce '\x03' directly instead of 'c' with Ctrl modifier
         let key = Key::Character("\x03".into());
-        let result = encode_key(&key, ModifiersState::empty(), false);
+        let result = encode_key(&key, ModifiersState::empty(), false, false);
         assert_eq!(result, Some(vec![3])); // ETX (Ctrl+C)
 
         // Ctrl+A as direct control character
         let key = Key::Character("\x01".into());
-        let result = encode_key(&key, ModifiersState::empty(), false);
+        let result = encode_key(&key, ModifiersState::empty(), false, false);
         assert_eq!(result, Some(vec![1])); // SOH (Ctrl+A)
     }
 }
