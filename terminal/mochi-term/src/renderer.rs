@@ -1,10 +1,11 @@
-//! Terminal renderer using softbuffer (CPU rendering)
+//! Terminal renderer with GPU acceleration and CPU fallback
 //!
-//! Renders the terminal screen to a software buffer.
+//! Tries wgpu-based GPU rendering first. If GPU initialization fails
+//! (e.g., no GPU available), falls back to softbuffer CPU rendering.
 
 use std::collections::HashMap;
 use std::num::NonZeroU32;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use fontdue::{Font, FontSettings};
 use softbuffer::{Context, Surface};
@@ -12,91 +13,151 @@ use terminal_core::{Color, Screen, Selection};
 use winit::window::Window;
 
 use crate::config::ColorScheme;
+use crate::gpu_renderer::GpuRenderer;
 
-/// Information about a tab for rendering
-pub struct TabInfo<'a> {
-    pub title: &'a str,
+pub use crate::gpu_renderer::{CellSize, TabInfo};
+
+enum Backend {
+    Gpu(Box<GpuRenderer>),
+    Cpu(Box<CpuRenderer>),
 }
 
-/// Cell dimensions in pixels
-#[derive(Debug, Clone, Copy)]
-pub struct CellSize {
-    pub width: f32,
-    pub height: f32,
-    pub baseline: f32,
-}
-
-/// Glyph cache entry
-struct GlyphEntry {
-    /// Bitmap data (alpha values)
-    bitmap: Vec<u8>,
-    /// Width in pixels
-    width: usize,
-    /// Height in pixels
-    height: usize,
-    /// X offset from cell origin
-    xmin: i32,
-    /// Y offset from baseline
-    ymin: i32,
-}
-
-/// Terminal renderer
 pub struct Renderer {
-    /// Softbuffer context
-    #[allow(dead_code)]
-    context: Context<Rc<Window>>,
-    /// Softbuffer surface
-    surface: Surface<Rc<Window>, Rc<Window>>,
-    /// Font
-    font: Font,
-    /// Bold font (lazily loaded on first use)
-    bold_font: Option<Font>,
-    /// Whether we've attempted to load the bold font
-    bold_font_loaded: bool,
-    /// Fallback fonts for emoji and symbols (lazily loaded)
-    fallback_fonts: Vec<Font>,
-    /// Whether we've attempted to load fallback fonts
-    fallback_fonts_loaded: bool,
-    /// Glyph cache
-    glyph_cache: HashMap<(char, bool), GlyphEntry>,
-    /// Cell size
-    cell_size: CellSize,
-    /// Color scheme
-    colors: ColorScheme,
-    /// Current width
-    width: u32,
-    /// Current height
-    height: u32,
-    /// Current font size (scaled for HiDPI)
-    font_size: f32,
+    backend: Backend,
 }
 
 impl Renderer {
-    /// Create a new renderer
-    ///
-    /// Performance optimizations:
-    /// - Bold font is loaded lazily on first use (saves ~10-20ms on startup)
-    /// - Common ASCII glyphs are pre-cached for faster first render
     pub fn new(
-        window: Rc<Window>,
+        window: Arc<Window>,
+        font_size: f32,
+        colors: ColorScheme,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        match GpuRenderer::new(window.clone(), font_size, colors.clone()) {
+            Ok(gpu) => {
+                log::info!("Using GPU-accelerated renderer (wgpu)");
+                Ok(Self {
+                    backend: Backend::Gpu(Box::new(gpu)),
+                })
+            }
+            Err(e) => {
+                log::warn!("GPU renderer failed, falling back to CPU: {}", e);
+                let cpu = CpuRenderer::new(window, font_size, colors)?;
+                Ok(Self {
+                    backend: Backend::Cpu(Box::new(cpu)),
+                })
+            }
+        }
+    }
+
+    pub fn cell_size(&self) -> CellSize {
+        match &self.backend {
+            Backend::Gpu(r) => r.cell_size(),
+            Backend::Cpu(r) => r.cell_size(),
+        }
+    }
+
+    pub fn font_size(&self) -> f32 {
+        match &self.backend {
+            Backend::Gpu(r) => r.font_size(),
+            Backend::Cpu(r) => r.font_size(),
+        }
+    }
+
+    pub fn set_font_size(&mut self, font_size: f32) {
+        match &mut self.backend {
+            Backend::Gpu(r) => r.set_font_size(font_size),
+            Backend::Cpu(r) => r.set_font_size(font_size),
+        }
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        match &mut self.backend {
+            Backend::Gpu(r) => r.resize(width, height),
+            Backend::Cpu(r) => r.resize(width, height),
+        }
+    }
+
+    pub fn set_colors(&mut self, colors: ColorScheme) {
+        match &mut self.backend {
+            Backend::Gpu(r) => r.set_colors(colors),
+            Backend::Cpu(r) => r.set_colors(colors),
+        }
+    }
+
+    pub fn render(
+        &mut self,
+        screen: &Screen,
+        selection: &Selection,
+        scroll_offset: usize,
+        tab_bar_height: u32,
+        tabs: &[TabInfo<'_>],
+        active_tab: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match &mut self.backend {
+            Backend::Gpu(r) => r.render(
+                screen,
+                selection,
+                scroll_offset,
+                tab_bar_height,
+                tabs,
+                active_tab,
+            ),
+            Backend::Cpu(r) => r.render(
+                screen,
+                selection,
+                scroll_offset,
+                tab_bar_height,
+                tabs,
+                active_tab,
+            ),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CPU fallback renderer (softbuffer) - preserved from the original code
+// ---------------------------------------------------------------------------
+
+struct GlyphEntry {
+    bitmap: Vec<u8>,
+    width: usize,
+    height: usize,
+    xmin: i32,
+    ymin: i32,
+}
+
+struct CpuRenderer {
+    #[allow(dead_code)]
+    context: Context<Arc<Window>>,
+    surface: Surface<Arc<Window>, Arc<Window>>,
+    font: Font,
+    bold_font: Option<Font>,
+    bold_font_loaded: bool,
+    fallback_fonts: Vec<Font>,
+    fallback_fonts_loaded: bool,
+    glyph_cache: HashMap<(char, bool), GlyphEntry>,
+    cell_size: CellSize,
+    colors: ColorScheme,
+    width: u32,
+    height: u32,
+    font_size: f32,
+}
+
+impl CpuRenderer {
+    fn new(
+        window: Arc<Window>,
         font_size: f32,
         colors: ColorScheme,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let context = Context::new(window.clone())?;
         let surface = Surface::new(&context, window.clone())?;
 
-        // Load default font (bundled in assets for cross-platform support)
         let font_data = include_bytes!("../assets/DejaVuSansMono.ttf");
         let font = Font::from_bytes(font_data as &[u8], FontSettings::default())?;
 
-        // Bold font is loaded lazily on first use to improve startup time
-        // Most terminal sessions don't use bold text immediately
-
-        // Scale font size for HiDPI displays
         let scale_factor = window.scale_factor() as f32;
         let scaled_font_size = font_size * scale_factor;
 
-        // Calculate cell size
         let metrics = font.metrics('M', scaled_font_size);
         let cell_size = CellSize {
             width: metrics.advance_width.ceil(),
@@ -106,7 +167,6 @@ impl Renderer {
 
         let size = window.inner_size();
 
-        // Pre-cache common ASCII glyphs for faster first render
         let mut glyph_cache = HashMap::with_capacity(128);
         for c in ' '..='~' {
             let (metrics, bitmap) = font.rasterize(c, scaled_font_size);
@@ -137,45 +197,35 @@ impl Renderer {
         })
     }
 
-    /// Get cell size
-    pub fn cell_size(&self) -> CellSize {
+    fn cell_size(&self) -> CellSize {
         self.cell_size
     }
 
-    /// Get current font size
-    pub fn font_size(&self) -> f32 {
+    fn font_size(&self) -> f32 {
         self.font_size
     }
 
-    /// Change font size and recalculate cell dimensions
-    pub fn set_font_size(&mut self, font_size: f32) {
+    fn set_font_size(&mut self, font_size: f32) {
         self.font_size = font_size;
-
-        // Recalculate cell size
         let metrics = self.font.metrics('M', font_size);
         self.cell_size = CellSize {
             width: metrics.advance_width.ceil(),
             height: (font_size * 1.4).ceil(),
             baseline: font_size,
         };
-
-        // Clear glyph cache since font size changed
         self.glyph_cache.clear();
     }
 
-    /// Resize the renderer
-    pub fn resize(&mut self, width: u32, height: u32) {
+    fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
     }
 
-    /// Set the color scheme (for theme switching)
-    pub fn set_colors(&mut self, colors: ColorScheme) {
+    fn set_colors(&mut self, colors: ColorScheme) {
         self.colors = colors;
     }
 
-    /// Render the terminal screen
-    pub fn render(
+    fn render(
         &mut self,
         screen: &Screen,
         selection: &Selection,
@@ -191,13 +241,11 @@ impl Renderer {
             return Ok(());
         }
 
-        // Resize surface
         self.surface.resize(
             NonZeroU32::new(width).unwrap(),
             NonZeroU32::new(height).unwrap(),
         )?;
 
-        // Pre-cache colors we'll need
         let bg_color = self.colors.background_rgb();
         let fg_color = self.colors.foreground_rgb();
         let sel_color = self.colors.selection_rgb();
@@ -211,7 +259,6 @@ impl Renderer {
         let scrollback = screen.scrollback();
         let scrollback_len = scrollback.len();
 
-        // Pre-cache glyphs for tab titles
         for tab in tabs {
             for c in tab.title.chars() {
                 if c != ' ' {
@@ -222,13 +269,10 @@ impl Renderer {
         self.ensure_glyph_cached('+', false);
         self.ensure_glyph_cached('x', false);
 
-        // Pre-cache all glyphs we'll need (from both screen and scrollback if scrolled)
         for row in 0..rows {
             let line = if scroll_offset > 0 {
-                // Calculate which line to show
                 let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
                 if scrollback_row < scrollback_len {
-                    // This row comes from scrollback
                     if let Some(sb_line) = scrollback.get(scrollback_row) {
                         for col in 0..cols.min(sb_line.cols()) {
                             let cell = sb_line.cell(col);
@@ -242,7 +286,6 @@ impl Renderer {
                     }
                     continue;
                 } else {
-                    // This row comes from screen
                     let screen_row = scrollback_row - scrollback_len;
                     if screen_row < rows {
                         screen.line(screen_row)
@@ -267,11 +310,9 @@ impl Renderer {
 
         let mut buffer = self.surface.buffer_mut()?;
 
-        // Clear with background color
         let bg_pixel = Self::rgb_to_pixel(bg_color.0, bg_color.1, bg_color.2);
         buffer.fill(bg_pixel);
 
-        // Draw tab bar
         if tab_bar_height > 0 && !tabs.is_empty() {
             Self::draw_tab_bar_static(
                 &mut buffer,
@@ -289,20 +330,16 @@ impl Renderer {
 
         let cursor = screen.cursor();
 
-        // Render each cell
         for row in 0..rows {
-            // Calculate which line to render based on scroll offset
             let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
                 let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
                 if scrollback_row < scrollback_len {
-                    // This row comes from scrollback
                     if let Some(sb_line) = scrollback.get(scrollback_row) {
                         (sb_line, true, None)
                     } else {
                         continue;
                     }
                 } else {
-                    // This row comes from screen
                     let screen_row = scrollback_row - scrollback_len;
                     if screen_row < rows {
                         (screen.line(screen_row), false, Some(screen_row))
@@ -317,7 +354,6 @@ impl Renderer {
             for col in 0..cols.min(line.cols()) {
                 let cell = line.cell(col);
 
-                // Skip continuation cells
                 if cell.is_continuation() {
                     continue;
                 }
@@ -325,15 +361,11 @@ impl Renderer {
                 let x = (col as f32 * cell_width_px) as i32;
                 let y = (row as f32 * cell_height_px) as i32 + tab_bar_height as i32;
 
-                // Determine colors
-                // Don't highlight empty selections (single click without drag)
                 let is_selected = !selection.is_empty() && selection.contains(col, row as isize);
-                // Check if this is the cursor position (regardless of visibility)
                 let is_cursor_position = !is_from_scrollback
                     && scroll_offset == 0
                     && actual_screen_row == Some(cursor.row)
                     && cursor.col == col;
-                // Solid cursor when visible, outline when hidden
                 let is_solid_cursor = is_cursor_position && cursor.visible;
                 let is_outline_cursor = is_cursor_position && !cursor.visible;
 
@@ -359,12 +391,10 @@ impl Renderer {
                     (fg, bg)
                 };
 
-                // Draw background
                 let cell_w = (cell.width() as f32 * cell_width_px) as i32;
                 let cell_h = cell_height_px as i32;
                 Self::fill_rect_static(&mut buffer, x, y, cell_w, cell_h, bg, width, height);
 
-                // Draw character
                 let c = cell.display_char();
                 if c != ' ' && !cell.is_empty() {
                     if let Some(glyph) = self.glyph_cache.get(&(c, cell.attrs.bold)) {
@@ -381,7 +411,6 @@ impl Renderer {
                     }
                 }
 
-                // Draw outline cursor when cursor is hidden (provides visual feedback)
                 if is_outline_cursor {
                     Self::draw_rect_outline_static(
                         &mut buffer,
@@ -397,7 +426,6 @@ impl Renderer {
             }
         }
 
-        // Draw scrollbar if there's scrollback content
         if scrollback_len > 0 {
             Self::draw_scrollbar_static(
                 &mut buffer,
@@ -410,13 +438,11 @@ impl Renderer {
             );
         }
 
-        // Present
         buffer.present()?;
 
         Ok(())
     }
 
-    /// Draw a scrollbar on the right side of the terminal (static version)
     fn draw_scrollbar_static(
         buffer: &mut [u32],
         scroll_offset: usize,
@@ -426,21 +452,16 @@ impl Renderer {
         buf_height: u32,
         y_offset: u32,
     ) {
-        let scrollbar_width = 12; // Wider for easier clicking
+        let scrollbar_width = 12;
         let scrollbar_x = buf_width.saturating_sub(scrollbar_width) as i32;
         let scrollbar_height = buf_height.saturating_sub(y_offset) as i32;
         let y_off = y_offset as i32;
 
-        // Total content = scrollback + visible screen
         let total_lines = scrollback_len + visible_rows;
 
-        // Calculate thumb size (proportional to visible content)
         let thumb_height =
             ((visible_rows as f32 / total_lines as f32) * scrollbar_height as f32).max(20.0) as i32;
 
-        // Calculate thumb position
-        // When scroll_offset = 0, thumb is at bottom
-        // When scroll_offset = scrollback_len, thumb is at top
         let scroll_range = scrollbar_height - thumb_height;
         let thumb_y = if scrollback_len > 0 {
             ((scrollback_len - scroll_offset) as f32 / scrollback_len as f32 * scroll_range as f32)
@@ -449,7 +470,6 @@ impl Renderer {
             scroll_range
         };
 
-        // Draw scrollbar track (semi-transparent dark)
         let track_color = (40, 40, 40);
         Self::fill_rect_static(
             buffer,
@@ -462,11 +482,10 @@ impl Renderer {
             buf_height,
         );
 
-        // Draw scrollbar thumb
         let thumb_color = if scroll_offset > 0 {
-            (120, 120, 120) // Brighter when scrolled
+            (120, 120, 120)
         } else {
-            (80, 80, 80) // Dimmer at bottom
+            (80, 80, 80)
         };
         Self::fill_rect_static(
             buffer,
@@ -480,16 +499,12 @@ impl Renderer {
         );
     }
 
-    /// Ensure a glyph is cached
-    ///
-    /// Bold font is loaded lazily on first use to improve startup time
     fn ensure_glyph_cached(&mut self, c: char, bold: bool) {
         let key = (c, bold);
         if self.glyph_cache.contains_key(&key) {
             return;
         }
 
-        // Lazy load bold font on first use
         if bold && !self.bold_font_loaded {
             self.bold_font_loaded = true;
             let bold_font_data = include_bytes!("../assets/DejaVuSansMono-Bold.ttf");
@@ -497,7 +512,6 @@ impl Renderer {
                 Font::from_bytes(bold_font_data as &[u8], FontSettings::default()).ok();
         }
 
-        // Lazy load fallback fonts on first use (for emoji and symbols)
         if !self.fallback_fonts_loaded {
             self.fallback_fonts_loaded = true;
             self.load_fallback_fonts();
@@ -509,14 +523,11 @@ impl Renderer {
             &self.font
         };
 
-        // Check if primary font has this glyph (glyph index 0 means missing)
         let has_glyph = font.lookup_glyph_index(c) != 0;
 
-        // Try fallback fonts if primary font doesn't have the glyph
         let (metrics, bitmap) = if has_glyph {
             font.rasterize(c, self.cell_size.baseline)
         } else {
-            // Try each fallback font
             let mut found = None;
             for fallback in &self.fallback_fonts {
                 if fallback.lookup_glyph_index(c) != 0 {
@@ -524,7 +535,6 @@ impl Renderer {
                     break;
                 }
             }
-            // Use primary font as last resort (will show tofu/replacement char)
             found.unwrap_or_else(|| font.rasterize(c, self.cell_size.baseline))
         };
 
@@ -540,7 +550,6 @@ impl Renderer {
     }
 
     fn load_fallback_fonts(&mut self) {
-        // System font paths for emoji and symbol fonts
         let fallback_paths: &[&str] = if cfg!(target_os = "macos") {
             &[
                 "/System/Library/Fonts/Apple Color Emoji.ttc",
@@ -549,7 +558,6 @@ impl Renderer {
                 "/System/Library/Fonts/Supplemental/Symbola.ttf",
             ]
         } else {
-            // Linux paths
             &[
                 "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
                 "/usr/share/fonts/noto-emoji/NotoColorEmoji.ttf",
@@ -575,7 +583,6 @@ impl Renderer {
         }
     }
 
-    /// Fill a rectangle with a color (static version)
     #[allow(clippy::too_many_arguments)]
     fn fill_rect_static(
         buffer: &mut [u32],
@@ -609,7 +616,6 @@ impl Renderer {
         }
     }
 
-    /// Draw a rectangle outline (hollow rectangle) for cursor indication
     #[allow(clippy::too_many_arguments)]
     fn draw_rect_outline_static(
         buffer: &mut [u32],
@@ -622,19 +628,15 @@ impl Renderer {
         buf_height: u32,
     ) {
         let pixel = Self::rgb_to_pixel(color.0, color.1, color.2);
-        let thickness = 2; // 2-pixel thick outline for visibility
+        let thickness = 2;
 
-        // Draw top and bottom edges
         for dy in 0..thickness {
-            // Top edge
             let py_top = y + dy;
-            // Bottom edge
             let py_bottom = y + h - 1 - dy;
 
             for dx in 0..w {
                 let px = x + dx;
 
-                // Top edge
                 if py_top >= 0 && py_top < buf_height as i32 && px >= 0 && px < buf_width as i32 {
                     let idx = (py_top as u32 * buf_width + px as u32) as usize;
                     if idx < buffer.len() {
@@ -642,7 +644,6 @@ impl Renderer {
                     }
                 }
 
-                // Bottom edge
                 if py_bottom >= 0
                     && py_bottom < buf_height as i32
                     && px >= 0
@@ -656,7 +657,6 @@ impl Renderer {
             }
         }
 
-        // Draw left and right edges (excluding corners already drawn)
         for dy in thickness..(h - thickness) {
             let py = y + dy;
             if py < 0 || py >= buf_height as i32 {
@@ -664,9 +664,7 @@ impl Renderer {
             }
 
             for dx in 0..thickness {
-                // Left edge
                 let px_left = x + dx;
-                // Right edge
                 let px_right = x + w - 1 - dx;
 
                 if px_left >= 0 && px_left < buf_width as i32 {
@@ -686,7 +684,6 @@ impl Renderer {
         }
     }
 
-    /// Draw a glyph (static version)
     #[allow(clippy::too_many_arguments)]
     fn draw_glyph_static(
         buffer: &mut [u32],
@@ -702,7 +699,6 @@ impl Renderer {
             return;
         }
 
-        // Calculate glyph position
         let gx = x + glyph.xmin;
         let gy = y + (baseline as i32) - glyph.ymin - glyph.height as i32;
 
@@ -728,7 +724,6 @@ impl Renderer {
                     if alpha == 255 {
                         buffer[idx] = Self::rgb_to_pixel(color.0, color.1, color.2);
                     } else {
-                        // Alpha blend
                         let existing = buffer[idx];
                         let er = ((existing >> 16) & 0xFF) as u8;
                         let eg = ((existing >> 8) & 0xFF) as u8;
@@ -748,7 +743,6 @@ impl Renderer {
         }
     }
 
-    /// Resolve a terminal color to RGB (static version)
     fn resolve_color_static(
         colors: &ColorScheme,
         color: &Color,
@@ -775,7 +769,6 @@ impl Renderer {
         }
     }
 
-    /// Convert RGB to pixel value (ARGB format)
     fn rgb_to_pixel(r: u8, g: u8, b: u8) -> u32 {
         0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
     }

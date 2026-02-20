@@ -3,7 +3,7 @@
 //! Ties together the terminal, PTY, and renderer.
 
 use std::io;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use arboard::Clipboard;
@@ -60,7 +60,7 @@ pub struct App {
     /// Configuration
     config: Config,
     /// Window (created on resume)
-    window: Option<Rc<Window>>,
+    window: Option<Arc<Window>>,
     /// Renderer
     renderer: Option<Renderer>,
     /// Tabs (each tab has its own terminal and child process)
@@ -128,7 +128,7 @@ impl App {
             .with_inner_size(LogicalSize::new(800, 600))
             .build(&event_loop)?;
 
-        let window = Rc::new(window);
+        let window = Arc::new(window);
 
         // Initialize graphics
         self.init_graphics(window.clone())?;
@@ -204,7 +204,7 @@ impl App {
     }
 
     /// Initialize graphics
-    fn init_graphics(&mut self, window: Rc<Window>) -> Result<(), Box<dyn std::error::Error>> {
+    fn init_graphics(&mut self, window: Arc<Window>) -> Result<(), Box<dyn std::error::Error>> {
         let size = window.inner_size();
 
         // Create renderer with effective colors based on theme
