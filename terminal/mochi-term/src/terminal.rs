@@ -551,9 +551,9 @@ impl Terminal {
                     1 // set
                 } else {
                     match mode {
-                        1 | 6 | 7 | 25 | 47 | 1000 | 1002 | 1003 | 1004 | 1006 | 1047
-                        | 1048 | 1049 | 2004 | 2026 => 2, // reset (known mode)
-                        _ => 0,                           // not recognized
+                        1 | 6 | 7 | 25 | 47 | 1000 | 1002 | 1003 | 1004 | 1006 | 1047 | 1048
+                        | 1049 | 2004 | 2026 => 2, // reset (known mode)
+                        _ => 0, // not recognized
                     }
                 };
                 let response = format!("\x1b[?{};{}$y", mode, status);
