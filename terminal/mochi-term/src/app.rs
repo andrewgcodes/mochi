@@ -298,8 +298,14 @@ impl App {
         let Some(window) = &self.window else { return };
 
         let window_width = window.inner_size().width;
+        let theme_label = self.config.theme.display_name();
+        let theme_btn_width = if let Some(renderer) = &self.renderer {
+            Renderer::theme_button_width(renderer.cell_size().width, theme_label)
+        } else {
+            0
+        };
         let num_tabs = self.tabs.len() as u32;
-        let available_width = window_width.saturating_sub(NEW_TAB_BTN_WIDTH);
+        let available_width = window_width.saturating_sub(NEW_TAB_BTN_WIDTH + theme_btn_width);
         let tab_width = if num_tabs > 0 {
             (available_width / num_tabs).min(TAB_MAX_WIDTH)
         } else {
@@ -308,6 +314,12 @@ impl App {
 
         let click_x = x as u32;
         let tabs_end = num_tabs * tab_width;
+
+        let theme_btn_x = window_width - theme_btn_width;
+        if click_x >= theme_btn_x {
+            self.handle_toggle_theme();
+            return;
+        }
 
         if click_x >= tabs_end && click_x < tabs_end + NEW_TAB_BTN_WIDTH {
             self.create_new_tab();
@@ -1069,7 +1081,6 @@ impl App {
     }
 
     /// Handle toggle theme (Ctrl+Shift+T on macOS)
-    #[allow(dead_code)]
     fn handle_toggle_theme(&mut self) {
         let new_theme = self.config.theme.next();
         log::info!(
@@ -1176,6 +1187,7 @@ impl App {
         let screen = tab.terminal.screen();
         let selection = screen.selection();
 
+        let theme_label = self.config.theme.display_name();
         if let Err(e) = renderer.render(
             screen,
             selection,
@@ -1183,6 +1195,7 @@ impl App {
             self.tab_bar_height,
             &tab_infos,
             self.active_tab,
+            theme_label,
         ) {
             log::warn!("Render error: {:?}", e);
         }
