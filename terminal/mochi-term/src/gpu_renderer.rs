@@ -362,8 +362,8 @@ impl GpuRenderer {
             &wgpu::DeviceDescriptor {
                 label: Some("Mochi Terminal"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                    .using_resolution(adapter.limits()),
+                required_limits:
+                    wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
                 memory_hints: wgpu::MemoryHints::Performance,
             },
             None,
@@ -491,12 +491,11 @@ impl GpuRenderer {
             source: wgpu::ShaderSource::Wgsl(RECT_SHADER.into()),
         });
 
-        let rect_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Rect Pipeline Layout"),
-                bind_group_layouts: &[&uniform_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let rect_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Rect Pipeline Layout"),
+            bind_group_layouts: &[&uniform_bind_group_layout],
+            push_constant_ranges: &[],
+        });
 
         let rect_instance_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<RectInstance>() as u64,
@@ -554,12 +553,11 @@ impl GpuRenderer {
             source: wgpu::ShaderSource::Wgsl(TEXT_SHADER.into()),
         });
 
-        let text_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Text Pipeline Layout"),
-                bind_group_layouts: &[&uniform_bind_group_layout, &atlas_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Text Pipeline Layout"),
+            bind_group_layouts: &[&uniform_bind_group_layout, &atlas_bind_group_layout],
+            push_constant_ranges: &[],
+        });
 
         let text_instance_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<GlyphInstance>() as u64,
@@ -864,8 +862,7 @@ impl GpuRenderer {
                     if let Some(entry) = self.atlas.get(&(c, cell.attrs.bold)) {
                         if entry.width > 0 && entry.height > 0 {
                             let gx = x + entry.xmin as f32;
-                            let gy =
-                                y + baseline - entry.ymin as f32 - entry.height as f32;
+                            let gy = y + baseline - entry.ymin as f32 - entry.height as f32;
 
                             glyphs.push(GlyphInstance {
                                 pos: [gx, gy],
@@ -1246,8 +1243,7 @@ impl GpuRenderer {
 
             let text_x = tab_x + tab_padding as f32;
             let text_y = ((tab_bar_height as f32 - self.cell_size.height) / 2.0).max(0.0);
-            let max_text_width =
-                tab_width.saturating_sub(tab_padding * 2 + close_btn_width) as f32;
+            let max_text_width = tab_width.saturating_sub(tab_padding * 2 + close_btn_width) as f32;
 
             self.build_text_glyphs(
                 glyphs,
@@ -1264,8 +1260,9 @@ impl GpuRenderer {
                 if let Some(entry) = self.atlas.get(&('x', false)) {
                     if entry.width > 0 && entry.height > 0 {
                         let gx = close_x + entry.xmin as f32;
-                        let gy =
-                            close_y + self.cell_size.baseline - entry.ymin as f32 - entry.height as f32;
+                        let gy = close_y + self.cell_size.baseline
+                            - entry.ymin as f32
+                            - entry.height as f32;
                         glyphs.push(GlyphInstance {
                             pos: [gx, gy],
                             size: [entry.width as f32, entry.height as f32],
@@ -1279,8 +1276,7 @@ impl GpuRenderer {
         }
 
         let plus_btn_x = (num_tabs * tab_width) as f32;
-        let plus_text_x =
-            plus_btn_x + ((new_tab_btn_width as f32 - self.cell_size.width) / 2.0);
+        let plus_text_x = plus_btn_x + ((new_tab_btn_width as f32 - self.cell_size.width) / 2.0);
         let plus_text_y = ((tab_bar_height as f32 - self.cell_size.height) / 2.0).max(0.0);
         let plus_bg = blend_color(tab_bar_bg, bg_color, 0.15);
 
@@ -1293,8 +1289,8 @@ impl GpuRenderer {
         if let Some(entry) = self.atlas.get(&('+', false)) {
             if entry.width > 0 && entry.height > 0 {
                 let gx = plus_text_x + entry.xmin as f32;
-                let gy = plus_text_y + self.cell_size.baseline - entry.ymin as f32
-                    - entry.height as f32;
+                let gy =
+                    plus_text_y + self.cell_size.baseline - entry.ymin as f32 - entry.height as f32;
                 glyphs.push(GlyphInstance {
                     pos: [gx, gy],
                     size: [entry.width as f32, entry.height as f32],
@@ -1330,8 +1326,8 @@ impl GpuRenderer {
                 if let Some(entry) = self.atlas.get(&(ch, false)) {
                     if entry.width > 0 && entry.height > 0 {
                         let gx = cx + entry.xmin as f32;
-                        let gy = y + self.cell_size.baseline - entry.ymin as f32
-                            - entry.height as f32;
+                        let gy =
+                            y + self.cell_size.baseline - entry.ymin as f32 - entry.height as f32;
                         glyphs.push(GlyphInstance {
                             pos: [gx, gy],
                             size: [entry.width as f32, entry.height as f32],
@@ -1421,7 +1417,12 @@ impl GpuRenderer {
 }
 
 fn rgb_to_f32(c: (u8, u8, u8)) -> [f32; 4] {
-    [c.0 as f32 / 255.0, c.1 as f32 / 255.0, c.2 as f32 / 255.0, 1.0]
+    [
+        c.0 as f32 / 255.0,
+        c.1 as f32 / 255.0,
+        c.2 as f32 / 255.0,
+        1.0,
+    ]
 }
 
 fn rgb_to_f64(c: (u8, u8, u8)) -> (f64, f64, f64) {

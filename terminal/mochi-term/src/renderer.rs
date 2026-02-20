@@ -94,8 +94,22 @@ impl Renderer {
         active_tab: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match &mut self.backend {
-            Backend::Gpu(r) => r.render(screen, selection, scroll_offset, tab_bar_height, tabs, active_tab),
-            Backend::Cpu(r) => r.render(screen, selection, scroll_offset, tab_bar_height, tabs, active_tab),
+            Backend::Gpu(r) => r.render(
+                screen,
+                selection,
+                scroll_offset,
+                tab_bar_height,
+                tabs,
+                active_tab,
+            ),
+            Backend::Cpu(r) => r.render(
+                screen,
+                selection,
+                scroll_offset,
+                tab_bar_height,
+                tabs,
+                active_tab,
+            ),
         }
     }
 }
