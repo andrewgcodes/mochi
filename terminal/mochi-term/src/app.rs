@@ -374,8 +374,10 @@ impl App {
         if cols > 0 && rows > 0 {
             for tab in &mut self.tabs {
                 tab.terminal.resize(cols, rows);
-                tab.terminal.set_window_pixel_size(size.width, terminal_height);
-                tab.terminal.set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
+                tab.terminal
+                    .set_window_pixel_size(size.width, terminal_height);
+                tab.terminal
+                    .set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
                 let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
             }
         }
@@ -630,8 +632,10 @@ impl App {
         if cols > 0 && rows > 0 {
             for tab in &mut self.tabs {
                 tab.terminal.resize(cols, rows);
-                tab.terminal.set_window_pixel_size(size.width, terminal_height);
-                tab.terminal.set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
+                tab.terminal
+                    .set_window_pixel_size(size.width, terminal_height);
+                tab.terminal
+                    .set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
                 let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
             }
         }
@@ -661,8 +665,10 @@ impl App {
         if cols > 0 && rows > 0 {
             for tab in &mut self.tabs {
                 tab.terminal.resize(cols, rows);
-                tab.terminal.set_window_pixel_size(size.width, terminal_height);
-                tab.terminal.set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
+                tab.terminal
+                    .set_window_pixel_size(size.width, terminal_height);
+                tab.terminal
+                    .set_cell_pixel_size(cell_size.width as u32, cell_size.height as u32);
                 let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
             }
         }

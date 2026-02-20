@@ -504,11 +504,15 @@ impl Terminal {
             ([b'$'], b'p', b'?') => {
                 let mode = csi.param(0, 0);
                 let known_modes: &[u16] = &[
-                    1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 47, 1000, 1002, 1003,
-                    1004, 1005, 1006, 1007, 1047, 1049, 2004, 2026,
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 47, 1000, 1002, 1003, 1004, 1005, 1006,
+                    1007, 1047, 1049, 2004, 2026,
                 ];
                 let ps = if known_modes.contains(&mode) {
-                    if self.screen.modes().get_dec_mode(mode) { 1 } else { 2 }
+                    if self.screen.modes().get_dec_mode(mode) {
+                        1
+                    } else {
+                        2
+                    }
                 } else {
                     0
                 };
@@ -908,13 +912,25 @@ impl Terminal {
                 " q" => {
                     let style = match self.screen.cursor().style {
                         CursorStyle::Block => {
-                            if self.screen.cursor().blinking { 1 } else { 2 }
+                            if self.screen.cursor().blinking {
+                                1
+                            } else {
+                                2
+                            }
                         }
                         CursorStyle::Underline => {
-                            if self.screen.cursor().blinking { 3 } else { 4 }
+                            if self.screen.cursor().blinking {
+                                3
+                            } else {
+                                4
+                            }
                         }
                         CursorStyle::Bar => {
-                            if self.screen.cursor().blinking { 5 } else { 6 }
+                            if self.screen.cursor().blinking {
+                                5
+                            } else {
+                                6
+                            }
                         }
                     };
                     let response = format!("\x1bP1$r{} q\x1b\\", style);
