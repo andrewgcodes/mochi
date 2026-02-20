@@ -289,20 +289,17 @@ impl Renderer {
 
         let cursor = screen.cursor();
 
-        // Render each cell
+        // Render cell backgrounds
         for row in 0..rows {
-            // Calculate which line to render based on scroll offset
             let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
                 let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
                 if scrollback_row < scrollback_len {
-                    // This row comes from scrollback
                     if let Some(sb_line) = scrollback.get(scrollback_row) {
                         (sb_line, true, None)
                     } else {
                         continue;
                     }
                 } else {
-                    // This row comes from screen
                     let screen_row = scrollback_row - scrollback_len;
                     if screen_row < rows {
                         (screen.line(screen_row), false, Some(screen_row))
@@ -316,8 +313,6 @@ impl Renderer {
 
             for col in 0..cols.min(line.cols()) {
                 let cell = line.cell(col);
-
-                // Skip continuation cells
                 if cell.is_continuation() {
                     continue;
                 }
@@ -325,19 +320,14 @@ impl Renderer {
                 let x = (col as f32 * cell_width_px) as i32;
                 let y = (row as f32 * cell_height_px) as i32 + tab_bar_height as i32;
 
-                // Determine colors
-                // Don't highlight empty selections (single click without drag)
                 let is_selected = !selection.is_empty() && selection.contains(col, row as isize);
-                // Check if this is the cursor position (regardless of visibility)
                 let is_cursor_position = !is_from_scrollback
                     && scroll_offset == 0
                     && actual_screen_row == Some(cursor.row)
                     && cursor.col == col;
-                // Solid cursor when visible, outline when hidden
                 let is_solid_cursor = is_cursor_position && cursor.visible;
-                let is_outline_cursor = is_cursor_position && !cursor.visible;
 
-                let (fg, bg) = if is_selected {
+                let (_fg, bg) = if is_selected {
                     (fg_color, sel_color)
                 } else if is_solid_cursor {
                     (bg_color, cursor_color)
@@ -359,12 +349,85 @@ impl Renderer {
                     (fg, bg)
                 };
 
-                // Draw background
                 let cell_w = (cell.width() as f32 * cell_width_px) as i32;
                 let cell_h = cell_height_px as i32;
                 Self::fill_rect_static(&mut buffer, x, y, cell_w, cell_h, bg, width, height);
+            }
+        }
 
-                // Draw character
+        if scroll_offset == 0 {
+            Self::draw_images_static(
+                &mut buffer,
+                screen,
+                tab_bar_height,
+                width,
+                height,
+                cell_width_px,
+                cell_height_px,
+            );
+        }
+
+        // Render glyphs and outline cursor
+        for row in 0..rows {
+            let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
+                let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                if scrollback_row < scrollback_len {
+                    if let Some(sb_line) = scrollback.get(scrollback_row) {
+                        (sb_line, true, None)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    let screen_row = scrollback_row - scrollback_len;
+                    if screen_row < rows {
+                        (screen.line(screen_row), false, Some(screen_row))
+                    } else {
+                        continue;
+                    }
+                }
+            } else {
+                (screen.line(row), false, Some(row))
+            };
+
+            for col in 0..cols.min(line.cols()) {
+                let cell = line.cell(col);
+                if cell.is_continuation() {
+                    continue;
+                }
+
+                let x = (col as f32 * cell_width_px) as i32;
+                let y = (row as f32 * cell_height_px) as i32 + tab_bar_height as i32;
+
+                let is_selected = !selection.is_empty() && selection.contains(col, row as isize);
+                let is_cursor_position = !is_from_scrollback
+                    && scroll_offset == 0
+                    && actual_screen_row == Some(cursor.row)
+                    && cursor.col == col;
+                let is_solid_cursor = is_cursor_position && cursor.visible;
+                let is_outline_cursor = is_cursor_position && !cursor.visible;
+
+                let (fg, _bg) = if is_selected {
+                    (fg_color, sel_color)
+                } else if is_solid_cursor {
+                    (bg_color, cursor_color)
+                } else {
+                    let fg = Self::resolve_color_static(
+                        &self.colors,
+                        &cell.attrs.effective_fg(),
+                        true,
+                        fg_color,
+                        bg_color,
+                    );
+                    let bg = Self::resolve_color_static(
+                        &self.colors,
+                        &cell.attrs.effective_bg(),
+                        false,
+                        fg_color,
+                        bg_color,
+                    );
+                    (fg, bg)
+                };
+
                 let c = cell.display_char();
                 if c != ' ' && !cell.is_empty() {
                     if let Some(glyph) = self.glyph_cache.get(&(c, cell.attrs.bold)) {
@@ -381,8 +444,9 @@ impl Renderer {
                     }
                 }
 
-                // Draw outline cursor when cursor is hidden (provides visual feedback)
                 if is_outline_cursor {
+                    let cell_w = (cell.width() as f32 * cell_width_px) as i32;
+                    let cell_h = cell_height_px as i32;
                     Self::draw_rect_outline_static(
                         &mut buffer,
                         x,
@@ -414,6 +478,126 @@ impl Renderer {
         buffer.present()?;
 
         Ok(())
+    }
+
+    fn blend_rgba_pixel(dst: u32, r: u8, g: u8, b: u8, a: u8) -> u32 {
+        if a == 0 {
+            return dst;
+        }
+        if a == 255 {
+            return Self::rgb_to_pixel(r, g, b);
+        }
+
+        let dst_r = ((dst >> 16) & 0xFF) as u8;
+        let dst_g = ((dst >> 8) & 0xFF) as u8;
+        let dst_b = (dst & 0xFF) as u8;
+
+        let a = a as u16;
+        let inv = 255u16 - a;
+        let out_r = ((r as u16 * a + dst_r as u16 * inv) + 127) / 255;
+        let out_g = ((g as u16 * a + dst_g as u16 * inv) + 127) / 255;
+        let out_b = ((b as u16 * a + dst_b as u16 * inv) + 127) / 255;
+
+        Self::rgb_to_pixel(out_r as u8, out_g as u8, out_b as u8)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_images_static(
+        buffer: &mut [u32],
+        screen: &Screen,
+        tab_bar_height: u32,
+        buf_width: u32,
+        buf_height: u32,
+        cell_width_px: f32,
+        cell_height_px: f32,
+    ) {
+        let store = screen.image_store();
+        if store.placement_count() == 0 {
+            return;
+        }
+
+        let mut placements: Vec<_> = store.placements().iter().collect();
+        placements.sort_by_key(|p| p.z_index);
+
+        let w = buf_width as i32;
+        let h = buf_height as i32;
+
+        for placement in placements {
+            let Some(img) = store.get_image(placement.image_id) else {
+                continue;
+            };
+
+            if placement.source_width == 0 || placement.source_height == 0 {
+                continue;
+            }
+
+            let dest_w = if placement.width_cells > 0 {
+                (placement.width_cells as f32 * cell_width_px).round() as u32
+            } else {
+                placement.source_width
+            };
+            let dest_h = if placement.height_cells > 0 {
+                (placement.height_cells as f32 * cell_height_px).round() as u32
+            } else {
+                placement.source_height
+            };
+
+            if dest_w == 0 || dest_h == 0 {
+                continue;
+            }
+
+            let origin_x =
+                (placement.col as f32 * cell_width_px) as i32 + placement.x_offset as i32;
+            let origin_y = (placement.row as f32 * cell_height_px) as i32
+                + tab_bar_height as i32
+                + placement.y_offset as i32;
+
+            for dy in 0..dest_h {
+                let y = origin_y + dy as i32;
+                if y < tab_bar_height as i32 || y >= h {
+                    continue;
+                }
+
+                let src_y = placement.source_y
+                    + (dy.saturating_mul(placement.source_height) / dest_h.max(1));
+                if src_y >= img.height {
+                    continue;
+                }
+
+                for dx in 0..dest_w {
+                    let x = origin_x + dx as i32;
+                    if x < 0 || x >= w {
+                        continue;
+                    }
+
+                    let src_x = placement.source_x
+                        + (dx.saturating_mul(placement.source_width) / dest_w.max(1));
+                    if src_x >= img.width {
+                        continue;
+                    }
+
+                    let src_idx = ((src_y * img.width + src_x) * 4) as usize;
+                    if src_idx + 3 >= img.rgba.len() {
+                        continue;
+                    }
+
+                    let r = img.rgba[src_idx];
+                    let g = img.rgba[src_idx + 1];
+                    let b = img.rgba[src_idx + 2];
+                    let a = img.rgba[src_idx + 3];
+                    if a == 0 {
+                        continue;
+                    }
+
+                    let dst_idx = y as usize * buf_width as usize + x as usize;
+                    if dst_idx >= buffer.len() {
+                        continue;
+                    }
+                    let dst = buffer[dst_idx];
+                    buffer[dst_idx] = Self::blend_rgba_pixel(dst, r, g, b, a);
+                }
+            }
+        }
     }
 
     /// Draw a scrollbar on the right side of the terminal (static version)

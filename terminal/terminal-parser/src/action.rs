@@ -2,7 +2,9 @@
 //!
 //! These represent the semantic meaning of parsed escape sequences.
 
+use crate::kitty::KittyAction;
 use crate::params::Params;
+use crate::sixel::SixelImage;
 
 /// Actions produced by the parser
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +27,12 @@ pub enum Action {
 
     /// DCS (Device Control String) - currently just consumed
     Dcs { params: Params, data: Vec<u8> },
+
+    /// Sixel graphics image (decoded from DCS)
+    SixelImage(SixelImage),
+
+    /// Kitty graphics protocol command (decoded from APC)
+    KittyGraphics(KittyAction),
 
     /// APC (Application Program Command) - consumed and ignored
     Apc(Vec<u8>),

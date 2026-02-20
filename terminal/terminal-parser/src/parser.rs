@@ -12,7 +12,9 @@
 //! - APC, PM, SOS sequences (consumed but ignored)
 
 use crate::action::{Action, CsiAction, EscAction, OscAction};
+use crate::kitty;
 use crate::params::Params;
+use crate::sixel;
 use crate::utf8::{Utf8Decoder, Utf8Result};
 
 /// Maximum length for OSC/DCS data to prevent DoS
@@ -72,6 +74,8 @@ pub struct Parser {
     osc_data: Vec<u8>,
     /// DCS parameters
     dcs_params: Vec<u8>,
+    /// DCS final byte (0x40-0x7E)
+    dcs_final_byte: u8,
     /// Escape intermediate bytes
     esc_intermediates: Vec<u8>,
 }
@@ -87,6 +91,7 @@ impl Parser {
             private_marker: false,
             osc_data: Vec::with_capacity(256),
             dcs_params: Vec::with_capacity(64),
+            dcs_final_byte: 0,
             esc_intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
         }
     }
@@ -105,6 +110,7 @@ impl Parser {
         self.private_marker = false;
         self.osc_data.clear();
         self.dcs_params.clear();
+        self.dcs_final_byte = 0;
         self.esc_intermediates.clear();
     }
 
@@ -541,6 +547,7 @@ impl Parser {
     fn enter_dcs(&mut self) {
         self.state = ParserState::DcsEntry;
         self.dcs_params.clear();
+        self.dcs_final_byte = 0;
         self.osc_data.clear();
     }
 
@@ -552,6 +559,7 @@ impl Parser {
             }
             0x40..=0x7E => {
                 // Final byte - enter passthrough
+                self.dcs_final_byte = byte;
                 self.state = ParserState::DcsPassthrough;
             }
             _ => {
@@ -567,6 +575,7 @@ impl Parser {
             }
             0x40..=0x7E => {
                 // Final byte - enter passthrough
+                self.dcs_final_byte = byte;
                 self.state = ParserState::DcsPassthrough;
             }
             _ => {
@@ -616,14 +625,10 @@ impl Parser {
                 self.finish_osc(callback);
             }
             ParserState::DcsPassthrough => {
-                let params = Params::parse(&self.dcs_params);
-                callback(Action::Dcs {
-                    params,
-                    data: self.osc_data.clone(),
-                });
+                self.dispatch_dcs(callback);
             }
             ParserState::ApcString => {
-                callback(Action::Apc(self.osc_data.clone()));
+                self.dispatch_apc(callback);
             }
             ParserState::PmString => {
                 callback(Action::Pm(self.osc_data.clone()));
@@ -648,14 +653,10 @@ impl Parser {
                 self.finish_osc(callback);
             }
             ParserState::DcsPassthrough => {
-                let params = Params::parse(&self.dcs_params);
-                callback(Action::Dcs {
-                    params,
-                    data: self.osc_data.clone(),
-                });
+                self.dispatch_dcs(callback);
             }
             ParserState::ApcString => {
-                callback(Action::Apc(self.osc_data.clone()));
+                self.dispatch_apc(callback);
             }
             ParserState::PmString => {
                 callback(Action::Pm(self.osc_data.clone()));
@@ -667,6 +668,49 @@ impl Parser {
         }
         self.state = ParserState::Ground;
         self.osc_data.clear();
+    }
+
+    fn dispatch_dcs<F>(&mut self, callback: &mut F)
+    where
+        F: FnMut(Action),
+    {
+        let is_sixel = self.dcs_final_byte == b'q';
+
+        if is_sixel {
+            let params = Params::parse(&self.dcs_params);
+            let param_values: Vec<u16> = params.iter().collect();
+            let sixel_data = &self.osc_data;
+            if let Some(image) = sixel::decode_sixel(&param_values, sixel_data) {
+                callback(Action::SixelImage(image));
+            } else {
+                let params = Params::parse(&self.dcs_params);
+                callback(Action::Dcs {
+                    params,
+                    data: self.osc_data.clone(),
+                });
+            }
+        } else {
+            let params = Params::parse(&self.dcs_params);
+            callback(Action::Dcs {
+                params,
+                data: self.osc_data.clone(),
+            });
+        }
+    }
+
+    fn dispatch_apc<F>(&mut self, callback: &mut F)
+    where
+        F: FnMut(Action),
+    {
+        if self.osc_data.first() == Some(&b'G') {
+            if let Some(action) = kitty::parse_kitty_graphics(&self.osc_data) {
+                callback(Action::KittyGraphics(action));
+            } else {
+                callback(Action::Apc(self.osc_data.clone()));
+            }
+        } else {
+            callback(Action::Apc(self.osc_data.clone()));
+        }
     }
 
     fn finish_osc<F>(&mut self, callback: &mut F)

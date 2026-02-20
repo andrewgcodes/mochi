@@ -16,6 +16,8 @@ terminal-pty = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 thiserror = { workspace = true }
+flate2 = "1.0"
+png = "0.17"
 
 # GUI dependencies
 winit = "0.29"
