@@ -12,10 +12,14 @@
 //! Reference: https://www.x.org/docs/xterm/ctlseqs.pdf
 
 mod action;
+pub mod kitty;
 mod params;
 mod parser;
+pub mod sixel;
 mod utf8;
 
 pub use action::{Action, CsiAction, EscAction, OscAction};
+pub use kitty::KittyAction;
 pub use params::Params;
 pub use parser::{Parser, ParserState};
+pub use sixel::SixelImage;

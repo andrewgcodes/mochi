@@ -2,8 +2,24 @@
 //!
 //! Integrates the parser and screen model to handle terminal emulation.
 
-use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
+use std::collections::HashMap;
+use std::io::{Cursor, Read};
+
+use flate2::read::ZlibDecoder;
+use terminal_core::{Color, CursorStyle, Dimensions, ImageData, PlacedImage, Screen, Snapshot};
+use terminal_parser::kitty::{
+    KittyAction, KittyCompression, KittyCursorMovement, KittyDelete, KittyFormat, KittyPlacement,
+};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
+
+struct PendingKittyImage {
+    format: KittyFormat,
+    width: u32,
+    height: u32,
+    compression: KittyCompression,
+    data: Vec<u8>,
+    display: Option<KittyPlacement>,
+}
 
 /// Terminal emulator state
 pub struct Terminal {
@@ -23,6 +39,10 @@ pub struct Terminal {
     /// Pending responses to send back to the PTY
     /// Used for DSR (Device Status Report), DA1 (Primary Device Attributes), etc.
     pending_responses: Vec<Vec<u8>>,
+
+    kitty_pending: HashMap<u32, PendingKittyImage>,
+    kitty_number_to_id: HashMap<u32, u32>,
+    next_unnamed_kitty_image_id: u32,
 }
 
 impl Terminal {
@@ -36,6 +56,9 @@ impl Terminal {
             bell: false,
             sync_output_first_enable: false,
             pending_responses: Vec::new(),
+            kitty_pending: HashMap::new(),
+            kitty_number_to_id: HashMap::new(),
+            next_unnamed_kitty_image_id: 0x3000_0000,
         }
     }
 
@@ -105,15 +128,364 @@ impl Terminal {
             Action::Osc(osc) => {
                 self.handle_osc(osc);
             }
+            Action::SixelImage(image) => {
+                self.handle_sixel_image(image);
+            }
+            Action::KittyGraphics(action) => {
+                self.handle_kitty_graphics(action);
+            }
             Action::Dcs { .. } => {
-                // DCS sequences are currently not implemented
                 log::debug!("DCS sequence ignored");
             }
-            Action::Apc(_) | Action::Pm(_) | Action::Sos(_) => {
-                // These are consumed but ignored
-            }
+            Action::Apc(_) | Action::Pm(_) | Action::Sos(_) => {}
             Action::Invalid(data) => {
                 log::debug!("Invalid sequence: {:?}", data);
+            }
+        }
+    }
+
+    fn handle_sixel_image(&mut self, image: terminal_parser::SixelImage) {
+        let img_id = self.screen.image_store_mut().store_image(ImageData::new(
+            image.width,
+            image.height,
+            image.rgba,
+        ));
+        let col = self.screen.cursor().col;
+        let row = self.screen.cursor().row;
+        self.screen
+            .image_store_mut()
+            .place_image(img_id, col, row, 0, 0);
+    }
+
+    fn kitty_image_id_for_transmit(&mut self, image_id: u32, image_number: u32) -> u32 {
+        if image_id != 0 {
+            if image_number != 0 {
+                self.kitty_number_to_id.insert(image_number, image_id);
+            }
+            return image_id;
+        }
+
+        if image_number != 0 {
+            if let Some(existing) = self.kitty_number_to_id.get(&image_number) {
+                return *existing;
+            }
+            let derived = 0x2000_0000 | (image_number & 0x1FFF_FFFF);
+            self.kitty_number_to_id.insert(image_number, derived);
+            return derived;
+        }
+
+        let id = self.next_unnamed_kitty_image_id;
+        self.next_unnamed_kitty_image_id = self.next_unnamed_kitty_image_id.wrapping_add(1);
+        id
+    }
+
+    fn kitty_image_id_for_reference(&self, image_id: u32, image_number: u32) -> Option<u32> {
+        if image_id != 0 {
+            return Some(image_id);
+        }
+        if image_number != 0 {
+            return self.kitty_number_to_id.get(&image_number).copied();
+        }
+        None
+    }
+
+    fn handle_kitty_graphics(&mut self, action: KittyAction) {
+        match action {
+            KittyAction::TransmitData {
+                image_id,
+                image_number,
+                format,
+                width,
+                height,
+                compression,
+                more_chunks,
+                data,
+            } => {
+                let id = self.kitty_image_id_for_transmit(image_id, image_number);
+                let pending = PendingKittyImage {
+                    format,
+                    width,
+                    height,
+                    compression,
+                    data,
+                    display: None,
+                };
+                if more_chunks {
+                    self.kitty_pending.insert(id, pending);
+                } else {
+                    self.finish_kitty_pending(id, pending);
+                }
+            }
+            KittyAction::TransmitAndDisplay {
+                image_id,
+                image_number,
+                format,
+                width,
+                height,
+                compression,
+                placement,
+                more_chunks,
+                data,
+            } => {
+                let id = self.kitty_image_id_for_transmit(image_id, image_number);
+                let pending = PendingKittyImage {
+                    format,
+                    width,
+                    height,
+                    compression,
+                    data,
+                    display: Some(placement),
+                };
+                if more_chunks {
+                    self.kitty_pending.insert(id, pending);
+                } else {
+                    self.finish_kitty_pending(id, pending);
+                }
+            }
+            KittyAction::TransmitMoreData {
+                image_id,
+                more_chunks,
+                data,
+            } => {
+                if let Some(pending) = self.kitty_pending.get_mut(&image_id) {
+                    pending.data.extend(data);
+                }
+                if !more_chunks {
+                    if let Some(pending) = self.kitty_pending.remove(&image_id) {
+                        self.finish_kitty_pending(image_id, pending);
+                    }
+                }
+            }
+            KittyAction::Display {
+                image_id,
+                image_number,
+                placement,
+            } => {
+                if let Some(id) = self.kitty_image_id_for_reference(image_id, image_number) {
+                    self.place_kitty_image(id, placement);
+                }
+            }
+            KittyAction::Delete(delete) => {
+                self.delete_kitty(delete);
+            }
+            KittyAction::Query { .. } => {}
+        }
+    }
+
+    fn finish_kitty_pending(&mut self, image_id: u32, pending: PendingKittyImage) {
+        let display = pending.display.clone();
+        if let Some(data) = self.decode_kitty_image(pending) {
+            self.screen
+                .image_store_mut()
+                .store_image_with_id(image_id, data);
+            if let Some(placement) = display {
+                self.place_kitty_image(image_id, placement);
+            }
+        }
+    }
+
+    fn decode_kitty_image(&self, pending: PendingKittyImage) -> Option<ImageData> {
+        let mut decoded = match pending.compression {
+            KittyCompression::None => pending.data,
+            KittyCompression::Zlib => {
+                let mut decoder = ZlibDecoder::new(Cursor::new(pending.data));
+                let mut out = Vec::new();
+                decoder.read_to_end(&mut out).ok()?;
+                out
+            }
+        };
+
+        match pending.format {
+            KittyFormat::Rgba => {
+                if pending.width == 0 || pending.height == 0 {
+                    return None;
+                }
+                let expected = pending.width as usize * pending.height as usize * 4;
+                if decoded.len() < expected {
+                    return None;
+                }
+                decoded.truncate(expected);
+                Some(ImageData::new(pending.width, pending.height, decoded))
+            }
+            KittyFormat::Rgb => {
+                if pending.width == 0 || pending.height == 0 {
+                    return None;
+                }
+                let expected = pending.width as usize * pending.height as usize * 3;
+                if decoded.len() < expected {
+                    return None;
+                }
+                decoded.truncate(expected);
+                let mut rgba =
+                    Vec::with_capacity(pending.width as usize * pending.height as usize * 4);
+                for chunk in decoded.chunks_exact(3) {
+                    rgba.push(chunk[0]);
+                    rgba.push(chunk[1]);
+                    rgba.push(chunk[2]);
+                    rgba.push(255);
+                }
+                Some(ImageData::new(pending.width, pending.height, rgba))
+            }
+            KittyFormat::Png => {
+                let mut decoder = png::Decoder::new(Cursor::new(decoded));
+                decoder.set_transformations(
+                    png::Transformations::EXPAND | png::Transformations::STRIP_16,
+                );
+                let mut reader = decoder.read_info().ok()?;
+                let mut buf = vec![0; reader.output_buffer_size()];
+                let info = reader.next_frame(&mut buf).ok()?;
+                let bytes = &buf[..info.buffer_size()];
+
+                let mut rgba = Vec::with_capacity(info.width as usize * info.height as usize * 4);
+
+                match info.color_type {
+                    png::ColorType::Rgba => {
+                        rgba.extend_from_slice(bytes);
+                    }
+                    png::ColorType::Rgb => {
+                        for chunk in bytes.chunks_exact(3) {
+                            rgba.push(chunk[0]);
+                            rgba.push(chunk[1]);
+                            rgba.push(chunk[2]);
+                            rgba.push(255);
+                        }
+                    }
+                    png::ColorType::Grayscale => {
+                        for &v in bytes {
+                            rgba.push(v);
+                            rgba.push(v);
+                            rgba.push(v);
+                            rgba.push(255);
+                        }
+                    }
+                    png::ColorType::GrayscaleAlpha => {
+                        for chunk in bytes.chunks_exact(2) {
+                            let v = chunk[0];
+                            rgba.push(v);
+                            rgba.push(v);
+                            rgba.push(v);
+                            rgba.push(chunk[1]);
+                        }
+                    }
+                    png::ColorType::Indexed => {
+                        return None;
+                    }
+                }
+
+                Some(ImageData::new(info.width, info.height, rgba))
+            }
+        }
+    }
+
+    fn place_kitty_image(&mut self, image_id: u32, placement: KittyPlacement) {
+        let cursor_col = self.screen.cursor().col;
+        let cursor_row = self.screen.cursor().row;
+
+        let cols = self.screen.cols();
+        let rows = self.screen.rows();
+        if cursor_col >= cols || cursor_row >= rows {
+            return;
+        }
+
+        let Some(img) = self.screen.image_store().get_image(image_id) else {
+            return;
+        };
+
+        let source_x = placement.source_x.min(img.width);
+        let source_y = placement.source_y.min(img.height);
+        let max_w = img.width.saturating_sub(source_x);
+        let max_h = img.height.saturating_sub(source_y);
+
+        let source_width = if placement.source_width == 0 {
+            max_w
+        } else {
+            placement.source_width.min(max_w)
+        };
+        let source_height = if placement.source_height == 0 {
+            max_h
+        } else {
+            placement.source_height.min(max_h)
+        };
+
+        let placed = PlacedImage {
+            id: placement.placement_id,
+            image_id,
+            col: cursor_col,
+            row: cursor_row,
+            width_cells: placement.cols as usize,
+            height_cells: placement.rows as usize,
+            x_offset: placement.x_offset,
+            y_offset: placement.y_offset,
+            source_x,
+            source_y,
+            source_width,
+            source_height,
+            z_index: placement.z_index,
+        };
+
+        self.screen.image_store_mut().place_image_detailed(placed);
+
+        if placement.cursor_movement == KittyCursorMovement::After && placement.cols > 0 {
+            self.screen.move_cursor_right(placement.cols as usize);
+        }
+    }
+
+    fn delete_kitty(&mut self, delete: KittyDelete) {
+        match delete {
+            KittyDelete::All => {
+                self.screen.image_store_mut().clear();
+                self.kitty_pending.clear();
+                self.kitty_number_to_id.clear();
+            }
+            KittyDelete::ById { image_id } => {
+                self.screen.image_store_mut().remove_image(image_id);
+                self.kitty_pending.remove(&image_id);
+            }
+            KittyDelete::ByNumber { image_number } => {
+                if let Some(id) = self.kitty_number_to_id.remove(&image_number) {
+                    self.screen.image_store_mut().remove_image(id);
+                    self.kitty_pending.remove(&id);
+                }
+            }
+            KittyDelete::AtCursor => {
+                let col = self.screen.cursor().col;
+                let row = self.screen.cursor().row;
+                self.screen
+                    .image_store_mut()
+                    .remove_placements_at_cell(col, row);
+            }
+            KittyDelete::AtPosition { col, row } => {
+                let col = col.saturating_sub(1) as usize;
+                let row = row.saturating_sub(1) as usize;
+                self.screen
+                    .image_store_mut()
+                    .remove_placements_at_cell(col, row);
+            }
+            KittyDelete::ByPlacement {
+                image_id,
+                placement_id,
+            } => {
+                if placement_id == 0 {
+                    self.screen.image_store_mut().remove_image(image_id);
+                    self.kitty_pending.remove(&image_id);
+                } else {
+                    self.screen.image_store_mut().remove_placement(placement_id);
+                }
+            }
+            KittyDelete::Column { col } => {
+                let col = col.saturating_sub(1) as usize;
+                self.screen
+                    .image_store_mut()
+                    .remove_placements_in_column(col);
+            }
+            KittyDelete::Row { row } => {
+                let row = row.saturating_sub(1) as usize;
+                self.screen.image_store_mut().remove_placements_in_row(row);
+            }
+            KittyDelete::ZIndex { z_index } => {
+                self.screen
+                    .image_store_mut()
+                    .remove_placements_with_z_index(z_index);
             }
         }
     }

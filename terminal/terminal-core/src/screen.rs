@@ -7,6 +7,7 @@ use crate::cell::CellAttributes;
 use crate::charset::{parse_charset_designation, CharsetState};
 use crate::cursor::{Cursor, SavedCursor};
 use crate::grid::Grid;
+use crate::image::ImageStore;
 use crate::line::Line;
 use crate::modes::Modes;
 use crate::scrollback::Scrollback;
@@ -28,6 +29,8 @@ pub struct Screen {
     using_alternate: bool,
     /// Scrollback buffer (only for primary screen)
     scrollback: Scrollback,
+    /// Inline image store (Kitty, Sixel)
+    image_store: ImageStore,
     /// Cursor state
     cursor: Cursor,
     /// Saved cursor for primary screen (DECSC/DECRC)
@@ -65,6 +68,7 @@ impl Screen {
             alternate_grid: Grid::new(dims),
             using_alternate: false,
             scrollback: Scrollback::default(),
+            image_store: ImageStore::new(),
             cursor: Cursor::new(),
             saved_cursor_primary: SavedCursor::default(),
             saved_cursor_alternate: SavedCursor::default(),
@@ -135,6 +139,14 @@ impl Screen {
     /// Get scrollback reference
     pub fn scrollback(&self) -> &Scrollback {
         &self.scrollback
+    }
+
+    pub fn image_store(&self) -> &ImageStore {
+        &self.image_store
+    }
+
+    pub fn image_store_mut(&mut self) -> &mut ImageStore {
+        &mut self.image_store
     }
 
     /// Get selection reference
@@ -341,6 +353,7 @@ impl Screen {
         let attrs = self.cursor.attrs;
 
         let scrolled = self.grid_mut().scroll_up(top, bottom, n, attrs);
+        self.image_store.scroll_up(top, bottom, n);
 
         // Add to scrollback if scrolling primary screen from top
         if !self.using_alternate && top == 0 {
@@ -353,6 +366,7 @@ impl Screen {
         let (top, bottom) = self.scroll_region();
         let attrs = self.cursor.attrs;
         self.grid_mut().scroll_down(top, bottom, n, attrs);
+        self.image_store.scroll_down(top, bottom, n);
     }
 
     /// Move cursor to position (1-indexed as per VT spec)
@@ -616,6 +630,7 @@ impl Screen {
         // This ensures TUI applications like Claude Code, vim, htop get a clean canvas
         self.cursor.reset();
         self.alternate_grid.clear(CellAttributes::default());
+        self.image_store.clear();
     }
 
     /// Switch back to primary screen
@@ -625,6 +640,7 @@ impl Screen {
             self.modes.alternate_screen = false;
             self.saved_cursor_primary.restore(&mut self.cursor);
         }
+        self.image_store.clear();
     }
 
     /// Resize the screen
@@ -646,6 +662,7 @@ impl Screen {
 
         // Clear scroll region on resize
         self.scroll_region = None;
+        self.image_store.clear_placements();
     }
 
     /// Reset terminal to initial state
