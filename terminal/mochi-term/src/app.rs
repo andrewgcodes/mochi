@@ -579,9 +579,14 @@ impl App {
         }
 
         let application_cursor_keys = tab.terminal.screen().modes().cursor_keys_application;
+        let application_keypad = tab.terminal.screen().modes().application_keypad;
 
-        if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
-        {
+        if let Some(data) = encode_key(
+            &event.logical_key,
+            self.modifiers,
+            application_cursor_keys,
+            application_keypad,
+        ) {
             log::debug!("Sending key data: {:?}", data);
             let _ = tab.child.write_all(&data);
         }
