@@ -192,6 +192,7 @@ impl Renderer {
     }
 
     /// Render the terminal screen
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         screen: &Screen,
@@ -330,7 +331,7 @@ impl Renderer {
         }
 
         // Render each cell
-        for row in 0..rows {
+        for (row, row_match_spans) in match_spans_per_row.iter().enumerate().take(rows) {
             // Calculate which line to render based on scroll offset
             let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
                 let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
@@ -371,7 +372,7 @@ impl Renderer {
                 // Check if this cell is part of a search match
                 let mut is_search_match = false;
                 let mut is_current_match = false;
-                for (start_col, end_col, is_current) in &match_spans_per_row[row] {
+                for (start_col, end_col, is_current) in row_match_spans {
                     if col >= *start_col && col < *end_col {
                         is_search_match = true;
                         is_current_match = *is_current;

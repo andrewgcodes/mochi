@@ -1231,11 +1231,7 @@ impl App {
             let lines_from_end = scrollback_len - current.line_idx;
             // Place the match roughly in the middle of the screen
             let half_screen = rows / 2;
-            tab.scroll_offset = if lines_from_end > half_screen {
-                lines_from_end - half_screen
-            } else {
-                0
-            };
+            tab.scroll_offset = lines_from_end.saturating_sub(half_screen);
             tab.scroll_offset = tab.scroll_offset.min(scrollback_len);
         } else {
             // Match is on the visible screen - just scroll to bottom
@@ -1294,10 +1290,7 @@ impl App {
                 if self.modifiers.control_key() || self.modifiers.super_key() {
                     return true;
                 }
-                self.tabs[self.active_tab]
-                    .search
-                    .query
-                    .push_str(c.as_str());
+                self.tabs[self.active_tab].search.query.push_str(c.as_str());
                 self.run_search();
                 if !self.tabs[self.active_tab].search.matches.is_empty() {
                     self.scroll_to_current_match();
@@ -1503,15 +1496,13 @@ impl App {
                         let view_start = scrollback_len.saturating_sub(scroll_offset);
                         let view_end = view_start + rows;
                         if m.line_idx >= view_start && m.line_idx < view_end {
-                            Some((m.line_idx - view_start) as usize)
+                            Some(m.line_idx - view_start)
                         } else {
                             None
                         }
                     } else {
                         // No scroll: only screen lines are visible
-                        if m.line_idx >= scrollback_len
-                            && m.line_idx < scrollback_len + rows
-                        {
+                        if m.line_idx >= scrollback_len && m.line_idx < scrollback_len + rows {
                             Some(m.line_idx - scrollback_len)
                         } else {
                             None
