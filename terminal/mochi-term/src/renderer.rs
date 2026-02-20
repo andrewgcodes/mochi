@@ -18,6 +18,18 @@ pub struct TabInfo<'a> {
     pub title: &'a str,
 }
 
+/// Information about a pane for split-pane rendering
+pub struct PaneRenderInfo<'a> {
+    pub screen: &'a Screen,
+    pub selection: &'a Selection,
+    pub scroll_offset: usize,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub is_active: bool,
+}
+
 /// Cell dimensions in pixels
 #[derive(Debug, Clone, Copy)]
 pub struct CellSize {
@@ -174,7 +186,8 @@ impl Renderer {
         self.colors = colors;
     }
 
-    /// Render the terminal screen
+    /// Render the terminal screen (single pane, kept for compatibility)
+    #[allow(dead_code)]
     pub fn render(
         &mut self,
         screen: &Screen,
@@ -983,5 +996,277 @@ impl Renderer {
             (a.1 as f32 * (1.0 - t) + b.1 as f32 * t) as u8,
             (a.2 as f32 * (1.0 - t) + b.2 as f32 * t) as u8,
         )
+    }
+
+    pub fn render_split(
+        &mut self,
+        panes: &[PaneRenderInfo<'_>],
+        dividers: &[(u32, u32, u32, u32)],
+        tab_bar_height: u32,
+        tabs: &[TabInfo<'_>],
+        active_tab: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let width = self.width;
+        let height = self.height;
+
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+
+        self.surface.resize(
+            NonZeroU32::new(width).unwrap(),
+            NonZeroU32::new(height).unwrap(),
+        )?;
+
+        let bg_color = self.colors.background_rgb();
+        let fg_color = self.colors.foreground_rgb();
+        let sel_color = self.colors.selection_rgb();
+        let cursor_color = self.colors.cursor_rgb();
+        let cell_width_px = self.cell_size.width;
+        let cell_height_px = self.cell_size.height;
+        let baseline = self.cell_size.baseline;
+
+        for tab in tabs {
+            for c in tab.title.chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+        }
+        self.ensure_glyph_cached('+', false);
+        self.ensure_glyph_cached('x', false);
+
+        for pane in panes {
+            let screen = pane.screen;
+            let cols = screen.cols();
+            let rows = screen.rows();
+            let scrollback = screen.scrollback();
+            let scrollback_len = scrollback.len();
+
+            for row in 0..rows {
+                let line = if pane.scroll_offset > 0 {
+                    let scrollback_row = scrollback_len.saturating_sub(pane.scroll_offset) + row;
+                    if scrollback_row < scrollback_len {
+                        if let Some(sb_line) = scrollback.get(scrollback_row) {
+                            for col in 0..cols.min(sb_line.cols()) {
+                                let cell = sb_line.cell(col);
+                                if !cell.is_continuation() && !cell.is_empty() {
+                                    let c = cell.display_char();
+                                    if c != ' ' {
+                                        self.ensure_glyph_cached(c, cell.attrs.bold);
+                                    }
+                                }
+                            }
+                            continue;
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        let screen_row = scrollback_row - scrollback_len;
+                        if screen_row < rows {
+                            screen.line(screen_row)
+                        } else {
+                            continue;
+                        }
+                    }
+                } else {
+                    screen.line(row)
+                };
+
+                for col in 0..cols {
+                    let cell = line.cell(col);
+                    if !cell.is_continuation() && !cell.is_empty() {
+                        let c = cell.display_char();
+                        if c != ' ' {
+                            self.ensure_glyph_cached(c, cell.attrs.bold);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut buffer = self.surface.buffer_mut()?;
+
+        let bg_pixel = Self::rgb_to_pixel(bg_color.0, bg_color.1, bg_color.2);
+        buffer.fill(bg_pixel);
+
+        if tab_bar_height > 0 && !tabs.is_empty() {
+            Self::draw_tab_bar_static(
+                &mut buffer,
+                &self.glyph_cache,
+                tabs,
+                active_tab,
+                tab_bar_height,
+                width,
+                height,
+                &self.cell_size,
+                bg_color,
+                fg_color,
+            );
+        }
+
+        for pane in panes {
+            let screen = pane.screen;
+            let selection = pane.selection;
+            let scroll_offset = pane.scroll_offset;
+            let pane_x = pane.x as i32;
+            let pane_y = pane.y as i32;
+
+            let cols = screen.cols();
+            let rows = screen.rows();
+            let scrollback = screen.scrollback();
+            let scrollback_len = scrollback.len();
+            let cursor = screen.cursor();
+
+            for row in 0..rows {
+                let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
+                    let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                    if scrollback_row < scrollback_len {
+                        if let Some(sb_line) = scrollback.get(scrollback_row) {
+                            (sb_line, true, None)
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        let screen_row = scrollback_row - scrollback_len;
+                        if screen_row < rows {
+                            (screen.line(screen_row), false, Some(screen_row))
+                        } else {
+                            continue;
+                        }
+                    }
+                } else {
+                    (screen.line(row), false, Some(row))
+                };
+
+                for col in 0..cols.min(line.cols()) {
+                    let cell = line.cell(col);
+
+                    if cell.is_continuation() {
+                        continue;
+                    }
+
+                    let x = pane_x + (col as f32 * cell_width_px) as i32;
+                    let y = pane_y + (row as f32 * cell_height_px) as i32;
+
+                    if x >= pane_x + pane.width as i32 || y >= pane_y + pane.height as i32 {
+                        continue;
+                    }
+
+                    let is_selected =
+                        !selection.is_empty() && selection.contains(col, row as isize);
+                    let is_cursor_position = !is_from_scrollback
+                        && scroll_offset == 0
+                        && actual_screen_row == Some(cursor.row)
+                        && cursor.col == col;
+                    let is_solid_cursor = is_cursor_position && cursor.visible;
+                    let is_outline_cursor = is_cursor_position && !cursor.visible;
+
+                    let (fg, bg) = if is_selected {
+                        (fg_color, sel_color)
+                    } else if is_solid_cursor {
+                        (bg_color, cursor_color)
+                    } else {
+                        let fg = Self::resolve_color_static(
+                            &self.colors,
+                            &cell.attrs.effective_fg(),
+                            true,
+                            fg_color,
+                            bg_color,
+                        );
+                        let bg = Self::resolve_color_static(
+                            &self.colors,
+                            &cell.attrs.effective_bg(),
+                            false,
+                            fg_color,
+                            bg_color,
+                        );
+                        (fg, bg)
+                    };
+
+                    let cell_w = (cell.width() as f32 * cell_width_px) as i32;
+                    let cell_h = cell_height_px as i32;
+                    Self::fill_rect_static(&mut buffer, x, y, cell_w, cell_h, bg, width, height);
+
+                    let c = cell.display_char();
+                    if c != ' ' && !cell.is_empty() {
+                        if let Some(glyph) = self.glyph_cache.get(&(c, cell.attrs.bold)) {
+                            Self::draw_glyph_static(
+                                &mut buffer,
+                                x,
+                                y,
+                                glyph,
+                                fg,
+                                baseline,
+                                width,
+                                height,
+                            );
+                        }
+                    }
+
+                    if is_outline_cursor {
+                        Self::draw_rect_outline_static(
+                            &mut buffer,
+                            x,
+                            y,
+                            cell_w,
+                            cell_h,
+                            cursor_color,
+                            width,
+                            height,
+                        );
+                    }
+                }
+            }
+
+            if scrollback_len > 0 {
+                Self::draw_scrollbar_static(
+                    &mut buffer,
+                    scroll_offset,
+                    scrollback_len,
+                    rows,
+                    width,
+                    height,
+                    pane.y,
+                );
+            }
+        }
+
+        let separator_color = Self::blend_color(bg_color, (128, 128, 128), 0.5);
+        for (dx, dy, dw, dh) in dividers {
+            Self::fill_rect_static(
+                &mut buffer,
+                *dx as i32,
+                *dy as i32,
+                *dw as i32,
+                *dh as i32,
+                separator_color,
+                width,
+                height,
+            );
+        }
+
+        if panes.len() > 1 {
+            let active_border_color = Self::blend_color(fg_color, (100, 149, 237), 0.5);
+            for pane in panes {
+                if pane.is_active {
+                    Self::fill_rect_static(
+                        &mut buffer,
+                        pane.x as i32,
+                        (pane.y + pane.height).saturating_sub(2) as i32,
+                        pane.width as i32,
+                        2,
+                        active_border_color,
+                        width,
+                        height,
+                    );
+                    break;
+                }
+            }
+        }
+
+        buffer.present()?;
+
+        Ok(())
     }
 }
