@@ -17,10 +17,98 @@ use winit::window::{Window, WindowBuilder};
 
 use terminal_core::{Point, SelectionType};
 
-use crate::config::Config;
+use crate::config::{Config, RendererBackendConfig};
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
-use crate::renderer::{Renderer, TabInfo};
+use crate::renderer::{CellSize, Renderer, TabInfo};
 use crate::terminal::Terminal;
+
+use crate::config::ColorScheme;
+
+pub enum RendererEnum {
+    Cpu(Box<Renderer>),
+    #[cfg(feature = "gpu")]
+    Gpu(Box<crate::gpu_renderer::GpuRenderer>),
+}
+
+impl RendererEnum {
+    pub fn cell_size(&self) -> CellSize {
+        match self {
+            Self::Cpu(r) => r.cell_size(),
+            #[cfg(feature = "gpu")]
+            Self::Gpu(r) => r.cell_size(),
+        }
+    }
+
+    pub fn font_size(&self) -> f32 {
+        match self {
+            Self::Cpu(r) => r.font_size(),
+            #[cfg(feature = "gpu")]
+            Self::Gpu(r) => r.font_size(),
+        }
+    }
+
+    pub fn set_font_size(&mut self, size: f32) {
+        match self {
+            Self::Cpu(r) => r.set_font_size(size),
+            #[cfg(feature = "gpu")]
+            Self::Gpu(r) => r.set_font_size(size),
+        }
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        match self {
+            Self::Cpu(r) => r.resize(width, height),
+            #[cfg(feature = "gpu")]
+            Self::Gpu(r) => r.resize(width, height),
+        }
+    }
+
+    pub fn set_colors(&mut self, colors: ColorScheme) {
+        match self {
+            Self::Cpu(r) => r.set_colors(colors),
+            #[cfg(feature = "gpu")]
+            Self::Gpu(r) => r.set_colors(colors),
+        }
+    }
+
+    pub fn render(
+        &mut self,
+        screen: &terminal_core::Screen,
+        selection: &terminal_core::Selection,
+        scroll_offset: usize,
+        tab_bar_height: u32,
+        tabs: &[TabInfo<'_>],
+        active_tab: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            Self::Cpu(r) => r.render(
+                screen,
+                selection,
+                scroll_offset,
+                tab_bar_height,
+                tabs,
+                active_tab,
+            ),
+            #[cfg(feature = "gpu")]
+            Self::Gpu(r) => r.render(
+                screen,
+                selection,
+                scroll_offset,
+                tab_bar_height,
+                tabs,
+                active_tab,
+            ),
+        }
+    }
+
+    pub fn backend_name(&self) -> &'static str {
+        match self {
+            Self::Cpu(_) => "CPU (softbuffer)",
+            #[cfg(feature = "gpu")]
+            Self::Gpu(_) => "GPU (wgpu)",
+        }
+    }
+}
 
 /// Padding added to cell height to compute tab bar height
 const TAB_BAR_PADDING: u32 = 8;
@@ -61,8 +149,8 @@ pub struct App {
     config: Config,
     /// Window (created on resume)
     window: Option<Rc<Window>>,
-    /// Renderer
-    renderer: Option<Renderer>,
+    /// Renderer (CPU or GPU backend)
+    renderer: Option<RendererEnum>,
     /// Tabs (each tab has its own terminal and child process)
     tabs: Vec<Tab>,
     /// Active tab index
@@ -207,12 +295,8 @@ impl App {
     fn init_graphics(&mut self, window: Rc<Window>) -> Result<(), Box<dyn std::error::Error>> {
         let size = window.inner_size();
 
-        // Create renderer with effective colors based on theme
-        let renderer = Renderer::new(
-            window.clone(),
-            self.config.font_size(),
-            self.config.effective_colors(),
-        )?;
+        let renderer = self.create_renderer(window.clone())?;
+        log::info!("Using renderer backend: {}", renderer.backend_name());
 
         // Calculate terminal dimensions (account for tab bar height)
         let cell_size = renderer.cell_size();
@@ -234,6 +318,52 @@ impl App {
         self.renderer = Some(renderer);
 
         Ok(())
+    }
+
+    fn create_renderer(
+        &self,
+        window: Rc<Window>,
+    ) -> Result<RendererEnum, Box<dyn std::error::Error>> {
+        let font_size = self.config.font_size();
+        let colors = self.config.effective_colors();
+
+        match self.config.renderer {
+            RendererBackendConfig::Cpu => {
+                let r = Renderer::new(window, font_size, colors)?;
+                Ok(RendererEnum::Cpu(Box::new(r)))
+            }
+            #[cfg(feature = "gpu")]
+            RendererBackendConfig::Gpu => {
+                let r = crate::gpu_renderer::GpuRenderer::new(window, font_size, colors)?;
+                Ok(RendererEnum::Gpu(Box::new(r)))
+            }
+            #[cfg(not(feature = "gpu"))]
+            RendererBackendConfig::Gpu => {
+                log::warn!("GPU backend requested but not compiled in, falling back to CPU");
+                let r = Renderer::new(window, font_size, colors)?;
+                Ok(RendererEnum::Cpu(Box::new(r)))
+            }
+            RendererBackendConfig::Auto => {
+                #[cfg(feature = "gpu")]
+                {
+                    match crate::gpu_renderer::GpuRenderer::new(
+                        window.clone(),
+                        font_size,
+                        colors.clone(),
+                    ) {
+                        Ok(r) => return Ok(RendererEnum::Gpu(Box::new(r))),
+                        Err(e) => {
+                            log::warn!(
+                                "GPU renderer initialization failed, falling back to CPU: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+                let r = Renderer::new(window, font_size, colors)?;
+                Ok(RendererEnum::Cpu(Box::new(r)))
+            }
+        }
     }
 
     /// Create a new tab

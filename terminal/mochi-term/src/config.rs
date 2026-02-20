@@ -55,6 +55,31 @@ pub struct CliArgs {
     /// Enable OSC 52 clipboard (security risk)
     #[arg(long)]
     pub enable_osc52: bool,
+
+    /// Renderer backend (auto, gpu, cpu)
+    #[arg(long, value_name = "RENDERER")]
+    pub renderer: Option<String>,
+}
+
+/// Renderer backend selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum RendererBackendConfig {
+    #[default]
+    Auto,
+    Gpu,
+    Cpu,
+}
+
+impl RendererBackendConfig {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "gpu" => Some(Self::Gpu),
+            "cpu" => Some(Self::Cpu),
+            _ => None,
+        }
+    }
 }
 
 /// Available theme names
@@ -371,6 +396,10 @@ pub struct Config {
     #[serde(default)]
     pub security: SecurityConfig,
 
+    /// Renderer backend (auto, gpu, cpu)
+    #[serde(default)]
+    pub renderer: RendererBackendConfig,
+
     // Legacy fields for backwards compatibility
     #[serde(skip_serializing, default)]
     font_family: Option<String>,
@@ -405,6 +434,7 @@ impl Default for Config {
             cursor_blink: true,
             keybindings: KeybindingsConfig::default(),
             security: SecurityConfig::default(),
+            renderer: RendererBackendConfig::default(),
             font_family: None,
             font_size: None,
             osc52_clipboard: None,
@@ -554,6 +584,11 @@ impl Config {
 
     /// Apply environment variables to config
     fn apply_env_vars(&mut self) {
+        if let Ok(val) = env::var("MOCHI_RENDERER") {
+            if let Some(renderer) = RendererBackendConfig::from_str(&val) {
+                self.renderer = renderer;
+            }
+        }
         if let Ok(val) = env::var("MOCHI_FONT_FAMILY") {
             self.font.family = val;
         }
@@ -607,6 +642,11 @@ impl Config {
         }
         if args.enable_osc52 {
             self.security.osc52_clipboard = true;
+        }
+        if let Some(renderer_str) = &args.renderer {
+            if let Some(renderer) = RendererBackendConfig::from_str(renderer_str) {
+                self.renderer = renderer;
+            }
         }
     }
 
