@@ -56,7 +56,12 @@ pub fn encode_key(
             // Regular character
             Some(c.to_string().into_bytes())
         }
-        Key::Named(named) => encode_named_key(named, modifiers, application_cursor_keys, application_keypad),
+        Key::Named(named) => encode_named_key(
+            named,
+            modifiers,
+            application_cursor_keys,
+            application_keypad,
+        ),
         Key::Unidentified(_) | Key::Dead(_) => None,
     }
 }
