@@ -497,6 +497,24 @@ impl Terminal {
                     }
                 }
             }
+            b'p' if csi.intermediates.as_slice() == [b'$'] => {
+                // DECRQM - Request Mode (DEC private)
+                // Response: CSI ? Ps ; Pm $ y
+                // Pm: 0=not recognized, 1=set, 2=reset, 3=permanently set, 4=permanently reset
+                let mode = csi.param(0, 0);
+                let status = if self.screen.modes().get_dec_mode(mode) {
+                    1 // set
+                } else {
+                    match mode {
+                        1 | 6 | 7 | 25 | 47 | 1000 | 1002 | 1003 | 1004 | 1006 | 1047 | 1048
+                        | 1049 | 2004 | 2026 => 2, // reset (known mode)
+                        _ => 0, // not recognized
+                    }
+                };
+                let response = format!("\x1b[?{};{}$y", mode, status);
+                self.queue_response(response.into_bytes());
+                log::debug!("DECRQM: mode {} -> status {}", mode, status);
+            }
             _ => {
                 log::debug!(
                     "Unknown private CSI: ?{:?}{}",
@@ -541,24 +559,6 @@ impl Terminal {
                     }
                     _ => {}
                 }
-            }
-            ([b'$'], b'p') if csi.private => {
-                // DECRQM - Request Mode (DEC private)
-                // Response: CSI ? Ps ; Pm $ y
-                // Pm: 0=not recognized, 1=set, 2=reset, 3=permanently set, 4=permanently reset
-                let mode = csi.param(0, 0);
-                let status = if self.screen.modes().get_dec_mode(mode) {
-                    1 // set
-                } else {
-                    match mode {
-                        1 | 6 | 7 | 25 | 47 | 1000 | 1002 | 1003 | 1004 | 1006 | 1047 | 1048
-                        | 1049 | 2004 | 2026 => 2, // reset (known mode)
-                        _ => 0, // not recognized
-                    }
-                };
-                let response = format!("\x1b[?{};{}$y", mode, status);
-                self.queue_response(response.into_bytes());
-                log::debug!("DECRQM: mode {} -> status {}", mode, status);
             }
             ([b'$'], b'p') => {
                 // DECRQM - Request Mode (ANSI)

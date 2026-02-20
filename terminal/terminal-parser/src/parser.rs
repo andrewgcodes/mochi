@@ -557,8 +557,14 @@ impl Parser {
                 self.dcs_params.push(byte);
                 self.state = ParserState::DcsParam;
             }
+            0x20..=0x2F => {
+                // Intermediate byte - collect into data and enter passthrough
+                self.osc_data.push(byte);
+                self.state = ParserState::DcsPassthrough;
+            }
             0x40..=0x7E => {
-                // Final byte - enter passthrough
+                // Final byte - include in data and enter passthrough
+                self.osc_data.push(byte);
                 self.state = ParserState::DcsPassthrough;
             }
             _ => {
@@ -572,8 +578,14 @@ impl Parser {
             b'0'..=b'9' | b';' => {
                 self.dcs_params.push(byte);
             }
+            0x20..=0x2F => {
+                // Intermediate byte - collect into data and enter passthrough
+                self.osc_data.push(byte);
+                self.state = ParserState::DcsPassthrough;
+            }
             0x40..=0x7E => {
-                // Final byte - enter passthrough
+                // Final byte - include in data and enter passthrough
+                self.osc_data.push(byte);
                 self.state = ParserState::DcsPassthrough;
             }
             _ => {
