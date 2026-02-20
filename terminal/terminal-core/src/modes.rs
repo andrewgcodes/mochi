@@ -53,6 +53,8 @@ pub struct Modes {
     /// Synchronized output mode (DEC 2026) - used by TUI apps like Claude Code
     /// When enabled, the terminal should buffer output until the mode is disabled
     pub synchronized_output: bool,
+    /// Application keypad mode (DECKPAM/DECKPNM)
+    pub application_keypad: bool,
 }
 
 impl Modes {
@@ -84,6 +86,7 @@ impl Modes {
             alternate_screen: false,
             bracketed_paste: false,
             synchronized_output: false,
+            application_keypad: false,
         }
     }
 

@@ -68,6 +68,8 @@ pub struct Parser {
     intermediates: Vec<u8>,
     /// Whether CSI sequence starts with ?
     private_marker: bool,
+    /// The actual private marker byte ('?', '>', '<', '=')
+    private_marker_char: Option<u8>,
     /// OSC/DCS string data
     osc_data: Vec<u8>,
     /// DCS parameters
@@ -85,6 +87,7 @@ impl Parser {
             params_buf: Vec::with_capacity(64),
             intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
             private_marker: false,
+            private_marker_char: None,
             osc_data: Vec::with_capacity(256),
             dcs_params: Vec::with_capacity(64),
             esc_intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
@@ -103,6 +106,7 @@ impl Parser {
         self.params_buf.clear();
         self.intermediates.clear();
         self.private_marker = false;
+        self.private_marker_char = None;
         self.osc_data.clear();
         self.dcs_params.clear();
         self.esc_intermediates.clear();
@@ -430,6 +434,7 @@ impl Parser {
         self.params_buf.clear();
         self.intermediates.clear();
         self.private_marker = false;
+        self.private_marker_char = None;
     }
 
     fn handle_csi_entry<F>(&mut self, byte: u8, callback: &mut F)
@@ -440,6 +445,7 @@ impl Parser {
             b'?' | b'>' | b'<' | b'=' => {
                 // Private marker
                 self.private_marker = byte == b'?';
+                self.private_marker_char = Some(byte);
                 self.state = ParserState::CsiParam;
             }
             b'0'..=b'9' | b';' | b':' => {
@@ -529,6 +535,7 @@ impl Parser {
             intermediates: self.intermediates.clone(),
             final_byte,
             private: self.private_marker,
+            private_marker: self.private_marker_char,
         };
         callback(Action::Csi(action));
     }
@@ -550,8 +557,14 @@ impl Parser {
                 self.dcs_params.push(byte);
                 self.state = ParserState::DcsParam;
             }
+            0x20..=0x2F => {
+                // Intermediate byte - collect into data and enter passthrough
+                self.osc_data.push(byte);
+                self.state = ParserState::DcsPassthrough;
+            }
             0x40..=0x7E => {
-                // Final byte - enter passthrough
+                // Final byte - include in data and enter passthrough
+                self.osc_data.push(byte);
                 self.state = ParserState::DcsPassthrough;
             }
             _ => {
@@ -565,8 +578,14 @@ impl Parser {
             b'0'..=b'9' | b';' => {
                 self.dcs_params.push(byte);
             }
+            0x20..=0x2F => {
+                // Intermediate byte - collect into data and enter passthrough
+                self.osc_data.push(byte);
+                self.state = ParserState::DcsPassthrough;
+            }
             0x40..=0x7E => {
-                // Final byte - enter passthrough
+                // Final byte - include in data and enter passthrough
+                self.osc_data.push(byte);
                 self.state = ParserState::DcsPassthrough;
             }
             _ => {
