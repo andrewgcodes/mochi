@@ -302,6 +302,10 @@ pub struct GpuRenderer {
     font_size: f32,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    /// Prevent the Window from being dropped before the Surface.
+    /// The Surface holds a raw reference to the window handle, so the
+    /// window must outlive it.
+    _window: Rc<Window>,
 }
 
 impl GpuRenderer {
@@ -343,10 +347,13 @@ impl GpuRenderer {
 
         let size = window.inner_size();
         let surface_caps = surface.get_capabilities(&adapter);
+        // Prefer a non-sRGB format so that our sRGB color values (u8/255.0)
+        // are written directly to the framebuffer without automatic gamma
+        // encoding, matching the CPU renderer's behavior.
         let surface_format = surface_caps
             .formats
             .iter()
-            .find(|f| f.is_srgb())
+            .find(|f| !f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
 
@@ -576,6 +583,7 @@ impl GpuRenderer {
             font_size: scaled_font_size,
             texture_bind_group_layout,
             sampler,
+            _window: window,
         })
     }
 
