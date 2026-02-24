@@ -1162,7 +1162,8 @@ impl Renderer {
                     let x = (col as f32 * cell_width_px) as i32 + pane_rect.x as i32;
                     let y = (row as f32 * cell_height_px) as i32 + pane_rect.y as i32;
 
-                    let is_selected = !selection.is_empty() && selection.contains(col, row as isize);
+                    let is_selected =
+                        !selection.is_empty() && selection.contains(col, row as isize);
                     let is_cursor_position = !is_from_scrollback
                         && *scroll_offset == 0
                         && actual_screen_row == Some(cursor.row)
@@ -1200,14 +1201,28 @@ impl Renderer {
                     if c != ' ' && !cell.is_empty() {
                         if let Some(glyph) = self.glyph_cache.get(&(c, cell.attrs.bold)) {
                             Self::draw_glyph_static(
-                                &mut buffer, x, y, glyph, fg, baseline, width, height,
+                                &mut buffer,
+                                x,
+                                y,
+                                glyph,
+                                fg,
+                                baseline,
+                                width,
+                                height,
                             );
                         }
                     }
 
                     if is_outline_cursor {
                         Self::draw_rect_outline_static(
-                            &mut buffer, x, y, cell_w, cell_h, cursor_color, width, height,
+                            &mut buffer,
+                            x,
+                            y,
+                            cell_w,
+                            cell_h,
+                            cursor_color,
+                            width,
+                            height,
                         );
                     }
                 }
@@ -1254,11 +1269,29 @@ impl Renderer {
                 // Top
                 Self::fill_rect_static(&mut buffer, px, py, pw, 2, focus_color, width, height);
                 // Bottom
-                Self::fill_rect_static(&mut buffer, px, py + ph - 2, pw, 2, focus_color, width, height);
+                Self::fill_rect_static(
+                    &mut buffer,
+                    px,
+                    py + ph - 2,
+                    pw,
+                    2,
+                    focus_color,
+                    width,
+                    height,
+                );
                 // Left
                 Self::fill_rect_static(&mut buffer, px, py, 2, ph, focus_color, width, height);
                 // Right
-                Self::fill_rect_static(&mut buffer, px + pw - 2, py, 2, ph, focus_color, width, height);
+                Self::fill_rect_static(
+                    &mut buffer,
+                    px + pw - 2,
+                    py,
+                    2,
+                    ph,
+                    focus_color,
+                    width,
+                    height,
+                );
             }
         }
 

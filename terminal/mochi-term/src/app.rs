@@ -277,15 +277,20 @@ impl PaneNode {
                 let divider = PANE_DIVIDER_WIDTH;
                 match direction {
                     SplitDirection::Vertical => {
-                        let first_width =
-                            ((width as f32 - divider as f32) * ratio).round() as u32;
+                        let first_width = ((width as f32 - divider as f32) * ratio).round() as u32;
                         let snapped_first = snap_to_cells(first_width, cell_width);
                         let snapped_second = snap_to_cells(
                             width.saturating_sub(snapped_first + divider),
                             cell_width,
                         );
                         first.collect_pane_rects(
-                            x, y, snapped_first, height, focused_id, cell_width, cell_height,
+                            x,
+                            y,
+                            snapped_first,
+                            height,
+                            focused_id,
+                            cell_width,
+                            cell_height,
                             rects,
                         );
                         second.collect_pane_rects(
@@ -308,7 +313,13 @@ impl PaneNode {
                             cell_height,
                         );
                         first.collect_pane_rects(
-                            x, y, width, snapped_first, focused_id, cell_width, cell_height,
+                            x,
+                            y,
+                            width,
+                            snapped_first,
+                            focused_id,
+                            cell_width,
+                            cell_height,
                             rects,
                         );
                         second.collect_pane_rects(
@@ -376,10 +387,8 @@ impl PaneNode {
                 SplitDirection::Horizontal => {
                     let first_height = ((height as f32 - divider as f32) * ratio).round() as u32;
                     let snapped_first = snap_to_cells(first_height, cell_height);
-                    let snapped_second = snap_to_cells(
-                        height.saturating_sub(snapped_first + divider),
-                        cell_height,
-                    );
+                    let snapped_second =
+                        snap_to_cells(height.saturating_sub(snapped_first + divider), cell_height);
                     dividers.push((x, y + snapped_first, width, divider));
                     first.collect_dividers(
                         x,
@@ -438,8 +447,7 @@ impl PaneNode {
                 let divider = PANE_DIVIDER_WIDTH;
                 match direction {
                     SplitDirection::Vertical => {
-                        let first_width =
-                            ((width as f32 - divider as f32) * ratio).round() as u32;
+                        let first_width = ((width as f32 - divider as f32) * ratio).round() as u32;
                         let snapped_first = snap_to_cells(first_width, cell_width);
                         let snapped_second = snap_to_cells(
                             width.saturating_sub(snapped_first + divider),
@@ -519,7 +527,14 @@ impl PaneNode {
     ) -> Option<PaneId> {
         let mut rects = Vec::new();
         self.collect_pane_rects(
-            x, y, width, height, target_id, cell_width, cell_height, &mut rects,
+            x,
+            y,
+            width,
+            height,
+            target_id,
+            cell_width,
+            cell_height,
+            &mut rects,
         );
 
         let focused_rect = rects.iter().find(|r| r.pane_id == target_id)?;
@@ -582,8 +597,7 @@ impl PaneNode {
                 let divider = PANE_DIVIDER_WIDTH;
                 match direction {
                     SplitDirection::Vertical => {
-                        let first_width =
-                            ((width as f32 - divider as f32) * *ratio).round() as u32;
+                        let first_width = ((width as f32 - divider as f32) * *ratio).round() as u32;
                         let snapped_first = snap_to_cells(first_width, cell_width);
                         let snapped_second = snap_to_cells(
                             width.saturating_sub(snapped_first + divider),
@@ -1383,7 +1397,8 @@ impl App {
                 if (1..=26).contains(&char_code) || char_code == 0x7F {
                     log::debug!(
                         "Sending control character from text_with_all_modifiers: {:?} (0x{:02x})",
-                        first_char, first_char as u8
+                        first_char,
+                        first_char as u8
                     );
                     let _ = leaf.child.write_all(&[first_char as u8]);
                     return;
@@ -1398,7 +1413,8 @@ impl App {
                 if (1..=26).contains(&char_code) || char_code == 0x7F {
                     log::debug!(
                         "Sending control character from logical_key: {:?} (0x{:02x})",
-                        ch, ch as u8
+                        ch,
+                        ch as u8
                     );
                     let _ = leaf.child.write_all(&[ch as u8]);
                     return;
@@ -1684,11 +1700,11 @@ impl App {
                             let scroll_delta =
                                 (-delta_y / scroll_range * scrollback_len as f64) as isize;
 
-                            let new_offset =
-                                (self.scrollbar_drag_start_offset as isize + scroll_delta)
-                                    .max(0)
-                                    .min(scrollback_len as isize)
-                                    as usize;
+                            let new_offset = (self.scrollbar_drag_start_offset as isize
+                                + scroll_delta)
+                                .max(0)
+                                .min(scrollback_len as isize)
+                                as usize;
 
                             if new_offset != leaf.scroll_offset {
                                 leaf.scroll_offset = new_offset;
@@ -1959,7 +1975,8 @@ impl App {
         let new_theme = self.config.theme.next();
         log::info!(
             "Switching theme from {:?} to {:?}",
-            self.config.theme, new_theme
+            self.config.theme,
+            new_theme
         );
 
         self.config.theme = new_theme;
