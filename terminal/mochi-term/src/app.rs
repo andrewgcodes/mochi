@@ -57,7 +57,6 @@ impl Tab {
             title: String::from("Terminal"),
         }
     }
-
 }
 
 /// Application state

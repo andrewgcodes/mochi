@@ -199,8 +199,11 @@ impl PaneNode {
     ) -> Option<PaneId> {
         if let PaneNode::Leaf(leaf) = self {
             if leaf.id == target_id {
-                        let new_leaf = PaneNode::new_leaf(new_terminal, new_child);
-                        let new_id = match &new_leaf { PaneNode::Leaf(l) => l.id, _ => unreachable!() };
+                let new_leaf = PaneNode::new_leaf(new_terminal, new_child);
+                let new_id = match &new_leaf {
+                    PaneNode::Leaf(l) => l.id,
+                    _ => unreachable!(),
+                };
 
                 // Use unsafe ptr swap to avoid needing a dummy PaneNode.
                 // Safety: we read self out, build the split, write it back.
