@@ -1200,6 +1200,33 @@ impl App {
         None
     }
 
+    /// Compute cell coordinates relative to the active pane's rectangle.
+    /// Used when the mouse is outside the active pane (e.g. during a drag)
+    /// so that coordinates stay consistent with the active pane's terminal.
+    fn coords_for_active_pane(&self, px: f64, py: f64) -> Option<(u16, u16)> {
+        if self.tabs.is_empty() {
+            return None;
+        }
+        let tab = &self.tabs[self.active_tab];
+        let Some(root) = &tab.root else { return None };
+        let Some(renderer) = &self.renderer else {
+            return None;
+        };
+        let cell_size = renderer.cell_size();
+        let content = self.content_rect();
+        let layout = root.compute_layout(content);
+        for (pid, rect) in &layout {
+            if *pid == tab.active_pane {
+                let col = ((px - rect.x as f64) / cell_size.width as f64) as i32;
+                let row = ((py - rect.y as f64) / cell_size.height as f64) as i32;
+                let col = col.max(0) as u16;
+                let row = row.max(0) as u16;
+                return Some((col, row));
+            }
+        }
+        None
+    }
+
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
         if self.tabs.is_empty() {
             return;
@@ -1355,17 +1382,31 @@ impl App {
             return;
         }
 
-        let (col, row) = if let Some((_, c, r)) = self.pane_at_pixel(position.x, position.y) {
-            (c, r)
+        let (col, row) = if let Some((pid, c, r)) = self.pane_at_pixel(position.x, position.y) {
+            if pid == self.tabs[self.active_tab].active_pane {
+                (c, r)
+            } else {
+                // Mouse is over a different pane; compute coords relative to active pane
+                match self.coords_for_active_pane(position.x, position.y) {
+                    Some((c2, r2)) => (c2, r2),
+                    None => (c, r),
+                }
+            }
         } else {
-            let Some(renderer) = &self.renderer else {
-                return;
-            };
-            let cell_size = renderer.cell_size();
-            let c = (position.x / cell_size.width as f64) as u16;
-            let adjusted_y = (position.y - self.tab_bar_height as f64).max(0.0);
-            let r = (adjusted_y / cell_size.height as f64) as u16;
-            (c, r)
+            // Mouse is on a divider or outside any pane; use active pane coords
+            match self.coords_for_active_pane(position.x, position.y) {
+                Some((c, r)) => (c, r),
+                None => {
+                    let Some(renderer) = &self.renderer else {
+                        return;
+                    };
+                    let cell_size = renderer.cell_size();
+                    let c = (position.x / cell_size.width as f64) as u16;
+                    let adjusted_y = (position.y - self.tab_bar_height as f64).max(0.0);
+                    let r = (adjusted_y / cell_size.height as f64) as u16;
+                    (c, r)
+                }
+            }
         };
 
         if col == self.mouse_cell.0 && row == self.mouse_cell.1 {
