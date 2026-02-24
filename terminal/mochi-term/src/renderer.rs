@@ -251,8 +251,7 @@ impl Renderer {
 
             for row in 0..rows {
                 let line = if pane.scroll_offset > 0 {
-                    let scrollback_row =
-                        scrollback_len.saturating_sub(pane.scroll_offset) + row;
+                    let scrollback_row = scrollback_len.saturating_sub(pane.scroll_offset) + row;
                     if scrollback_row < scrollback_len {
                         if let Some(sb_line) = scrollback.get(scrollback_row) {
                             for col in 0..cols.min(sb_line.cols()) {
@@ -481,7 +480,14 @@ impl Renderer {
 
                 if is_outline_cursor {
                     Self::draw_rect_outline_static(
-                        buffer, x, y, cell_w, cell_h, cursor_color, buf_width, buf_height,
+                        buffer,
+                        x,
+                        y,
+                        cell_w,
+                        cell_h,
+                        cursor_color,
+                        buf_width,
+                        buf_height,
                     );
                 }
             }
@@ -583,48 +589,64 @@ impl Renderer {
         // Top edge
         for dy in 0..thickness {
             let py = y + dy;
-            if py < 0 || py >= buf_height as i32 { continue; }
+            if py < 0 || py >= buf_height as i32 {
+                continue;
+            }
             for dx in 0..w {
                 let px = x + dx;
                 if px >= 0 && px < buf_width as i32 {
                     let idx = (py as u32 * buf_width + px as u32) as usize;
-                    if idx < buffer.len() { buffer[idx] = pixel; }
+                    if idx < buffer.len() {
+                        buffer[idx] = pixel;
+                    }
                 }
             }
         }
         // Bottom edge
         for dy in 0..thickness {
             let py = y + h - 1 - dy;
-            if py < 0 || py >= buf_height as i32 { continue; }
+            if py < 0 || py >= buf_height as i32 {
+                continue;
+            }
             for dx in 0..w {
                 let px = x + dx;
                 if px >= 0 && px < buf_width as i32 {
                     let idx = (py as u32 * buf_width + px as u32) as usize;
-                    if idx < buffer.len() { buffer[idx] = pixel; }
+                    if idx < buffer.len() {
+                        buffer[idx] = pixel;
+                    }
                 }
             }
         }
         // Left edge
         for dy in thickness..(h - thickness) {
             let py = y + dy;
-            if py < 0 || py >= buf_height as i32 { continue; }
+            if py < 0 || py >= buf_height as i32 {
+                continue;
+            }
             for dx in 0..thickness {
                 let px = x + dx;
                 if px >= 0 && px < buf_width as i32 {
                     let idx = (py as u32 * buf_width + px as u32) as usize;
-                    if idx < buffer.len() { buffer[idx] = pixel; }
+                    if idx < buffer.len() {
+                        buffer[idx] = pixel;
+                    }
                 }
             }
         }
         // Right edge
         for dy in thickness..(h - thickness) {
             let py = y + dy;
-            if py < 0 || py >= buf_height as i32 { continue; }
+            if py < 0 || py >= buf_height as i32 {
+                continue;
+            }
             for dx in 0..thickness {
                 let px = x + w - 1 - dx;
                 if px >= 0 && px < buf_width as i32 {
                     let idx = (py as u32 * buf_width + px as u32) as usize;
-                    if idx < buffer.len() { buffer[idx] = pixel; }
+                    if idx < buffer.len() {
+                        buffer[idx] = pixel;
+                    }
                 }
             }
         }
