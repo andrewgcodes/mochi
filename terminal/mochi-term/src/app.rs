@@ -849,11 +849,9 @@ impl App {
                         }
                     }
                 }
-            } else {
-                if self.scrollbar_dragging {
-                    self.scrollbar_dragging = false;
-                    return;
-                }
+            } else if self.scrollbar_dragging {
+                self.scrollbar_dragging = false;
+                return;
             }
         }
 
