@@ -1526,7 +1526,7 @@ impl App {
                     }
                 }
 
-                if received_output && is_active_tab && !pane.terminal.is_synchronized_output() {
+                if received_output && !pane.terminal.is_synchronized_output() {
                     any_output = true;
                 }
 
@@ -1636,21 +1636,24 @@ impl App {
         let mut panes_changed = false;
         for tab in &mut self.tabs {
             let exited = tab.pane_root.exited_pane_ids();
+            if exited.is_empty() {
+                continue;
+            }
+            let exited_set: std::collections::HashSet<PaneId> = exited.iter().copied().collect();
             for exited_id in exited {
                 if tab.pane_root.pane_count() > 1 {
-                    let remaining: Vec<PaneId> = tab
-                        .pane_root
-                        .all_pane_ids()
-                        .into_iter()
-                        .filter(|id| *id != exited_id)
-                        .collect();
-
                     tab.pane_root.remove_pane(exited_id);
                     panes_changed = true;
 
                     if tab.active_pane_id == exited_id {
-                        if let Some(&new_active) = remaining.first() {
-                            tab.active_pane_id = new_active;
+                        // Pick a remaining pane that is not also exited
+                        let new_active = tab
+                            .pane_root
+                            .all_pane_ids()
+                            .into_iter()
+                            .find(|id| !exited_set.contains(id));
+                        if let Some(new_id) = new_active {
+                            tab.active_pane_id = new_id;
                         }
                     }
                 }
