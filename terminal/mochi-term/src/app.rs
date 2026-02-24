@@ -1228,6 +1228,26 @@ impl App {
             .pane_at_pixel(self.mouse_pixel.0, self.mouse_pixel.1)
             .unwrap_or_else(|| self.tabs[self.active_tab].active_pane_id);
 
+        // Compute cell coordinates relative to the scroll target pane's rect
+        // *before* taking a mutable borrow on the pane tree.
+        let scroll_cell = if let Some(renderer) = &self.renderer {
+            let cell_size = renderer.cell_size();
+            let available = self.pane_available_rect();
+            let tab = &self.tabs[self.active_tab];
+            let rects = tab.pane_root.calculate_rects(available);
+            if let Some((_, pane_rect)) = rects.iter().find(|(id, _)| *id == scroll_pane_id) {
+                let col = ((self.mouse_pixel.0 - pane_rect.x as f64).max(0.0)
+                    / cell_size.width as f64) as u16;
+                let row = ((self.mouse_pixel.1 - pane_rect.y as f64).max(0.0)
+                    / cell_size.height as f64) as u16;
+                (col, row)
+            } else {
+                self.mouse_cell
+            }
+        } else {
+            self.mouse_cell
+        };
+
         let tab = &mut self.tabs[self.active_tab];
         let pane = match tab.pane_root.find_pane_mut(scroll_pane_id) {
             Some(p) => p,
@@ -1245,8 +1265,8 @@ impl App {
 
         if modes.mouse_tracking_enabled() || modes.alternate_screen {
             let event = MouseEvent::Scroll {
-                x: self.mouse_cell.0,
-                y: self.mouse_cell.1,
+                x: scroll_cell.0,
+                y: scroll_cell.1,
                 delta: lines as i8,
             };
             if let Some(data) = encode_mouse(
