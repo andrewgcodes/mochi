@@ -46,6 +46,7 @@ enum SplitDirection {
     Vertical,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum PaneNode {
     Leaf {
         id: PaneId,
