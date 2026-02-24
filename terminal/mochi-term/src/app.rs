@@ -1649,10 +1649,7 @@ impl App {
                             Ok(n) => {
                                 terminal.process(&buf[..n]);
                                 received_output = true;
-                                if is_active_tab
-                                    && pane_id == active_pane
-                                    && !terminal.is_synchronized_output()
-                                {
+                                if is_active_tab && !terminal.is_synchronized_output() {
                                     *needs_redraw = true;
                                 }
                             }
