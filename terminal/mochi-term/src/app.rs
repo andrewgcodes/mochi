@@ -58,20 +58,6 @@ impl Tab {
         }
     }
 
-    /// Get the scroll offset of the active pane
-    fn active_scroll_offset(&self) -> usize {
-        self.pane_root
-            .find_leaf(self.active_pane_id)
-            .map(|l| l.scroll_offset)
-            .unwrap_or(0)
-    }
-
-    /// Set the scroll offset of the active pane
-    fn set_active_scroll_offset(&mut self, offset: usize) {
-        if let Some(leaf) = self.pane_root.find_leaf_mut(self.active_pane_id) {
-            leaf.scroll_offset = offset;
-        }
-    }
 }
 
 /// Application state

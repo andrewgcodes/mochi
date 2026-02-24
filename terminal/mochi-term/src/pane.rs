@@ -53,7 +53,7 @@ pub struct LeafPane {
 /// A node in the pane tree
 pub enum PaneNode {
     /// A leaf node containing a terminal
-    Leaf(LeafPane),
+    Leaf(Box<LeafPane>),
     /// A split node containing two children
     Split {
         direction: SplitDirection,
@@ -89,21 +89,13 @@ pub enum NavDirection {
 impl PaneNode {
     /// Create a new leaf node
     pub fn new_leaf(terminal: Terminal, child: Child) -> Self {
-        PaneNode::Leaf(LeafPane {
+        PaneNode::Leaf(Box::new(LeafPane {
             id: PaneId::new(),
             terminal,
             child,
             title: String::from("Terminal"),
             scroll_offset: 0,
-        })
-    }
-
-    /// Get the ID of this node if it is a leaf
-    pub fn leaf_id(&self) -> Option<PaneId> {
-        match self {
-            PaneNode::Leaf(leaf) => Some(leaf.id),
-            PaneNode::Split { .. } => None,
-        }
+        }))
     }
 
     /// Get the first leaf ID in the tree
@@ -150,24 +142,7 @@ impl PaneNode {
         }
     }
 
-    /// Get all leaf pane IDs in order
-    pub fn leaf_ids(&self) -> Vec<PaneId> {
-        let mut ids = Vec::new();
-        self.collect_leaf_ids(&mut ids);
-        ids
-    }
-
-    fn collect_leaf_ids(&self, ids: &mut Vec<PaneId>) {
-        match self {
-            PaneNode::Leaf(leaf) => ids.push(leaf.id),
-            PaneNode::Split { first, second, .. } => {
-                first.collect_leaf_ids(ids);
-                second.collect_leaf_ids(ids);
-            }
-        }
-    }
-
-    /// Compute layout rectangles for all leaf panes
+    /// Compute layoutrectangles for all leaf panes
     pub fn compute_layout(&self, rect: PaneRect) -> (Vec<PaneLayout>, Vec<DividerLayout>) {
         let mut panes = Vec::new();
         let mut dividers = Vec::new();
@@ -224,8 +199,8 @@ impl PaneNode {
     ) -> Option<PaneId> {
         if let PaneNode::Leaf(leaf) = self {
             if leaf.id == target_id {
-                let new_leaf = PaneNode::new_leaf(new_terminal, new_child);
-                let new_id = new_leaf.leaf_id().unwrap();
+                        let new_leaf = PaneNode::new_leaf(new_terminal, new_child);
+                        let new_id = match &new_leaf { PaneNode::Leaf(l) => l.id, _ => unreachable!() };
 
                 // Use unsafe ptr swap to avoid needing a dummy PaneNode.
                 // Safety: we read self out, build the split, write it back.
@@ -292,7 +267,7 @@ impl PaneNode {
     /// Call a function on every leaf pane mutably
     pub fn for_each_leaf_mut<F: FnMut(&mut LeafPane)>(&mut self, f: &mut F) {
         match self {
-            PaneNode::Leaf(leaf) => f(leaf),
+            PaneNode::Leaf(leaf) => f(leaf.as_mut()),
             PaneNode::Split { first, second, .. } => {
                 first.for_each_leaf_mut(f);
                 second.for_each_leaf_mut(f);
@@ -303,7 +278,7 @@ impl PaneNode {
     /// Call a function on every leaf pane
     pub fn for_each_leaf<F: FnMut(&LeafPane)>(&self, f: &mut F) {
         match self {
-            PaneNode::Leaf(leaf) => f(leaf),
+            PaneNode::Leaf(leaf) => f(leaf.as_ref()),
             PaneNode::Split { first, second, .. } => {
                 first.for_each_leaf(f);
                 second.for_each_leaf(f);
