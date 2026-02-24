@@ -1633,6 +1633,7 @@ impl App {
         }
 
         // Remove exited panes from all tabs
+        let mut panes_changed = false;
         for tab in &mut self.tabs {
             let exited = tab.pane_root.exited_pane_ids();
             for exited_id in exited {
@@ -1645,6 +1646,7 @@ impl App {
                         .collect();
 
                     tab.pane_root.remove_pane(exited_id);
+                    panes_changed = true;
 
                     if tab.active_pane_id == exited_id {
                         if let Some(&new_active) = remaining.first() {
@@ -1656,6 +1658,7 @@ impl App {
         }
 
         // Remove tabs that have no running panes
+        let tab_count_before = self.tabs.len();
         self.tabs.retain(|tab| {
             let ids = tab.pane_root.all_pane_ids();
             !ids.is_empty()
@@ -1665,9 +1668,18 @@ impl App {
                         .is_some_and(|p| p.child.is_running())
                 })
         });
+        if self.tabs.len() != tab_count_before {
+            panes_changed = true;
+        }
 
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
+        }
+
+        // Resize remaining panes and trigger redraw after layout changes
+        if panes_changed {
+            self.resize_all_panes();
+            self.needs_redraw = true;
         }
 
         !self.tabs.is_empty()
