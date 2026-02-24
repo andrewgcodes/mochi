@@ -1728,6 +1728,8 @@ impl App {
         if self.tabs.is_empty() {
             return false;
         }
+        let old_tab_count = self.tabs.len();
+        let old_leaf_count: usize = self.tabs.iter().map(|t| t.pane_root.leaf_count()).sum();
         self.tabs.retain_mut(|tab| {
             let alive = tab.pane_root.retain_living();
             if alive {
@@ -1741,11 +1743,13 @@ impl App {
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
-        // Resize surviving panes and trigger redraw after pruning
-        for i in 0..self.tabs.len() {
-            self.resize_panes_in_tab(i);
+        let new_leaf_count: usize = self.tabs.iter().map(|t| t.pane_root.leaf_count()).sum();
+        if self.tabs.len() != old_tab_count || new_leaf_count != old_leaf_count {
+            for i in 0..self.tabs.len() {
+                self.resize_panes_in_tab(i);
+            }
+            self.needs_redraw = true;
         }
-        self.needs_redraw = true;
         !self.tabs.is_empty()
     }
 }
