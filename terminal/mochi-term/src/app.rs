@@ -332,6 +332,7 @@ impl App {
     }
 
     /// Close the current tab
+    #[allow(dead_code)]
     fn close_current_tab(&mut self) -> bool {
         if self.tabs.len() <= 1 {
             return false;
@@ -1627,7 +1628,7 @@ impl App {
                 && ids.iter().any(|id| {
                     tab.pane_root
                         .find_pane(*id)
-                        .map_or(false, |p| p.child.is_running())
+                        .is_some_and(|p| p.child.is_running())
                 })
         });
 
