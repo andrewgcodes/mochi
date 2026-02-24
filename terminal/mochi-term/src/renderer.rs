@@ -416,6 +416,391 @@ impl Renderer {
         Ok(())
     }
 
+    /// Pre-cache all glyphs needed for rendering a screen
+    fn pre_cache_screen_glyphs(&mut self, screen: &Screen, scroll_offset: usize) {
+        let cols = screen.cols();
+        let rows = screen.rows();
+        let scrollback = screen.scrollback();
+        let scrollback_len = scrollback.len();
+
+        for row in 0..rows {
+            let line = if scroll_offset > 0 {
+                let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                if scrollback_row < scrollback_len {
+                    if let Some(sb_line) = scrollback.get(scrollback_row) {
+                        for col in 0..cols.min(sb_line.cols()) {
+                            let cell = sb_line.cell(col);
+                            if !cell.is_continuation() && !cell.is_empty() {
+                                let c = cell.display_char();
+                                if c != ' ' {
+                                    self.ensure_glyph_cached(c, cell.attrs.bold);
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                } else {
+                    let screen_row = scrollback_row - scrollback_len;
+                    if screen_row < rows {
+                        screen.line(screen_row)
+                    } else {
+                        continue;
+                    }
+                }
+            } else {
+                screen.line(row)
+            };
+
+            for col in 0..cols {
+                let cell = line.cell(col);
+                if !cell.is_continuation() && !cell.is_empty() {
+                    let c = cell.display_char();
+                    if c != ' ' {
+                        self.ensure_glyph_cached(c, cell.attrs.bold);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Render a single pane into a buffer (static-style, no &mut self needed)
+    #[allow(clippy::too_many_arguments)]
+    fn render_pane_static(
+        buffer: &mut [u32],
+        glyph_cache: &HashMap<(char, bool), GlyphEntry>,
+        colors: &ColorScheme,
+        cell_size: &CellSize,
+        buf_width: u32,
+        buf_height: u32,
+        screen: &Screen,
+        selection: &Selection,
+        scroll_offset: usize,
+        viewport: crate::pane::PaneRect,
+        is_active: bool,
+    ) {
+        let bg_color = colors.background_rgb();
+        let fg_color = colors.foreground_rgb();
+        let sel_color = colors.selection_rgb();
+        let cursor_color = colors.cursor_rgb();
+        let cell_width_px = cell_size.width;
+        let cell_height_px = cell_size.height;
+        let baseline = cell_size.baseline;
+
+        let cols = screen.cols();
+        let rows = screen.rows();
+        let scrollback = screen.scrollback();
+        let scrollback_len = scrollback.len();
+
+        // Fill pane background
+        Self::fill_rect_static(
+            buffer,
+            viewport.x as i32,
+            viewport.y as i32,
+            viewport.width as i32,
+            viewport.height as i32,
+            bg_color,
+            buf_width,
+            buf_height,
+        );
+
+        let cursor = screen.cursor();
+
+        // Render each cell within the viewport
+        for row in 0..rows {
+            let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
+                let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                if scrollback_row < scrollback_len {
+                    if let Some(sb_line) = scrollback.get(scrollback_row) {
+                        (sb_line, true, None)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    let screen_row = scrollback_row - scrollback_len;
+                    if screen_row < rows {
+                        (screen.line(screen_row), false, Some(screen_row))
+                    } else {
+                        continue;
+                    }
+                }
+            } else {
+                (screen.line(row), false, Some(row))
+            };
+
+            for col in 0..cols.min(line.cols()) {
+                let cell = line.cell(col);
+
+                if cell.is_continuation() {
+                    continue;
+                }
+
+                let x = (col as f32 * cell_width_px) as i32 + viewport.x as i32;
+                let y = (row as f32 * cell_height_px) as i32 + viewport.y as i32;
+
+                // Clip to viewport
+                if x >= (viewport.x + viewport.width) as i32 {
+                    break;
+                }
+                if y >= (viewport.y + viewport.height) as i32 {
+                    break;
+                }
+
+                let is_selected = !selection.is_empty() && selection.contains(col, row as isize);
+                let is_cursor_position = !is_from_scrollback
+                    && scroll_offset == 0
+                    && actual_screen_row == Some(cursor.row)
+                    && cursor.col == col;
+                let is_solid_cursor = is_cursor_position && cursor.visible;
+                let is_outline_cursor = is_cursor_position && !cursor.visible;
+
+                let (fg, bg) = if is_selected {
+                    (fg_color, sel_color)
+                } else if is_solid_cursor {
+                    (bg_color, cursor_color)
+                } else {
+                    let fg = Self::resolve_color_static(
+                        colors,
+                        &cell.attrs.effective_fg(),
+                        true,
+                        fg_color,
+                        bg_color,
+                    );
+                    let bg = Self::resolve_color_static(
+                        colors,
+                        &cell.attrs.effective_bg(),
+                        false,
+                        fg_color,
+                        bg_color,
+                    );
+                    (fg, bg)
+                };
+
+                let cell_w = (cell.width() as f32 * cell_width_px) as i32;
+                let cell_h = cell_height_px as i32;
+                Self::fill_rect_static(buffer, x, y, cell_w, cell_h, bg, buf_width, buf_height);
+
+                let c = cell.display_char();
+                if c != ' ' && !cell.is_empty() {
+                    if let Some(glyph) = glyph_cache.get(&(c, cell.attrs.bold)) {
+                        Self::draw_glyph_static(
+                            buffer, x, y, glyph, fg, baseline, buf_width, buf_height,
+                        );
+                    }
+                }
+
+                if is_outline_cursor {
+                    Self::draw_rect_outline_static(
+                        buffer, x, y, cell_w, cell_h, cursor_color, buf_width, buf_height,
+                    );
+                }
+            }
+        }
+
+        // Draw scrollbar within this pane if there's scrollback
+        if scrollback_len > 0 {
+            Self::draw_scrollbar_in_pane(
+                buffer,
+                scroll_offset,
+                scrollback_len,
+                rows,
+                buf_width,
+                buf_height,
+                viewport,
+            );
+        }
+
+        // Draw active pane indicator (subtle border highlight)
+        if is_active {
+            let accent = Self::blend_color(fg_color, (100, 149, 237), 0.5);
+            // Draw a 1px accent line at the top of the active pane
+            Self::fill_rect_static(
+                buffer,
+                viewport.x as i32,
+                viewport.y as i32,
+                viewport.width as i32,
+                1,
+                accent,
+                buf_width,
+                buf_height,
+            );
+        }
+    }
+
+    /// Render split pane dividers (static)
+    fn render_dividers_static(
+        buffer: &mut [u32],
+        dividers: &[(crate::pane::SplitDirection, crate::pane::PaneRect)],
+        divider_color: (u8, u8, u8),
+        buf_width: u32,
+        buf_height: u32,
+    ) {
+        for (_direction, rect) in dividers {
+            Self::fill_rect_static(
+                buffer,
+                rect.x as i32,
+                rect.y as i32,
+                rect.width as i32,
+                rect.height as i32,
+                divider_color,
+                buf_width,
+                buf_height,
+            );
+        }
+    }
+
+    /// Render multiple panes with tab bar, dividers, etc.
+    /// This is the main entry point for split pane rendering.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_split(
+        &mut self,
+        panes: &mut [(
+            &Screen,
+            &Selection,
+            usize, // scroll_offset
+            crate::pane::PaneRect,
+            bool, // is_active
+        )],
+        dividers: &[(crate::pane::SplitDirection, crate::pane::PaneRect)],
+        tab_bar_height: u32,
+        tabs: &[TabInfo<'_>],
+        active_tab: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let width = self.width;
+        let height = self.height;
+
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+
+        self.surface.resize(
+            NonZeroU32::new(width).unwrap(),
+            NonZeroU32::new(height).unwrap(),
+        )?;
+
+        // Pre-cache all glyphs before getting buffer (avoids borrow conflicts)
+        for tab in tabs {
+            for c in tab.title.chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+        }
+        self.ensure_glyph_cached('+', false);
+        self.ensure_glyph_cached('x', false);
+
+        // Pre-cache glyphs for all panes
+        for (screen, _, scroll_offset, _, _) in panes.iter() {
+            self.pre_cache_screen_glyphs(screen, *scroll_offset);
+        }
+
+        let bg_color = self.colors.background_rgb();
+        let fg_color = self.colors.foreground_rgb();
+        let divider_color = Self::blend_color(bg_color, fg_color, 0.3);
+
+        // Now get buffer once and do all rendering
+        let mut buffer = self.surface.buffer_mut()?;
+
+        // Clear with background
+        let bg_pixel = Self::rgb_to_pixel(bg_color.0, bg_color.1, bg_color.2);
+        buffer.fill(bg_pixel);
+
+        // Draw tab bar
+        if tab_bar_height > 0 && !tabs.is_empty() {
+            Self::draw_tab_bar_static(
+                &mut buffer,
+                &self.glyph_cache,
+                tabs,
+                active_tab,
+                tab_bar_height,
+                width,
+                height,
+                &self.cell_size,
+                bg_color,
+                fg_color,
+            );
+        }
+
+        // Render each pane
+        for (screen, selection, scroll_offset, viewport, is_active) in panes.iter() {
+            Self::render_pane_static(
+                &mut buffer,
+                &self.glyph_cache,
+                &self.colors,
+                &self.cell_size,
+                width,
+                height,
+                screen,
+                selection,
+                *scroll_offset,
+                *viewport,
+                *is_active,
+            );
+        }
+
+        // Render dividers
+        Self::render_dividers_static(&mut buffer, dividers, divider_color, width, height);
+
+        // Present
+        buffer.present()?;
+
+        Ok(())
+    }
+
+    /// Draw scrollbar within a pane viewport
+    fn draw_scrollbar_in_pane(
+        buffer: &mut [u32],
+        scroll_offset: usize,
+        scrollback_len: usize,
+        visible_rows: usize,
+        buf_width: u32,
+        buf_height: u32,
+        viewport: crate::pane::PaneRect,
+    ) {
+        let scrollbar_width: u32 = 8;
+        let scrollbar_x = (viewport.x + viewport.width).saturating_sub(scrollbar_width) as i32;
+        let scrollbar_height = viewport.height as i32;
+        let y_off = viewport.y as i32;
+
+        let total_lines = scrollback_len + visible_rows;
+        let thumb_height =
+            ((visible_rows as f32 / total_lines as f32) * scrollbar_height as f32).max(20.0) as i32;
+        let scroll_range = scrollbar_height - thumb_height;
+        let thumb_y = if scrollback_len > 0 {
+            ((scrollback_len - scroll_offset) as f32 / scrollback_len as f32 * scroll_range as f32)
+                as i32
+        } else {
+            scroll_range
+        };
+
+        let track_color = (40, 40, 40);
+        Self::fill_rect_static(
+            buffer,
+            scrollbar_x,
+            y_off,
+            scrollbar_width as i32,
+            scrollbar_height,
+            track_color,
+            buf_width,
+            buf_height,
+        );
+
+        let thumb_color = if scroll_offset > 0 {
+            (120, 120, 120)
+        } else {
+            (80, 80, 80)
+        };
+        Self::fill_rect_static(
+            buffer,
+            scrollbar_x + 1,
+            y_off + thumb_y,
+            scrollbar_width as i32 - 2,
+            thumb_height,
+            thumb_color,
+            buf_width,
+            buf_height,
+        );
+    }
+
     /// Draw a scrollbar on the right side of the terminal (static version)
     fn draw_scrollbar_static(
         buffer: &mut [u32],
