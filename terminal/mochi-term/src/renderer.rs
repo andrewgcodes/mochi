@@ -18,6 +18,23 @@ pub struct TabInfo<'a> {
     pub title: &'a str,
 }
 
+/// Information about a pane for rendering
+#[derive(Debug, Clone)]
+pub struct PaneRenderInfo {
+    /// X position in pixels
+    pub x: u32,
+    /// Y position in pixels
+    pub y: u32,
+    /// Width in pixels
+    pub width: u32,
+    /// Height in pixels
+    pub height: u32,
+    /// Whether this pane is focused
+    pub is_focused: bool,
+    /// Pane identifier
+    pub pane_id: u64,
+}
+
 /// Cell dimensions in pixels
 #[derive(Debug, Clone, Copy)]
 pub struct CellSize {
@@ -175,6 +192,7 @@ impl Renderer {
     }
 
     /// Render the terminal screen
+    #[allow(dead_code)]
     pub fn render(
         &mut self,
         screen: &Screen,
@@ -983,5 +1001,270 @@ impl Renderer {
             (a.1 as f32 * (1.0 - t) + b.1 as f32 * t) as u8,
             (a.2 as f32 * (1.0 - t) + b.2 as f32 * t) as u8,
         )
+    }
+
+    /// Render multiple panes with dividers (split pane support)
+    #[allow(clippy::type_complexity)]
+    pub fn render_with_panes(
+        &mut self,
+        panes: &[(PaneRenderInfo, &Screen, &Selection, usize)],
+        dividers: &[(u32, u32, u32, u32)],
+        tab_bar_height: u32,
+        tabs: &[TabInfo<'_>],
+        active_tab: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let width = self.width;
+        let height = self.height;
+
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+
+        // Resize surface
+        self.surface.resize(
+            NonZeroU32::new(width).unwrap(),
+            NonZeroU32::new(height).unwrap(),
+        )?;
+
+        let bg_color = self.colors.background_rgb();
+        let fg_color = self.colors.foreground_rgb();
+        let sel_color = self.colors.selection_rgb();
+        let cursor_color = self.colors.cursor_rgb();
+        let cell_width_px = self.cell_size.width;
+        let cell_height_px = self.cell_size.height;
+        let baseline = self.cell_size.baseline;
+
+        // Pre-cache glyphs for tab titles
+        for tab in tabs {
+            for c in tab.title.chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+        }
+        self.ensure_glyph_cached('+', false);
+        self.ensure_glyph_cached('x', false);
+
+        // Pre-cache glyphs for all panes
+        for (pane_rect, screen, _, scroll_offset) in panes {
+            let cols = screen.cols();
+            let rows = screen.rows();
+            let scrollback = screen.scrollback();
+            let scrollback_len = scrollback.len();
+
+            for row in 0..rows {
+                let line = if *scroll_offset > 0 {
+                    let scrollback_row = scrollback_len.saturating_sub(*scroll_offset) + row;
+                    if scrollback_row < scrollback_len {
+                        if let Some(sb_line) = scrollback.get(scrollback_row) {
+                            for col in 0..cols.min(sb_line.cols()) {
+                                let cell = sb_line.cell(col);
+                                if !cell.is_continuation() && !cell.is_empty() {
+                                    let c = cell.display_char();
+                                    if c != ' ' {
+                                        self.ensure_glyph_cached(c, cell.attrs.bold);
+                                    }
+                                }
+                            }
+                            continue;
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        let screen_row = scrollback_row - scrollback_len;
+                        if screen_row < rows {
+                            screen.line(screen_row)
+                        } else {
+                            continue;
+                        }
+                    }
+                } else {
+                    screen.line(row)
+                };
+
+                for col in 0..cols {
+                    let cell = line.cell(col);
+                    if !cell.is_continuation() && !cell.is_empty() {
+                        let c = cell.display_char();
+                        if c != ' ' {
+                            self.ensure_glyph_cached(c, cell.attrs.bold);
+                        }
+                    }
+                }
+            }
+            let _ = pane_rect; // suppress unused warning
+        }
+
+        let mut buffer = self.surface.buffer_mut()?;
+
+        // Clear with background color
+        let bg_pixel = Self::rgb_to_pixel(bg_color.0, bg_color.1, bg_color.2);
+        buffer.fill(bg_pixel);
+
+        // Draw tab bar
+        if tab_bar_height > 0 && !tabs.is_empty() {
+            Self::draw_tab_bar_static(
+                &mut buffer,
+                &self.glyph_cache,
+                tabs,
+                active_tab,
+                tab_bar_height,
+                width,
+                height,
+                &self.cell_size,
+                bg_color,
+                fg_color,
+            );
+        }
+
+        // Render each pane
+        for (pane_rect, screen, selection, scroll_offset) in panes {
+            let cols = screen.cols();
+            let rows = screen.rows();
+            let scrollback = screen.scrollback();
+            let scrollback_len = scrollback.len();
+            let cursor = screen.cursor();
+
+            // Calculate the number of columns/rows that fit in this pane
+            let pane_cols = (pane_rect.width as f32 / cell_width_px) as usize;
+            let pane_rows = (pane_rect.height as f32 / cell_height_px) as usize;
+            let render_cols = cols.min(pane_cols);
+            let render_rows = rows.min(pane_rows);
+
+            for row in 0..render_rows {
+                let (line, is_from_scrollback, actual_screen_row) = if *scroll_offset > 0 {
+                    let scrollback_row = scrollback_len.saturating_sub(*scroll_offset) + row;
+                    if scrollback_row < scrollback_len {
+                        if let Some(sb_line) = scrollback.get(scrollback_row) {
+                            (sb_line, true, None)
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        let screen_row = scrollback_row - scrollback_len;
+                        if screen_row < rows {
+                            (screen.line(screen_row), false, Some(screen_row))
+                        } else {
+                            continue;
+                        }
+                    }
+                } else {
+                    (screen.line(row), false, Some(row))
+                };
+
+                for col in 0..render_cols.min(line.cols()) {
+                    let cell = line.cell(col);
+
+                    if cell.is_continuation() {
+                        continue;
+                    }
+
+                    let x = (col as f32 * cell_width_px) as i32 + pane_rect.x as i32;
+                    let y = (row as f32 * cell_height_px) as i32 + pane_rect.y as i32;
+
+                    let is_selected = !selection.is_empty() && selection.contains(col, row as isize);
+                    let is_cursor_position = !is_from_scrollback
+                        && *scroll_offset == 0
+                        && actual_screen_row == Some(cursor.row)
+                        && cursor.col == col;
+                    let is_solid_cursor = is_cursor_position && cursor.visible;
+                    let is_outline_cursor = is_cursor_position && !cursor.visible;
+
+                    let (fg, bg) = if is_selected {
+                        (fg_color, sel_color)
+                    } else if is_solid_cursor {
+                        (bg_color, cursor_color)
+                    } else {
+                        let fg = Self::resolve_color_static(
+                            &self.colors,
+                            &cell.attrs.effective_fg(),
+                            true,
+                            fg_color,
+                            bg_color,
+                        );
+                        let bg = Self::resolve_color_static(
+                            &self.colors,
+                            &cell.attrs.effective_bg(),
+                            false,
+                            fg_color,
+                            bg_color,
+                        );
+                        (fg, bg)
+                    };
+
+                    let cell_w = (cell.width() as f32 * cell_width_px) as i32;
+                    let cell_h = cell_height_px as i32;
+                    Self::fill_rect_static(&mut buffer, x, y, cell_w, cell_h, bg, width, height);
+
+                    let c = cell.display_char();
+                    if c != ' ' && !cell.is_empty() {
+                        if let Some(glyph) = self.glyph_cache.get(&(c, cell.attrs.bold)) {
+                            Self::draw_glyph_static(
+                                &mut buffer, x, y, glyph, fg, baseline, width, height,
+                            );
+                        }
+                    }
+
+                    if is_outline_cursor {
+                        Self::draw_rect_outline_static(
+                            &mut buffer, x, y, cell_w, cell_h, cursor_color, width, height,
+                        );
+                    }
+                }
+            }
+
+            // Draw scrollbar for this pane if it has scrollback
+            if scrollback_len > 0 {
+                Self::draw_scrollbar_static(
+                    &mut buffer,
+                    *scroll_offset,
+                    scrollback_len,
+                    rows,
+                    pane_rect.x + pane_rect.width,
+                    pane_rect.height,
+                    pane_rect.y,
+                );
+            }
+        }
+
+        // Draw dividers between panes
+        let divider_color = Self::blend_color(bg_color, fg_color, 0.3);
+        for (dx, dy, dw, dh) in dividers {
+            Self::fill_rect_static(
+                &mut buffer,
+                *dx as i32,
+                *dy as i32,
+                *dw as i32,
+                *dh as i32,
+                divider_color,
+                width,
+                height,
+            );
+        }
+
+        // Draw focused pane border highlight
+        let focus_color = Self::blend_color(fg_color, (100, 149, 237), 0.5);
+        for (pane_rect, _, _, _) in panes {
+            if pane_rect.is_focused && panes.len() > 1 {
+                // Draw a 2px border around the focused pane
+                let px = pane_rect.x as i32;
+                let py = pane_rect.y as i32;
+                let pw = pane_rect.width as i32;
+                let ph = pane_rect.height as i32;
+                // Top
+                Self::fill_rect_static(&mut buffer, px, py, pw, 2, focus_color, width, height);
+                // Bottom
+                Self::fill_rect_static(&mut buffer, px, py + ph - 2, pw, 2, focus_color, width, height);
+                // Left
+                Self::fill_rect_static(&mut buffer, px, py, 2, ph, focus_color, width, height);
+                // Right
+                Self::fill_rect_static(&mut buffer, px + pw - 2, py, 2, ph, focus_color, width, height);
+            }
+        }
+
+        // Present
+        buffer.present()?;
+
+        Ok(())
     }
 }
