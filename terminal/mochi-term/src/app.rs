@@ -1021,6 +1021,22 @@ impl App {
             }
         }
 
+        // Recompute mouse_cell relative to the (possibly new) active pane's rect
+        // so that selection start and mouse tracking use correct coordinates.
+        if let Some(renderer) = &self.renderer {
+            let cell_size = renderer.cell_size();
+            let available = self.pane_available_rect();
+            let tab = &self.tabs[self.active_tab];
+            let rects = tab.pane_root.calculate_rects(available);
+            if let Some((_, pane_rect)) = rects.iter().find(|(id, _)| *id == tab.active_pane_id) {
+                let col = ((self.mouse_pixel.0 - pane_rect.x as f64).max(0.0)
+                    / cell_size.width as f64) as u16;
+                let row = ((self.mouse_pixel.1 - pane_rect.y as f64).max(0.0)
+                    / cell_size.height as f64) as u16;
+                self.mouse_cell = (col, row);
+            }
+        }
+
         let tab = &mut self.tabs[self.active_tab];
         let active_pane_id = tab.active_pane_id;
         let pane = match tab.pane_root.find_pane_mut(active_pane_id) {
