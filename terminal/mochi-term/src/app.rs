@@ -1228,6 +1228,7 @@ impl App {
                         let tab = &mut self.tabs[self.active_tab];
                         tab.active_pane_id = pane_id;
                         self.needs_redraw = true;
+                        return;
                     }
                 }
             } else if self.divider_dragging.is_some() {
