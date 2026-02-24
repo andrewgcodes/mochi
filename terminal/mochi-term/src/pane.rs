@@ -183,8 +183,7 @@ impl PaneNode {
                 first,
                 second,
             } => {
-                let (first_rect, second_rect) =
-                    compute_split_rects(available, *direction, *ratio);
+                let (first_rect, second_rect) = compute_split_rects(available, *direction, *ratio);
                 let mut rects = first.compute_rects(first_rect);
                 rects.extend(second.compute_rects(second_rect));
                 rects
@@ -203,8 +202,7 @@ impl PaneNode {
                 second,
             } => {
                 let divider_rect = compute_divider_rect(available, *direction, *ratio);
-                let (first_rect, second_rect) =
-                    compute_split_rects(available, *direction, *ratio);
+                let (first_rect, second_rect) = compute_split_rects(available, *direction, *ratio);
                 let mut dividers = vec![(*direction, divider_rect)];
                 dividers.extend(first.compute_dividers(first_rect));
                 dividers.extend(second.compute_dividers(second_rect));
@@ -368,8 +366,7 @@ impl PaneNode {
                 first,
                 second,
             } => {
-                let (first_rect, second_rect) =
-                    compute_split_rects(available, *direction, *ratio);
+                let (first_rect, second_rect) = compute_split_rects(available, *direction, *ratio);
                 first
                     .pane_at_position(first_rect, px, py)
                     .or_else(|| second.pane_at_position(second_rect, px, py))
@@ -448,8 +445,7 @@ impl PaneNode {
                 first,
                 second,
             } => {
-                let (first_rect, second_rect) =
-                    compute_split_rects(available, *direction, *ratio);
+                let (first_rect, second_rect) = compute_split_rects(available, *direction, *ratio);
                 first.resize_all(first_rect, cell_width, cell_height);
                 second.resize_all(second_rect, cell_width, cell_height);
             }
@@ -474,11 +470,8 @@ fn compute_split_rects(
 ) -> (PaneRect, PaneRect) {
     match direction {
         SplitDirection::Vertical => {
-            let first_width =
-                ((available.width as f64 - DIVIDER_WIDTH as f64) * ratio) as u32;
-            let second_width = available
-                .width
-                .saturating_sub(first_width + DIVIDER_WIDTH);
+            let first_width = ((available.width as f64 - DIVIDER_WIDTH as f64) * ratio) as u32;
+            let second_width = available.width.saturating_sub(first_width + DIVIDER_WIDTH);
             (
                 PaneRect::new(available.x, available.y, first_width, available.height),
                 PaneRect::new(
@@ -490,8 +483,7 @@ fn compute_split_rects(
             )
         }
         SplitDirection::Horizontal => {
-            let first_height =
-                ((available.height as f64 - DIVIDER_WIDTH as f64) * ratio) as u32;
+            let first_height = ((available.height as f64 - DIVIDER_WIDTH as f64) * ratio) as u32;
             let second_height = available
                 .height
                 .saturating_sub(first_height + DIVIDER_WIDTH);
@@ -509,15 +501,10 @@ fn compute_split_rects(
 }
 
 /// Compute the divider rect for a split
-fn compute_divider_rect(
-    available: PaneRect,
-    direction: SplitDirection,
-    ratio: f64,
-) -> PaneRect {
+fn compute_divider_rect(available: PaneRect, direction: SplitDirection, ratio: f64) -> PaneRect {
     match direction {
         SplitDirection::Vertical => {
-            let first_width =
-                ((available.width as f64 - DIVIDER_WIDTH as f64) * ratio) as u32;
+            let first_width = ((available.width as f64 - DIVIDER_WIDTH as f64) * ratio) as u32;
             PaneRect::new(
                 available.x + first_width,
                 available.y,
@@ -526,8 +513,7 @@ fn compute_divider_rect(
             )
         }
         SplitDirection::Horizontal => {
-            let first_height =
-                ((available.height as f64 - DIVIDER_WIDTH as f64) * ratio) as u32;
+            let first_height = ((available.height as f64 - DIVIDER_WIDTH as f64) * ratio) as u32;
             PaneRect::new(
                 available.x,
                 available.y + first_height,

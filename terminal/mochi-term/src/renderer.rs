@@ -590,7 +590,14 @@ impl Renderer {
 
                 if is_outline_cursor {
                     Self::draw_rect_outline_static(
-                        buffer, x, y, cell_w, cell_h, cursor_color, buf_width, buf_height,
+                        buffer,
+                        x,
+                        y,
+                        cell_w,
+                        cell_h,
+                        cursor_color,
+                        buf_width,
+                        buf_height,
                     );
                 }
             }

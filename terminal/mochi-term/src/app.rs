@@ -365,7 +365,8 @@ impl App {
 
         // Resize all tabs' pane trees
         for tab in &mut self.tabs {
-            tab.pane_tree.resize_all(available, cell_size.width, cell_size.height);
+            tab.pane_tree
+                .resize_all(available, cell_size.width, cell_size.height);
         }
 
         self.needs_redraw = true;
@@ -655,7 +656,8 @@ impl App {
                 }
 
                 // Resize all panes to fit the new layout
-                tab.pane_tree.resize_all(available, cell_size.width, cell_size.height);
+                tab.pane_tree
+                    .resize_all(available, cell_size.width, cell_size.height);
                 self.needs_redraw = true;
             }
             Err(e) => {
@@ -676,7 +678,10 @@ impl App {
         let available = PaneRect::new(0, self.tab_bar_height, size.width, terminal_height);
 
         let tab = &mut self.tabs[self.active_tab];
-        if let Some(new_id) = tab.pane_tree.navigate(available, tab.active_pane_id, direction) {
+        if let Some(new_id) = tab
+            .pane_tree
+            .navigate(available, tab.active_pane_id, direction)
+        {
             tab.active_pane_id = new_id;
             self.needs_redraw = true;
             log::info!("Navigated to pane {}", new_id);
@@ -718,7 +723,8 @@ impl App {
                 let terminal_height = size.height.saturating_sub(self.tab_bar_height);
                 let available = PaneRect::new(0, self.tab_bar_height, size.width, terminal_height);
                 let tab = &mut self.tabs[self.active_tab];
-                tab.pane_tree.resize_all(available, cell_size.width, cell_size.height);
+                tab.pane_tree
+                    .resize_all(available, cell_size.width, cell_size.height);
             }
 
             self.needs_redraw = true;
@@ -753,7 +759,8 @@ impl App {
         let available = PaneRect::new(0, self.tab_bar_height, size.width, terminal_height);
 
         for tab in &mut self.tabs {
-            tab.pane_tree.resize_all(available, cell_size.width, cell_size.height);
+            tab.pane_tree
+                .resize_all(available, cell_size.width, cell_size.height);
         }
 
         self.needs_redraw = true;
@@ -778,7 +785,8 @@ impl App {
         let available = PaneRect::new(0, self.tab_bar_height, size.width, terminal_height);
 
         for tab in &mut self.tabs {
-            tab.pane_tree.resize_all(available, cell_size.width, cell_size.height);
+            tab.pane_tree
+                .resize_all(available, cell_size.width, cell_size.height);
         }
 
         self.needs_redraw = true;
@@ -937,11 +945,11 @@ impl App {
                         if scroll_range > 0.0 {
                             let scroll_delta =
                                 (-delta_y / scroll_range * scrollback_len as f64) as isize;
-                            let new_offset =
-                                (self.scrollbar_drag_start_offset as isize + scroll_delta)
-                                    .max(0)
-                                    .min(scrollback_len as isize)
-                                    as usize;
+                            let new_offset = (self.scrollbar_drag_start_offset as isize
+                                + scroll_delta)
+                                .max(0)
+                                .min(scrollback_len as isize)
+                                as usize;
 
                             if new_offset != pane.scroll_offset {
                                 pane.scroll_offset = new_offset;
