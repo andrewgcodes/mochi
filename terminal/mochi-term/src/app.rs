@@ -1629,11 +1629,8 @@ impl App {
                     if leaf.scroll_offset > 0 {
                         leaf.scroll_offset = 0;
                     }
-                    // Only trigger redraw for active pane when not in synchronized output mode
-                    if is_active_tab
-                        && leaf.id == active_pane_id
-                        && !leaf.terminal.is_synchronized_output()
-                    {
+                    // Trigger redraw for any pane on the active tab (so all visible panes update)
+                    if is_active_tab && !leaf.terminal.is_synchronized_output() {
                         needs_redraw = true;
                     }
                 }

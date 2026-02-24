@@ -649,7 +649,8 @@ impl Renderer {
                     ((rows as f32 / total_lines as f32) * sb_height as f32).max(20.0) as i32;
                 let scroll_range = sb_height - thumb_h;
                 let thumb_y = if scrollback_len > 0 {
-                    ((scrollback_len - scroll_offset) as f32 / scrollback_len as f32
+                    let effective_offset = (*scroll_offset).min(scrollback_len);
+                    ((scrollback_len - effective_offset) as f32 / scrollback_len as f32
                         * scroll_range as f32) as i32
                 } else {
                     scroll_range
