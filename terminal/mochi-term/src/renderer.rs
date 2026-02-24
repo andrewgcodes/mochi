@@ -176,6 +176,7 @@ impl Renderer {
     }
 
     /// Render the terminal screen
+    #[allow(dead_code)]
     pub fn render(
         &mut self,
         screen: &Screen,
@@ -751,6 +752,7 @@ impl Renderer {
     }
 
     /// Draw a scrollbar on the right side of the terminal (static version)
+    #[allow(dead_code)]
     fn draw_scrollbar_static(
         buffer: &mut [u32],
         scroll_offset: usize,
