@@ -1741,6 +1741,11 @@ impl App {
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
+        // Resize surviving panes and trigger redraw after pruning
+        for i in 0..self.tabs.len() {
+            self.resize_panes_in_tab(i);
+        }
+        self.needs_redraw = true;
         !self.tabs.is_empty()
     }
 }
