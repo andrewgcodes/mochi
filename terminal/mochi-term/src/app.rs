@@ -655,20 +655,21 @@ impl App {
                     self.split_active_pane(SplitDirection::Horizontal);
                     return;
                 }
-                // Navigate between panes: Ctrl+Shift+Arrow
-                Key::Named(NamedKey::ArrowLeft) => {
+                // Navigate between panes: Ctrl+Shift+Alt+Arrow
+                // (uses Alt modifier to avoid shadowing Ctrl+Shift+Arrow font zoom on Linux)
+                Key::Named(NamedKey::ArrowLeft) if self.modifiers.alt_key() => {
                     self.navigate_pane(NavigationDirection::Left);
                     return;
                 }
-                Key::Named(NamedKey::ArrowRight) => {
+                Key::Named(NamedKey::ArrowRight) if self.modifiers.alt_key() => {
                     self.navigate_pane(NavigationDirection::Right);
                     return;
                 }
-                Key::Named(NamedKey::ArrowUp) => {
+                Key::Named(NamedKey::ArrowUp) if self.modifiers.alt_key() => {
                     self.navigate_pane(NavigationDirection::Up);
                     return;
                 }
-                Key::Named(NamedKey::ArrowDown) => {
+                Key::Named(NamedKey::ArrowDown) if self.modifiers.alt_key() => {
                     self.navigate_pane(NavigationDirection::Down);
                     return;
                 }
@@ -1155,22 +1156,19 @@ impl App {
 
         let cell_size = renderer.cell_size();
 
-        // Find which pane the mouse is over and calculate cell coords relative to it
+        // Compute cell coords relative to the *active* pane's rect so that
+        // mouse tracking events sent to the active pane get correct coordinates.
         let tab = &self.tabs[self.active_tab];
         let available = self.pane_available_rect();
         let rects = tab.pane_root.calculate_rects(available);
 
-        let px = position.x as u32;
-        let py = position.y as u32;
-
-        // Use whichever pane the mouse is over for cell calculation
-        let mouse_pane_rect = rects
+        // Find the active pane's rect for cell coordinate calculation
+        let active_pane_rect = rects
             .iter()
-            .find(|(_, rect)| rect.contains(px, py))
-            .or_else(|| rects.iter().find(|(id, _)| *id == tab.active_pane_id))
+            .find(|(id, _)| *id == tab.active_pane_id)
             .map(|(_, r)| *r);
 
-        if let Some(pane_rect) = mouse_pane_rect {
+        if let Some(pane_rect) = active_pane_rect {
             let adjusted_x = (position.x - pane_rect.x as f64).max(0.0);
             let adjusted_y = (position.y - pane_rect.y as f64).max(0.0);
             let col = (adjusted_x / cell_size.width as f64) as u16;

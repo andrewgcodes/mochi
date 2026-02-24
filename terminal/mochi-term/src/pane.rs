@@ -228,8 +228,13 @@ impl PaneNode {
 
                 let divider = match direction {
                     SplitDirection::Vertical => {
-                        let div_x = available.x
-                            + ((available.w as f32 - DIVIDER_WIDTH as f32) * ratio) as u32;
+                        // Use the same clamped size as split_rect to keep divider aligned
+                        let usable = available.w.saturating_sub(DIVIDER_WIDTH);
+                        let first_w = ((usable as f32) * ratio) as u32;
+                        let first_w = first_w
+                            .max(MIN_PANE_SIZE)
+                            .min(usable.saturating_sub(MIN_PANE_SIZE));
+                        let div_x = available.x + first_w;
                         DividerInfo {
                             direction: SplitDirection::Vertical,
                             position: div_x,
@@ -239,8 +244,13 @@ impl PaneNode {
                         }
                     }
                     SplitDirection::Horizontal => {
-                        let div_y = available.y
-                            + ((available.h as f32 - DIVIDER_WIDTH as f32) * ratio) as u32;
+                        // Use the same clamped size as split_rect to keep divider aligned
+                        let usable = available.h.saturating_sub(DIVIDER_WIDTH);
+                        let first_h = ((usable as f32) * ratio) as u32;
+                        let first_h = first_h
+                            .max(MIN_PANE_SIZE)
+                            .min(usable.saturating_sub(MIN_PANE_SIZE));
+                        let div_y = available.y + first_h;
                         DividerInfo {
                             direction: SplitDirection::Horizontal,
                             position: div_y,
