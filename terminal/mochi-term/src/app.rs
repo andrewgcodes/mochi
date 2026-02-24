@@ -1110,12 +1110,12 @@ impl App {
             let new_ratio = match drag.direction {
                 SplitDirection::Vertical => {
                     let parent_x = drag.parent_rect.x as f64;
-                    let usable_w = (drag.parent_rect.w - DIVIDER_WIDTH) as f64;
+                    let usable_w = drag.parent_rect.w.saturating_sub(DIVIDER_WIDTH) as f64;
                     ((position.x - parent_x) / usable_w) as f32
                 }
                 SplitDirection::Horizontal => {
                     let parent_y = drag.parent_rect.y as f64;
-                    let usable_h = (drag.parent_rect.h - DIVIDER_WIDTH) as f64;
+                    let usable_h = drag.parent_rect.h.saturating_sub(DIVIDER_WIDTH) as f64;
                     ((position.y - parent_y) / usable_h) as f32
                 }
             };
@@ -1676,9 +1676,26 @@ impl App {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
 
-        // Resize remaining panes and trigger redraw after layout changes
+        // Resize remaining panes in all tabs and trigger redraw after layout changes
         if panes_changed {
-            self.resize_all_panes();
+            if let Some(renderer) = &self.renderer {
+                let available = self.pane_available_rect();
+                let cell_size = renderer.cell_size();
+                for tab in &mut self.tabs {
+                    let rects = tab.pane_root.calculate_rects(available);
+                    for (pane_id, rect) in rects {
+                        let cols = (rect.w as f32 / cell_size.width) as usize;
+                        let rows = (rect.h as f32 / cell_size.height) as usize;
+                        if cols > 0 && rows > 0 {
+                            if let Some(pane) = tab.pane_root.find_pane_mut(pane_id) {
+                                pane.terminal.resize(cols, rows);
+                                let _ =
+                                    pane.child.resize(WindowSize::new(cols as u16, rows as u16));
+                            }
+                        }
+                    }
+                }
+            }
             self.needs_redraw = true;
         }
 
