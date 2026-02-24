@@ -1608,8 +1608,10 @@ impl App {
 
     fn poll_pty(&mut self) {
         let mut buf = [0u8; 65536];
-        let mut any_output = false;
+        let mut needs_redraw = false;
         for (tab_idx, tab) in self.tabs.iter_mut().enumerate() {
+            let active_pane_id = tab.active_pane_id;
+            let is_active_tab = tab_idx == self.active_tab;
             tab.pane_root.for_each_leaf_mut(&mut |leaf: &mut LeafPane| {
                 let mut received_output = false;
                 loop {
@@ -1624,9 +1626,15 @@ impl App {
                     }
                 }
                 if received_output {
-                    any_output = true;
                     if leaf.scroll_offset > 0 {
                         leaf.scroll_offset = 0;
+                    }
+                    // Only trigger redraw for active pane when not in synchronized output mode
+                    if is_active_tab
+                        && leaf.id == active_pane_id
+                        && !leaf.terminal.is_synchronized_output()
+                    {
+                        needs_redraw = true;
                     }
                 }
                 if leaf.terminal.take_title_changed() {
@@ -1642,8 +1650,7 @@ impl App {
                     }
                 }
             });
-            if tab_idx == self.active_tab {
-                let active_pane_id = tab.active_pane_id;
+            if is_active_tab {
                 if let Some(leaf) = tab.pane_root.find_leaf(active_pane_id) {
                     if let Some(window) = &self.window {
                         let pane_count = tab.pane_root.leaf_count();
@@ -1656,7 +1663,7 @@ impl App {
                 }
             }
         }
-        if any_output {
+        if needs_redraw {
             self.needs_redraw = true;
         }
     }
