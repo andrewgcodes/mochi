@@ -116,7 +116,11 @@ impl PaneNode {
     fn find_leaf_mut(&mut self, id: PaneId) -> Option<&mut LeafPane> {
         match self {
             PaneNode::Leaf(leaf) => {
-                if leaf.id == id { Some(leaf) } else { None }
+                if leaf.id == id {
+                    Some(leaf)
+                } else {
+                    None
+                }
             }
             PaneNode::Split { first, second, .. } => {
                 first.find_leaf_mut(id).or_else(|| second.find_leaf_mut(id))
@@ -127,7 +131,11 @@ impl PaneNode {
     fn find_leaf(&self, id: PaneId) -> Option<&LeafPane> {
         match self {
             PaneNode::Leaf(leaf) => {
-                if leaf.id == id { Some(leaf) } else { None }
+                if leaf.id == id {
+                    Some(leaf)
+                } else {
+                    None
+                }
             }
             PaneNode::Split { first, second, .. } => {
                 first.find_leaf(id).or_else(|| second.find_leaf(id))
@@ -149,7 +157,12 @@ impl PaneNode {
     fn collect_leaves_with_rects(&self, rect: PaneRect) -> Vec<(PaneId, PaneRect)> {
         match self {
             PaneNode::Leaf(leaf) => vec![(leaf.id, rect)],
-            PaneNode::Split { direction, ratio, first, second } => {
+            PaneNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
                 let (first_rect, second_rect) = split_rect(rect, *direction, *ratio);
                 let mut result = first.collect_leaves_with_rects(first_rect);
                 result.extend(second.collect_leaves_with_rects(second_rect));
@@ -161,7 +174,12 @@ impl PaneNode {
     fn collect_dividers(&self, rect: PaneRect) -> Vec<(PaneRect, SplitDirection)> {
         match self {
             PaneNode::Leaf(_) => vec![],
-            PaneNode::Split { direction, ratio, first, second } => {
+            PaneNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
                 let divider = compute_divider_rect(rect, *direction, *ratio);
                 let (first_rect, second_rect) = split_rect(rect, *direction, *ratio);
                 let mut result = vec![(divider, *direction)];
@@ -175,11 +193,19 @@ impl PaneNode {
     fn contains_leaf(&self, id: PaneId) -> bool {
         match self {
             PaneNode::Leaf(leaf) => leaf.id == id,
-            PaneNode::Split { first, second, .. } => first.contains_leaf(id) || second.contains_leaf(id),
+            PaneNode::Split { first, second, .. } => {
+                first.contains_leaf(id) || second.contains_leaf(id)
+            }
         }
     }
 
-    fn split_leaf(&mut self, id: PaneId, direction: SplitDirection, new_terminal: Terminal, new_child: Child) -> bool {
+    fn split_leaf(
+        &mut self,
+        id: PaneId,
+        direction: SplitDirection,
+        new_terminal: Terminal,
+        new_child: Child,
+    ) -> bool {
         match self {
             PaneNode::Leaf(leaf) if leaf.id == id => {
                 let dummy_terminal = Terminal::new(1, 1);
@@ -217,22 +243,28 @@ impl PaneNode {
             PaneNode::Leaf(_) => RemoveResult::NotFound,
             PaneNode::Split { first, second, .. } => {
                 if let PaneNode::Leaf(leaf) = first.as_ref() {
-                    if leaf.id == id { return RemoveResult::PromoteSibling; }
+                    if leaf.id == id {
+                        return RemoveResult::PromoteSibling;
+                    }
                 }
                 if let PaneNode::Leaf(leaf) = second.as_ref() {
-                    if leaf.id == id { return RemoveResult::PromoteFirst; }
+                    if leaf.id == id {
+                        return RemoveResult::PromoteFirst;
+                    }
                 }
                 match first.remove_leaf(id) {
                     RemoveResult::PromoteSibling => {
                         if let PaneNode::Split { second: s2, .. } = first.as_mut() {
-                            let promoted = std::mem::replace(s2.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
+                            let promoted =
+                                std::mem::replace(s2.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
                             *first = Box::new(promoted);
                         }
                         return RemoveResult::NotFound;
                     }
                     RemoveResult::PromoteFirst => {
                         if let PaneNode::Split { first: f1, .. } = first.as_mut() {
-                            let promoted = std::mem::replace(f1.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
+                            let promoted =
+                                std::mem::replace(f1.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
                             *first = Box::new(promoted);
                         }
                         return RemoveResult::NotFound;
@@ -242,14 +274,16 @@ impl PaneNode {
                 match second.remove_leaf(id) {
                     RemoveResult::PromoteSibling => {
                         if let PaneNode::Split { second: s2, .. } = second.as_mut() {
-                            let promoted = std::mem::replace(s2.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
+                            let promoted =
+                                std::mem::replace(s2.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
                             *second = Box::new(promoted);
                         }
                         return RemoveResult::NotFound;
                     }
                     RemoveResult::PromoteFirst => {
                         if let PaneNode::Split { first: f1, .. } = second.as_mut() {
-                            let promoted = std::mem::replace(f1.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
+                            let promoted =
+                                std::mem::replace(f1.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
                             *second = Box::new(promoted);
                         }
                         return RemoveResult::NotFound;
@@ -284,14 +318,18 @@ impl PaneNode {
             PaneNode::Split { first, second, .. } => {
                 let first_alive = first.retain_living();
                 let second_alive = second.retain_living();
-                if !first_alive && !second_alive { return false; }
+                if !first_alive && !second_alive {
+                    return false;
+                }
                 if !first_alive {
-                    let promoted = std::mem::replace(second.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
+                    let promoted =
+                        std::mem::replace(second.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
                     *self = promoted;
                     return true;
                 }
                 if !second_alive {
-                    let promoted = std::mem::replace(first.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
+                    let promoted =
+                        std::mem::replace(first.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
                     *self = promoted;
                     return true;
                 }
@@ -303,40 +341,69 @@ impl PaneNode {
     fn pane_at_position(&self, rect: PaneRect, px: f64, py: f64) -> Option<PaneId> {
         match self {
             PaneNode::Leaf(leaf) => {
-                if px >= rect.x as f64 && px < (rect.x + rect.width) as f64
-                    && py >= rect.y as f64 && py < (rect.y + rect.height) as f64
-                { Some(leaf.id) } else { None }
+                if px >= rect.x as f64
+                    && px < (rect.x + rect.width) as f64
+                    && py >= rect.y as f64
+                    && py < (rect.y + rect.height) as f64
+                {
+                    Some(leaf.id)
+                } else {
+                    None
+                }
             }
-            PaneNode::Split { direction, ratio, first, second } => {
+            PaneNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
                 let (first_rect, second_rect) = split_rect(rect, *direction, *ratio);
-                first.pane_at_position(first_rect, px, py)
+                first
+                    .pane_at_position(first_rect, px, py)
                     .or_else(|| second.pane_at_position(second_rect, px, py))
             }
         }
     }
 
-    fn divider_at_position(&self, rect: PaneRect, px: f64, py: f64, tolerance: f64) -> Option<DividerHit> {
+    fn divider_at_position(
+        &self,
+        rect: PaneRect,
+        px: f64,
+        py: f64,
+        tolerance: f64,
+    ) -> Option<DividerHit> {
         match self {
             PaneNode::Leaf(_) => None,
-            PaneNode::Split { direction, ratio, first, second } => {
+            PaneNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
                 let divider = compute_divider_rect(rect, *direction, *ratio);
                 let (first_rect, second_rect) = split_rect(rect, *direction, *ratio);
                 let on_divider = match direction {
                     SplitDirection::Vertical => {
                         let div_center = divider.x as f64 + divider.width as f64 / 2.0;
                         (px - div_center).abs() < tolerance + divider.width as f64 / 2.0
-                            && py >= rect.y as f64 && py < (rect.y + rect.height) as f64
+                            && py >= rect.y as f64
+                            && py < (rect.y + rect.height) as f64
                     }
                     SplitDirection::Horizontal => {
                         let div_center = divider.y as f64 + divider.height as f64 / 2.0;
                         (py - div_center).abs() < tolerance + divider.height as f64 / 2.0
-                            && px >= rect.x as f64 && px < (rect.x + rect.width) as f64
+                            && px >= rect.x as f64
+                            && px < (rect.x + rect.width) as f64
                     }
                 };
                 if on_divider {
-                    return Some(DividerHit { direction: *direction, container_rect: rect });
+                    return Some(DividerHit {
+                        direction: *direction,
+                        container_rect: rect,
+                    });
                 }
-                first.divider_at_position(first_rect, px, py, tolerance)
+                first
+                    .divider_at_position(first_rect, px, py, tolerance)
                     .or_else(|| second.divider_at_position(second_rect, px, py, tolerance))
             }
         }
@@ -345,14 +412,25 @@ impl PaneNode {
     fn update_divider_ratio(&mut self, rect: PaneRect, hit: &DividerHit, px: f64, py: f64) -> bool {
         match self {
             PaneNode::Leaf(_) => false,
-            PaneNode::Split { direction, ratio, first, second } => {
+            PaneNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
                 if *direction == hit.direction
-                    && rect.x == hit.container_rect.x && rect.y == hit.container_rect.y
-                    && rect.width == hit.container_rect.width && rect.height == hit.container_rect.height
+                    && rect.x == hit.container_rect.x
+                    && rect.y == hit.container_rect.y
+                    && rect.width == hit.container_rect.width
+                    && rect.height == hit.container_rect.height
                 {
                     let new_ratio = match direction {
-                        SplitDirection::Vertical => ((px - rect.x as f64) / rect.width as f64).clamp(0.1, 0.9),
-                        SplitDirection::Horizontal => ((py - rect.y as f64) / rect.height as f64).clamp(0.1, 0.9),
+                        SplitDirection::Vertical => {
+                            ((px - rect.x as f64) / rect.width as f64).clamp(0.1, 0.9)
+                        }
+                        SplitDirection::Horizontal => {
+                            ((py - rect.y as f64) / rect.height as f64).clamp(0.1, 0.9)
+                        }
                     };
                     *ratio = new_ratio;
                     return true;
@@ -364,14 +442,21 @@ impl PaneNode {
         }
     }
 
-    fn neighbor_in_direction(&self, rect: PaneRect, active_id: PaneId, nav_direction: NavDirection) -> Option<PaneId> {
+    fn neighbor_in_direction(
+        &self,
+        rect: PaneRect,
+        active_id: PaneId,
+        nav_direction: NavDirection,
+    ) -> Option<PaneId> {
         let leaves = self.collect_leaves_with_rects(rect);
         let active_rect = leaves.iter().find(|(id, _)| *id == active_id)?.1;
         let active_cx = active_rect.x as f64 + active_rect.width as f64 / 2.0;
         let active_cy = active_rect.y as f64 + active_rect.height as f64 / 2.0;
         let mut best: Option<(PaneId, f64)> = None;
         for (id, r) in &leaves {
-            if *id == active_id { continue; }
+            if *id == active_id {
+                continue;
+            }
             let cx = r.x as f64 + r.width as f64 / 2.0;
             let cy = r.y as f64 + r.height as f64 / 2.0;
             let valid = match nav_direction {
@@ -380,7 +465,9 @@ impl PaneNode {
                 NavDirection::Up => cy < active_cy,
                 NavDirection::Down => cy > active_cy,
             };
-            if !valid { continue; }
+            if !valid {
+                continue;
+            }
             let dist = ((cx - active_cx).powi(2) + (cy - active_cy).powi(2)).sqrt();
             if best.is_none() || dist < best.unwrap().1 {
                 best = Some((*id, dist));
@@ -390,16 +477,31 @@ impl PaneNode {
     }
 }
 
-enum RemoveResult { NotFound, PromoteSibling, PromoteFirst }
+enum RemoveResult {
+    NotFound,
+    PromoteSibling,
+    PromoteFirst,
+}
 
 fn make_dummy_leaf() -> LeafPane {
     let terminal = Terminal::new(1, 1);
     let child = Child::spawn_shell(WindowSize::new(1, 1)).expect("spawn dummy");
-    LeafPane { id: 0, terminal, child, title: String::new(), scroll_offset: 0 }
+    LeafPane {
+        id: 0,
+        terminal,
+        child,
+        title: String::new(),
+        scroll_offset: 0,
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum NavDirection { Left, Right, Up, Down }
+enum NavDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
 
 #[derive(Debug, Clone, Copy)]
 struct DividerHit {
@@ -415,8 +517,18 @@ fn split_rect(rect: PaneRect, direction: SplitDirection, ratio: f64) -> (PaneRec
             let second_x = rect.x + first_w + divider;
             let second_w = rect.width.saturating_sub(first_w + divider);
             (
-                PaneRect { x: rect.x, y: rect.y, width: first_w, height: rect.height },
-                PaneRect { x: second_x, y: rect.y, width: second_w, height: rect.height },
+                PaneRect {
+                    x: rect.x,
+                    y: rect.y,
+                    width: first_w,
+                    height: rect.height,
+                },
+                PaneRect {
+                    x: second_x,
+                    y: rect.y,
+                    width: second_w,
+                    height: rect.height,
+                },
             )
         }
         SplitDirection::Horizontal => {
@@ -424,8 +536,18 @@ fn split_rect(rect: PaneRect, direction: SplitDirection, ratio: f64) -> (PaneRec
             let second_y = rect.y + first_h + divider;
             let second_h = rect.height.saturating_sub(first_h + divider);
             (
-                PaneRect { x: rect.x, y: rect.y, width: rect.width, height: first_h },
-                PaneRect { x: rect.x, y: second_y, width: rect.width, height: second_h },
+                PaneRect {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: first_h,
+                },
+                PaneRect {
+                    x: rect.x,
+                    y: second_y,
+                    width: rect.width,
+                    height: second_h,
+                },
             )
         }
     }
@@ -436,11 +558,21 @@ fn compute_divider_rect(rect: PaneRect, direction: SplitDirection, ratio: f64) -
     match direction {
         SplitDirection::Vertical => {
             let first_w = ((rect.width as f64 - divider as f64) * ratio) as u32;
-            PaneRect { x: rect.x + first_w, y: rect.y, width: divider, height: rect.height }
+            PaneRect {
+                x: rect.x + first_w,
+                y: rect.y,
+                width: divider,
+                height: rect.height,
+            }
         }
         SplitDirection::Horizontal => {
             let first_h = ((rect.height as f64 - divider as f64) * ratio) as u32;
-            PaneRect { x: rect.x, y: rect.y + first_h, width: rect.width, height: divider }
+            PaneRect {
+                x: rect.x,
+                y: rect.y + first_h,
+                width: rect.width,
+                height: divider,
+            }
         }
     }
 }
@@ -454,11 +586,17 @@ impl Tab {
     fn new(terminal: Terminal, child: Child) -> Self {
         let root = PaneNode::new_leaf(terminal, child);
         let id = root.first_leaf_id();
-        Self { pane_root: root, active_pane_id: id }
+        Self {
+            pane_root: root,
+            active_pane_id: id,
+        }
     }
 
     fn title(&self) -> &str {
-        self.pane_root.find_leaf(self.active_pane_id).map(|l| l.title.as_str()).unwrap_or("Terminal")
+        self.pane_root
+            .find_leaf(self.active_pane_id)
+            .map(|l| l.title.as_str())
+            .unwrap_or("Terminal")
     }
 }
 
@@ -487,14 +625,19 @@ pub struct App {
 impl App {
     pub fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            config, window: None, renderer: None,
-            tabs: Vec::new(), active_tab: 0,
+            config,
+            window: None,
+            renderer: None,
+            tabs: Vec::new(),
+            active_tab: 0,
             clipboard: Clipboard::new().ok(),
             modifiers: ModifiersState::empty(),
-            mouse_cell: (0, 0), mouse_pixel: (0.0, 0.0),
+            mouse_cell: (0, 0),
+            mouse_pixel: (0.0, 0.0),
             mouse_buttons: [false; 3],
             last_render: Instant::now(),
-            needs_redraw: true, focused: true,
+            needs_redraw: true,
+            focused: true,
             tab_bar_height: 0,
             scrollbar_dragging: false,
             scrollbar_drag_start_y: 0.0,
@@ -514,11 +657,18 @@ impl App {
         event_loop.run(move |event, elwt| {
             elwt.set_control_flow(ControlFlow::Poll);
             match event {
-                Event::WindowEvent { event, .. } => { self.handle_window_event(event, elwt); }
+                Event::WindowEvent { event, .. } => {
+                    self.handle_window_event(event, elwt);
+                }
                 Event::AboutToWait => {
                     self.poll_pty();
-                    if !self.check_child() { elwt.exit(); return; }
-                    if self.needs_redraw { self.render(); }
+                    if !self.check_child() {
+                        elwt.exit();
+                        return;
+                    }
+                    if self.needs_redraw {
+                        self.render();
+                    }
                 }
                 _ => {}
             }
@@ -526,24 +676,50 @@ impl App {
         Ok(())
     }
 
-    fn handle_window_event(&mut self, event: WindowEvent, elwt: &winit::event_loop::EventLoopWindowTarget<()>) {
+    fn handle_window_event(
+        &mut self,
+        event: WindowEvent,
+        elwt: &winit::event_loop::EventLoopWindowTarget<()>,
+    ) {
         match event {
-            WindowEvent::CloseRequested => { elwt.exit(); }
-            WindowEvent::Resized(size) => { self.handle_resize(size); }
-            WindowEvent::KeyboardInput { event, .. } => { self.handle_key_input(&event); }
-            WindowEvent::ModifiersChanged(modifiers) => { self.modifiers = modifiers.state(); }
-            WindowEvent::MouseInput { button, state, .. } => { self.handle_mouse_input(button, state); }
-            WindowEvent::CursorMoved { position, .. } => { self.handle_mouse_motion(position); }
-            WindowEvent::MouseWheel { delta, .. } => { self.handle_mouse_scroll(delta); }
-            WindowEvent::Focused(focused) => { self.handle_focus(focused); }
-            WindowEvent::RedrawRequested => { self.render(); }
+            WindowEvent::CloseRequested => {
+                elwt.exit();
+            }
+            WindowEvent::Resized(size) => {
+                self.handle_resize(size);
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                self.handle_key_input(&event);
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers.state();
+            }
+            WindowEvent::MouseInput { button, state, .. } => {
+                self.handle_mouse_input(button, state);
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.handle_mouse_motion(position);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.handle_mouse_scroll(delta);
+            }
+            WindowEvent::Focused(focused) => {
+                self.handle_focus(focused);
+            }
+            WindowEvent::RedrawRequested => {
+                self.render();
+            }
             _ => {}
         }
     }
 
     fn init_graphics(&mut self, window: Rc<Window>) -> Result<(), Box<dyn std::error::Error>> {
         let size = window.inner_size();
-        let renderer = Renderer::new(window.clone(), self.config.font_size(), self.config.effective_colors())?;
+        let renderer = Renderer::new(
+            window.clone(),
+            self.config.font_size(),
+            self.config.effective_colors(),
+        )?;
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
         let cols = (size.width as f32 / cell_size.width) as usize;
@@ -564,12 +740,21 @@ impl App {
         let (width, height) = if let Some(window) = &self.window {
             let size = window.inner_size();
             (size.width, size.height)
-        } else { (800, 600) };
-        PaneRect { x: 0, y: self.tab_bar_height, width, height: height.saturating_sub(self.tab_bar_height) }
+        } else {
+            (800, 600)
+        };
+        PaneRect {
+            x: 0,
+            y: self.tab_bar_height,
+            width,
+            height: height.saturating_sub(self.tab_bar_height),
+        }
     }
 
     fn create_new_tab(&mut self) {
-        let Some(renderer) = &self.renderer else { return };
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
         let Some(window) = &self.window else { return };
         let size = window.inner_size();
         let cell_size = renderer.cell_size();
@@ -584,34 +769,46 @@ impl App {
                 self.active_tab = self.tabs.len() - 1;
                 self.needs_redraw = true;
             }
-            Err(e) => { log::error!("Failed to create new tab: {}", e); }
+            Err(e) => {
+                log::error!("Failed to create new tab: {}", e);
+            }
         }
     }
 
     fn close_current_tab(&mut self) -> bool {
-        if self.tabs.len() <= 1 { return false; }
+        if self.tabs.len() <= 1 {
+            return false;
+        }
         self.tabs.remove(self.active_tab);
-        if self.active_tab >= self.tabs.len() { self.active_tab = self.tabs.len() - 1; }
+        if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len() - 1;
+        }
         self.needs_redraw = true;
         true
     }
 
     fn close_active_pane(&mut self) -> bool {
-        if self.tabs.is_empty() { return false; }
+        if self.tabs.is_empty() {
+            return false;
+        }
         let tab = &mut self.tabs[self.active_tab];
-        if tab.pane_root.leaf_count() <= 1 { return self.close_current_tab(); }
+        if tab.pane_root.leaf_count() <= 1 {
+            return self.close_current_tab();
+        }
         let active_id = tab.active_pane_id;
         let result = tab.pane_root.remove_leaf(active_id);
         match result {
             RemoveResult::PromoteSibling => {
                 if let PaneNode::Split { second, .. } = &mut tab.pane_root {
-                    let promoted = std::mem::replace(second.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
+                    let promoted =
+                        std::mem::replace(second.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
                     tab.pane_root = promoted;
                 }
             }
             RemoveResult::PromoteFirst => {
                 if let PaneNode::Split { first, .. } = &mut tab.pane_root {
-                    let promoted = std::mem::replace(first.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
+                    let promoted =
+                        std::mem::replace(first.as_mut(), PaneNode::Leaf(make_dummy_leaf()));
                     tab.pane_root = promoted;
                 }
             }
@@ -636,8 +833,12 @@ impl App {
     }
 
     fn split_active_pane(&mut self, direction: SplitDirection) {
-        if self.tabs.is_empty() { return; }
-        let Some(renderer) = &self.renderer else { return; };
+        if self.tabs.is_empty() {
+            return;
+        }
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
         let cell_size = renderer.cell_size();
         let content_rect = self.content_rect();
         let tab = &mut self.tabs[self.active_tab];
@@ -649,37 +850,57 @@ impl App {
             let c = (new_rect.width as f32 / cell_size.width) as usize;
             let r = (new_rect.height as f32 / cell_size.height) as usize;
             (c.max(1), r.max(1))
-        } else { (80, 24) };
+        } else {
+            (80, 24)
+        };
         let new_terminal = Terminal::new(cols, rows);
         match Child::spawn_shell(WindowSize::new(cols as u16, rows as u16)) {
             Ok(new_child) => {
                 let _ = new_child.set_nonblocking(true);
                 let ids_before = tab.pane_root.collect_leaf_ids();
-                if tab.pane_root.split_leaf(active_id, direction, new_terminal, new_child) {
+                if tab
+                    .pane_root
+                    .split_leaf(active_id, direction, new_terminal, new_child)
+                {
                     let all_ids = tab.pane_root.collect_leaf_ids();
-                    let new_id = all_ids.iter().find(|id| !ids_before.contains(id)).copied().unwrap_or(active_id);
+                    let new_id = all_ids
+                        .iter()
+                        .find(|id| !ids_before.contains(id))
+                        .copied()
+                        .unwrap_or(active_id);
                     tab.active_pane_id = new_id;
                     self.resize_panes_in_tab(self.active_tab);
                     self.needs_redraw = true;
                 }
             }
-            Err(e) => { log::error!("Failed to create new pane: {}", e); }
+            Err(e) => {
+                log::error!("Failed to create new pane: {}", e);
+            }
         }
     }
 
     fn navigate_pane(&mut self, nav_direction: NavDirection) {
-        if self.tabs.is_empty() { return; }
+        if self.tabs.is_empty() {
+            return;
+        }
         let content_rect = self.content_rect();
         let tab = &mut self.tabs[self.active_tab];
-        if let Some(neighbor_id) = tab.pane_root.neighbor_in_direction(content_rect, tab.active_pane_id, nav_direction) {
+        if let Some(neighbor_id) =
+            tab.pane_root
+                .neighbor_in_direction(content_rect, tab.active_pane_id, nav_direction)
+        {
             tab.active_pane_id = neighbor_id;
             self.needs_redraw = true;
         }
     }
 
     fn resize_panes_in_tab(&mut self, tab_idx: usize) {
-        if tab_idx >= self.tabs.len() { return; }
-        let Some(renderer) = &self.renderer else { return; };
+        if tab_idx >= self.tabs.len() {
+            return;
+        }
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
         let cell_size = renderer.cell_size();
         let content_rect = self.content_rect();
         let tab = &mut self.tabs[tab_idx];
@@ -697,12 +918,18 @@ impl App {
     }
 
     fn handle_tab_bar_click(&mut self, x: f64) {
-        if self.tabs.is_empty() { return; }
+        if self.tabs.is_empty() {
+            return;
+        }
         let Some(window) = &self.window else { return };
         let window_width = window.inner_size().width;
         let num_tabs = self.tabs.len() as u32;
         let available_width = window_width.saturating_sub(NEW_TAB_BTN_WIDTH);
-        let tab_width = if num_tabs > 0 { (available_width / num_tabs).min(TAB_MAX_WIDTH) } else { TAB_MAX_WIDTH };
+        let tab_width = if num_tabs > 0 {
+            (available_width / num_tabs).min(TAB_MAX_WIDTH)
+        } else {
+            TAB_MAX_WIDTH
+        };
         let click_x = x as u32;
         let tabs_end = num_tabs * tab_width;
         if click_x >= tabs_end && click_x < tabs_end + NEW_TAB_BTN_WIDTH {
@@ -716,8 +943,11 @@ impl App {
                 let close_x_start = tab_start + tab_width.saturating_sub(CLOSE_BTN_WIDTH);
                 if click_x >= close_x_start && self.tabs.len() > 1 {
                     self.tabs.remove(tab_index);
-                    if self.active_tab >= self.tabs.len() { self.active_tab = self.tabs.len() - 1; }
-                    else if self.active_tab > tab_index { self.active_tab -= 1; }
+                    if self.active_tab >= self.tabs.len() {
+                        self.active_tab = self.tabs.len() - 1;
+                    } else if self.active_tab > tab_index {
+                        self.active_tab -= 1;
+                    }
                     self.needs_redraw = true;
                 } else {
                     self.switch_to_tab(tab_index);
@@ -727,74 +957,172 @@ impl App {
     }
 
     fn handle_resize(&mut self, size: PhysicalSize<u32>) {
-        if size.width == 0 || size.height == 0 { return; }
-        let Some(renderer) = &mut self.renderer else { return; };
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
         renderer.resize(size.width, size.height);
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
-        for i in 0..self.tabs.len() { self.resize_panes_in_tab(i); }
+        for i in 0..self.tabs.len() {
+            self.resize_panes_in_tab(i);
+        }
         self.needs_redraw = true;
     }
 
     fn handle_key_input(&mut self, event: &winit::event::KeyEvent) {
-        if event.state != ElementState::Pressed { return; }
+        if event.state != ElementState::Pressed {
+            return;
+        }
         let ctrl_shift = self.modifiers.control_key() && self.modifiers.shift_key();
         if ctrl_shift {
             match &event.logical_key {
-                Key::Character(c) if c.to_lowercase() == "c" => { self.handle_copy(); return; }
-                Key::Character(c) if c.to_lowercase() == "v" => { self.handle_paste(); return; }
-                Key::Character(c) if c.to_lowercase() == "f" => { self.handle_find(); return; }
-                Key::Character(c) if c.to_lowercase() == "r" => { self.handle_reload_config(); return; }
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.handle_copy();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "f" => {
+                    self.handle_find();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "r" => {
+                    self.handle_reload_config();
+                    return;
+                }
                 #[cfg(target_os = "macos")]
-                Key::Character(c) if c.to_lowercase() == "t" => { self.handle_toggle_theme(); return; }
-                Key::Character(c) if c.to_lowercase() == "d" => { self.split_active_pane(SplitDirection::Vertical); return; }
-                Key::Character(c) if c.to_lowercase() == "e" => { self.split_active_pane(SplitDirection::Horizontal); return; }
-                Key::Named(NamedKey::ArrowLeft) => { self.navigate_pane(NavDirection::Left); return; }
-                Key::Named(NamedKey::ArrowRight) => { self.navigate_pane(NavDirection::Right); return; }
-                Key::Named(NamedKey::ArrowUp) => { self.navigate_pane(NavDirection::Up); return; }
-                Key::Named(NamedKey::ArrowDown) => { self.navigate_pane(NavDirection::Down); return; }
+                Key::Character(c) if c.to_lowercase() == "t" => {
+                    self.handle_toggle_theme();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "d" => {
+                    self.split_active_pane(SplitDirection::Vertical);
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "e" => {
+                    self.split_active_pane(SplitDirection::Horizontal);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowLeft) => {
+                    self.navigate_pane(NavDirection::Left);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowRight) => {
+                    self.navigate_pane(NavDirection::Right);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowUp) => {
+                    self.navigate_pane(NavDirection::Up);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowDown) => {
+                    self.navigate_pane(NavDirection::Down);
+                    return;
+                }
                 _ => {}
             }
         }
         #[cfg(target_os = "macos")]
-        if self.modifiers.super_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() {
+        if self.modifiers.super_key() && !self.modifiers.control_key() && !self.modifiers.alt_key()
+        {
             match &event.logical_key {
-                Key::Character(c) if c.to_lowercase() == "v" => { self.handle_paste(); return; }
-                Key::Character(c) if c.to_lowercase() == "c" => { self.handle_copy(); return; }
-                Key::Character(c) if c.to_lowercase() == "n" => { self.handle_new_window(); return; }
-                Key::Character(c) if c.to_lowercase() == "t" && !self.modifiers.shift_key() => { self.create_new_tab(); return; }
-                Key::Character(c) if c.to_lowercase() == "w" => {
-                    if !self.close_active_pane() { self.tabs.clear(); }
+                Key::Character(c) if c.to_lowercase() == "v" => {
+                    self.handle_paste();
                     return;
                 }
-                Key::Character(c) if c.to_lowercase() == "d" && !self.modifiers.shift_key() => { self.split_active_pane(SplitDirection::Vertical); return; }
-                Key::Character(c) if c.to_lowercase() == "d" && self.modifiers.shift_key() => { self.split_active_pane(SplitDirection::Horizontal); return; }
-                Key::Character(c) if c == "1" => { self.switch_to_tab(0); return; }
-                Key::Character(c) if c == "2" => { self.switch_to_tab(1); return; }
-                Key::Character(c) if c == "3" => { self.switch_to_tab(2); return; }
-                Key::Character(c) if c == "4" => { self.switch_to_tab(3); return; }
-                Key::Character(c) if c == "5" => { self.switch_to_tab(4); return; }
-                Key::Character(c) if c == "6" => { self.switch_to_tab(5); return; }
-                Key::Character(c) if c == "7" => { self.switch_to_tab(6); return; }
-                Key::Character(c) if c == "8" => { self.switch_to_tab(7); return; }
-                Key::Character(c) if c == "9" => { self.switch_to_tab(8); return; }
+                Key::Character(c) if c.to_lowercase() == "c" => {
+                    self.handle_copy();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "n" => {
+                    self.handle_new_window();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "t" && !self.modifiers.shift_key() => {
+                    self.create_new_tab();
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "w" => {
+                    if !self.close_active_pane() {
+                        self.tabs.clear();
+                    }
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "d" && !self.modifiers.shift_key() => {
+                    self.split_active_pane(SplitDirection::Vertical);
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "d" && self.modifiers.shift_key() => {
+                    self.split_active_pane(SplitDirection::Horizontal);
+                    return;
+                }
+                Key::Character(c) if c == "1" => {
+                    self.switch_to_tab(0);
+                    return;
+                }
+                Key::Character(c) if c == "2" => {
+                    self.switch_to_tab(1);
+                    return;
+                }
+                Key::Character(c) if c == "3" => {
+                    self.switch_to_tab(2);
+                    return;
+                }
+                Key::Character(c) if c == "4" => {
+                    self.switch_to_tab(3);
+                    return;
+                }
+                Key::Character(c) if c == "5" => {
+                    self.switch_to_tab(4);
+                    return;
+                }
+                Key::Character(c) if c == "6" => {
+                    self.switch_to_tab(5);
+                    return;
+                }
+                Key::Character(c) if c == "7" => {
+                    self.switch_to_tab(6);
+                    return;
+                }
+                Key::Character(c) if c == "8" => {
+                    self.switch_to_tab(7);
+                    return;
+                }
+                Key::Character(c) if c == "9" => {
+                    self.switch_to_tab(8);
+                    return;
+                }
                 _ => {}
             }
         }
         #[cfg(not(target_os = "macos"))]
         if ctrl_shift {
             match &event.logical_key {
-                Key::Character(c) if c.to_lowercase() == "t" && !self.modifiers.super_key() => { self.create_new_tab(); return; }
+                Key::Character(c) if c.to_lowercase() == "t" && !self.modifiers.super_key() => {
+                    self.create_new_tab();
+                    return;
+                }
                 Key::Character(c) if c.to_lowercase() == "w" => {
-                    if !self.close_active_pane() { self.tabs.clear(); }
+                    if !self.close_active_pane() {
+                        self.tabs.clear();
+                    }
                     return;
                 }
                 _ => {}
             }
         }
-        if self.tabs.is_empty() { return; }
+        if self.tabs.is_empty() {
+            return;
+        }
         let tab = &mut self.tabs[self.active_tab];
-        let Some(leaf) = tab.pane_root.find_leaf_mut(tab.active_pane_id) else { return; };
+        let Some(leaf) = tab.pane_root.find_leaf_mut(tab.active_pane_id) else {
+            return;
+        };
         if let Some(text) = event.text_with_all_modifiers() {
             if !text.is_empty() {
                 let first_char = text.chars().next().unwrap();
@@ -820,45 +1148,70 @@ impl App {
         let zoom_modifier = self.modifiers.control_key() && self.modifiers.shift_key();
         if zoom_modifier {
             match &event.logical_key {
-                Key::Character(c) if c == "=" || c == "+" => { self.change_font_size(2.0); return; }
-                Key::Character(c) if c == "-" => { self.change_font_size(-2.0); return; }
-                Key::Character(c) if c == "0" => { self.reset_font_size(); return; }
+                Key::Character(c) if c == "=" || c == "+" => {
+                    self.change_font_size(2.0);
+                    return;
+                }
+                Key::Character(c) if c == "-" => {
+                    self.change_font_size(-2.0);
+                    return;
+                }
+                Key::Character(c) if c == "0" => {
+                    self.reset_font_size();
+                    return;
+                }
                 _ => {}
             }
         }
         let application_cursor_keys = leaf.terminal.screen().modes().cursor_keys_application;
-        if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys) {
+        if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
+        {
             let _ = leaf.child.write_all(&data);
         }
     }
 
     fn change_font_size(&mut self, delta: f32) {
-        let Some(renderer) = &mut self.renderer else { return; };
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
         let current_size = renderer.font_size();
         let new_size = (current_size + delta).clamp(8.0, 72.0);
-        if (new_size - current_size).abs() < 0.1 { return; }
+        if (new_size - current_size).abs() < 0.1 {
+            return;
+        }
         renderer.set_font_size(new_size);
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
-        for i in 0..self.tabs.len() { self.resize_panes_in_tab(i); }
+        for i in 0..self.tabs.len() {
+            self.resize_panes_in_tab(i);
+        }
         self.needs_redraw = true;
     }
 
     fn reset_font_size(&mut self) {
-        let Some(renderer) = &mut self.renderer else { return; };
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
         let Some(window) = &self.window else { return };
         let scale_factor = window.scale_factor() as f32;
         let default_size = self.config.font_size() * scale_factor;
         renderer.set_font_size(default_size);
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
-        for i in 0..self.tabs.len() { self.resize_panes_in_tab(i); }
+        for i in 0..self.tabs.len() {
+            self.resize_panes_in_tab(i);
+        }
         self.needs_redraw = true;
     }
 
     fn handle_mouse_input(&mut self, button: MouseButton, state: ElementState) {
-        if self.tabs.is_empty() { return; }
-        if button == MouseButton::Left && state == ElementState::Pressed && self.mouse_pixel.1 < self.tab_bar_height as f64 {
+        if self.tabs.is_empty() {
+            return;
+        }
+        if button == MouseButton::Left
+            && state == ElementState::Pressed
+            && self.mouse_pixel.1 < self.tab_bar_height as f64
+        {
             self.handle_tab_bar_click(self.mouse_pixel.0);
             return;
         }
@@ -866,11 +1219,20 @@ impl App {
             if state == ElementState::Pressed {
                 let content_rect = self.content_rect();
                 let tab = &self.tabs[self.active_tab];
-                if let Some(hit) = tab.pane_root.divider_at_position(content_rect, self.mouse_pixel.0, self.mouse_pixel.1, 4.0) {
+                if let Some(hit) = tab.pane_root.divider_at_position(
+                    content_rect,
+                    self.mouse_pixel.0,
+                    self.mouse_pixel.1,
+                    4.0,
+                ) {
                     self.divider_dragging = Some(hit);
                     return;
                 }
-                if let Some(pane_id) = tab.pane_root.pane_at_position(content_rect, self.mouse_pixel.0, self.mouse_pixel.1) {
+                if let Some(pane_id) = tab.pane_root.pane_at_position(
+                    content_rect,
+                    self.mouse_pixel.0,
+                    self.mouse_pixel.1,
+                ) {
                     if pane_id != tab.active_pane_id {
                         let tab = &mut self.tabs[self.active_tab];
                         tab.active_pane_id = pane_id;
@@ -888,7 +1250,9 @@ impl App {
                 let content_rect = self.content_rect();
                 let tab = &self.tabs[self.active_tab];
                 let leaves = tab.pane_root.collect_leaves_with_rects(content_rect);
-                if let Some((_, pane_rect)) = leaves.iter().find(|(id, _)| *id == tab.active_pane_id) {
+                if let Some((_, pane_rect)) =
+                    leaves.iter().find(|(id, _)| *id == tab.active_pane_id)
+                {
                     let scrollbar_width = 12.0;
                     let pane_right = (pane_rect.x + pane_rect.width) as f64;
                     if self.mouse_pixel.0 >= pane_right - scrollbar_width
@@ -914,20 +1278,30 @@ impl App {
         }
         let tab = &mut self.tabs[self.active_tab];
         let active_id = tab.active_pane_id;
-        let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) else { return; };
+        let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) else {
+            return;
+        };
         let modes = leaf.terminal.screen().modes().clone();
         if !modes.mouse_tracking_enabled() {
             if button == MouseButton::Left {
                 let col = self.mouse_cell.0 as usize;
                 let row = self.mouse_cell.1 as isize - leaf.scroll_offset as isize;
                 if state == ElementState::Pressed {
-                    leaf.terminal.screen_mut().selection_mut().start(Point::new(col, row), SelectionType::Normal);
+                    leaf.terminal
+                        .screen_mut()
+                        .selection_mut()
+                        .start(Point::new(col, row), SelectionType::Normal);
                     self.needs_redraw = true;
                 } else {
                     leaf.terminal.screen_mut().selection_mut().finish();
                 }
             }
-            let idx = match button { MouseButton::Left => 0, MouseButton::Middle => 1, MouseButton::Right => 2, _ => return };
+            let idx = match button {
+                MouseButton::Left => 0,
+                MouseButton::Middle => 1,
+                MouseButton::Right => 2,
+                _ => return,
+            };
             self.mouse_buttons[idx] = state == ElementState::Pressed;
             return;
         }
@@ -936,20 +1310,33 @@ impl App {
         } else {
             MouseEvent::Release(button, self.mouse_cell.0, self.mouse_cell.1)
         };
-        if let Some(data) = encode_mouse(event, modes.mouse_sgr, modes.mouse_button_event, modes.mouse_any_event) {
+        if let Some(data) = encode_mouse(
+            event,
+            modes.mouse_sgr,
+            modes.mouse_button_event,
+            modes.mouse_any_event,
+        ) {
             let _ = leaf.child.write_all(&data);
         }
-        let idx = match button { MouseButton::Left => 0, MouseButton::Middle => 1, MouseButton::Right => 2, _ => return };
+        let idx = match button {
+            MouseButton::Left => 0,
+            MouseButton::Middle => 1,
+            MouseButton::Right => 2,
+            _ => return,
+        };
         self.mouse_buttons[idx] = state == ElementState::Pressed;
     }
 
     fn handle_mouse_motion(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
         self.mouse_pixel = (position.x, position.y);
-        if self.tabs.is_empty() { return; }
+        if self.tabs.is_empty() {
+            return;
+        }
         if let Some(hit) = self.divider_dragging {
             let content_rect = self.content_rect();
             let tab = &mut self.tabs[self.active_tab];
-            tab.pane_root.update_divider_ratio(content_rect, &hit, position.x, position.y);
+            tab.pane_root
+                .update_divider_ratio(content_rect, &hit, position.x, position.y);
             self.needs_redraw = true;
             return;
         }
@@ -966,11 +1353,17 @@ impl App {
                     if scrollback_len > 0 && pane_height > 0.0 {
                         let delta_y = position.y - self.scrollbar_drag_start_y;
                         let total_lines = scrollback_len + visible_rows;
-                        let thumb_height = ((visible_rows as f64 / total_lines as f64) * pane_height).max(20.0);
+                        let thumb_height =
+                            ((visible_rows as f64 / total_lines as f64) * pane_height).max(20.0);
                         let scroll_range = pane_height - thumb_height;
                         if scroll_range > 0.0 {
-                            let scroll_delta = (-delta_y / scroll_range * scrollback_len as f64) as isize;
-                            let new_offset = (self.scrollbar_drag_start_offset as isize + scroll_delta).max(0).min(scrollback_len as isize) as usize;
+                            let scroll_delta =
+                                (-delta_y / scroll_range * scrollback_len as f64) as isize;
+                            let new_offset = (self.scrollbar_drag_start_offset as isize
+                                + scroll_delta)
+                                .max(0)
+                                .min(scrollback_len as isize)
+                                as usize;
                             if new_offset != leaf.scroll_offset {
                                 leaf.scroll_offset = new_offset;
                                 self.needs_redraw = true;
@@ -981,7 +1374,9 @@ impl App {
             }
             return;
         }
-        let Some(renderer) = &self.renderer else { return; };
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
         let cell_size = renderer.cell_size();
         let content_rect = self.content_rect();
         let tab = &mut self.tabs[self.active_tab];
@@ -992,20 +1387,34 @@ impl App {
             let local_y = (position.y - pane_rect.y as f64).max(0.0);
             let col = (local_x / cell_size.width as f64) as u16;
             let row = (local_y / cell_size.height as f64) as u16;
-            if col == self.mouse_cell.0 && row == self.mouse_cell.1 { return; }
+            if col == self.mouse_cell.0 && row == self.mouse_cell.1 {
+                return;
+            }
             self.mouse_cell = (col, row);
-            let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) else { return; };
+            let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) else {
+                return;
+            };
             let modes = leaf.terminal.screen().modes().clone();
             if !modes.mouse_tracking_enabled() && self.mouse_buttons[0] {
                 let sel_col = col as usize;
                 let sel_row = row as isize - leaf.scroll_offset as isize;
-                leaf.terminal.screen_mut().selection_mut().update(Point::new(sel_col, sel_row));
+                leaf.terminal
+                    .screen_mut()
+                    .selection_mut()
+                    .update(Point::new(sel_col, sel_row));
                 self.needs_redraw = true;
                 return;
             }
-            if modes.mouse_any_event || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b)) {
+            if modes.mouse_any_event
+                || (modes.mouse_button_event && self.mouse_buttons.iter().any(|&b| b))
+            {
                 let event = MouseEvent::Move(col, row);
-                if let Some(data) = encode_mouse(event, modes.mouse_sgr, modes.mouse_button_event, modes.mouse_any_event) {
+                if let Some(data) = encode_mouse(
+                    event,
+                    modes.mouse_sgr,
+                    modes.mouse_button_event,
+                    modes.mouse_any_event,
+                ) {
                     let _ = leaf.child.write_all(&data);
                 }
             }
@@ -1013,36 +1422,60 @@ impl App {
     }
 
     fn handle_mouse_scroll(&mut self, delta: MouseScrollDelta) {
-        if self.tabs.is_empty() { return; }
+        if self.tabs.is_empty() {
+            return;
+        }
         let tab = &mut self.tabs[self.active_tab];
         let active_id = tab.active_pane_id;
-        let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) else { return; };
+        let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) else {
+            return;
+        };
         let modes = leaf.terminal.screen().modes().clone();
         let lines = match delta {
             MouseScrollDelta::LineDelta(_, y) => y as i32,
             MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as i32,
         };
-        if lines == 0 { return; }
+        if lines == 0 {
+            return;
+        }
         if modes.mouse_tracking_enabled() || modes.alternate_screen {
-            let event = MouseEvent::Scroll { x: self.mouse_cell.0, y: self.mouse_cell.1, delta: lines as i8 };
-            if let Some(data) = encode_mouse(event, modes.mouse_sgr, modes.mouse_button_event, modes.mouse_any_event) {
+            let event = MouseEvent::Scroll {
+                x: self.mouse_cell.0,
+                y: self.mouse_cell.1,
+                delta: lines as i8,
+            };
+            if let Some(data) = encode_mouse(
+                event,
+                modes.mouse_sgr,
+                modes.mouse_button_event,
+                modes.mouse_any_event,
+            ) {
                 let _ = leaf.child.write_all(&data);
             }
         } else {
             let scrollback_len = leaf.terminal.screen().scrollback().len();
-            if lines > 0 { leaf.scroll_offset = (leaf.scroll_offset + lines as usize).min(scrollback_len); }
-            else { leaf.scroll_offset = leaf.scroll_offset.saturating_sub((-lines) as usize); }
+            if lines > 0 {
+                leaf.scroll_offset = (leaf.scroll_offset + lines as usize).min(scrollback_len);
+            } else {
+                leaf.scroll_offset = leaf.scroll_offset.saturating_sub((-lines) as usize);
+            }
             self.needs_redraw = true;
         }
     }
 
     fn handle_copy(&mut self) {
-        if self.tabs.is_empty() { return; }
+        if self.tabs.is_empty() {
+            return;
+        }
         let tab = &self.tabs[self.active_tab];
-        let Some(leaf) = tab.pane_root.find_leaf(tab.active_pane_id) else { return; };
+        let Some(leaf) = tab.pane_root.find_leaf(tab.active_pane_id) else {
+            return;
+        };
         let screen = leaf.terminal.screen();
         let selection = screen.selection();
-        if selection.is_empty() { return; }
+        if selection.is_empty() {
+            return;
+        }
         let (start, end) = selection.bounds();
         let mut text = String::new();
         let cols = screen.cols();
@@ -1054,40 +1487,66 @@ impl App {
                 if let Some(line) = screen.scrollback().get_from_end(scrollback_idx) {
                     let line_text = line.text();
                     let chars: Vec<char> = line_text.chars().collect();
-                    for ch in chars.iter().take(end_col.min(chars.len())).skip(start_col) { text.push(*ch); }
+                    for ch in chars.iter().take(end_col.min(chars.len())).skip(start_col) {
+                        text.push(*ch);
+                    }
                 }
             } else if (row as usize) < screen.grid().rows() {
                 let line = screen.line(row as usize);
                 let line_text = line.text();
                 let chars: Vec<char> = line_text.chars().collect();
-                for ch in chars.iter().take(end_col.min(chars.len())).skip(start_col) { text.push(*ch); }
+                for ch in chars.iter().take(end_col.min(chars.len())).skip(start_col) {
+                    text.push(*ch);
+                }
             }
             if row < end.row {
-                while text.ends_with(' ') { text.pop(); }
+                while text.ends_with(' ') {
+                    text.pop();
+                }
                 text.push('\n');
             }
         }
         let text = text.trim_end().to_string();
-        if text.is_empty() { return; }
-        let Some(clipboard) = &mut self.clipboard else { return; };
-        if let Err(e) = clipboard.set_text(&text) { log::warn!("Failed to copy: {}", e); }
+        if text.is_empty() {
+            return;
+        }
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+        if let Err(e) = clipboard.set_text(&text) {
+            log::warn!("Failed to copy: {}", e);
+        }
     }
 
     fn handle_paste(&mut self) {
-        let Some(clipboard) = &mut self.clipboard else { return; };
-        if self.tabs.is_empty() { return; }
+        let Some(clipboard) = &mut self.clipboard else {
+            return;
+        };
+        if self.tabs.is_empty() {
+            return;
+        }
         let tab = &mut self.tabs[self.active_tab];
         let active_id = tab.active_pane_id;
-        let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) else { return; };
+        let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) else {
+            return;
+        };
         match clipboard.get_text() {
             Ok(text) => {
-                if text.is_empty() { return; }
+                if text.is_empty() {
+                    return;
+                }
                 let data = if leaf.terminal.screen().modes().bracketed_paste {
                     encode_bracketed_paste(&text)
-                } else { text.into_bytes() };
-                if let Err(e) = leaf.child.write_all(&data) { log::warn!("Paste error: {}", e); }
+                } else {
+                    text.into_bytes()
+                };
+                if let Err(e) = leaf.child.write_all(&data) {
+                    log::warn!("Paste error: {}", e);
+                }
             }
-            Err(e) => { log::warn!("Clipboard error: {}", e); }
+            Err(e) => {
+                log::warn!("Clipboard error: {}", e);
+            }
         }
     }
 
@@ -1099,8 +1558,15 @@ impl App {
     fn handle_new_window(&mut self) {
         if let Ok(exe_path) = std::env::current_exe() {
             match std::process::Command::new(&exe_path).spawn() {
-                Ok(child) => { std::thread::spawn(move || { let mut child = child; let _ = child.wait(); }); }
-                Err(e) => { log::error!("Failed to spawn window: {}", e); }
+                Ok(child) => {
+                    std::thread::spawn(move || {
+                        let mut child = child;
+                        let _ = child.wait();
+                    });
+                }
+                Err(e) => {
+                    log::error!("Failed to spawn window: {}", e);
+                }
             }
         }
     }
@@ -1112,10 +1578,14 @@ impl App {
                 self.config.font = new_config.font.clone();
                 self.config.keybindings = new_config.keybindings.clone();
                 self.config.security = new_config.security.clone();
-                if let Some(renderer) = &mut self.renderer { renderer.set_colors(self.config.effective_colors()); }
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.set_colors(self.config.effective_colors());
+                }
                 self.needs_redraw = true;
             }
-            None => { log::warn!("No config file found"); }
+            None => {
+                log::warn!("No config file found");
+            }
         }
     }
 
@@ -1123,13 +1593,17 @@ impl App {
     fn handle_toggle_theme(&mut self) {
         let new_theme = self.config.theme.next();
         self.config.theme = new_theme;
-        if let Some(renderer) = &mut self.renderer { renderer.set_colors(self.config.effective_colors()); }
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_colors(self.config.effective_colors());
+        }
         self.needs_redraw = true;
     }
 
     fn handle_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if self.tabs.is_empty() { return; }
+        if self.tabs.is_empty() {
+            return;
+        }
         let tab = &mut self.tabs[self.active_tab];
         let active_id = tab.active_pane_id;
         if let Some(leaf) = tab.pane_root.find_leaf_mut(active_id) {
@@ -1149,20 +1623,31 @@ impl App {
                 loop {
                     match leaf.child.pty_mut().try_read(&mut buf) {
                         Ok(0) => break,
-                        Ok(n) => { leaf.terminal.process(&buf[..n]); received_output = true; }
+                        Ok(n) => {
+                            leaf.terminal.process(&buf[..n]);
+                            received_output = true;
+                        }
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                         Err(_) => break,
                     }
                 }
                 if received_output {
                     any_output = true;
-                    if leaf.scroll_offset > 0 { leaf.scroll_offset = 0; }
+                    if leaf.scroll_offset > 0 {
+                        leaf.scroll_offset = 0;
+                    }
                 }
-                if leaf.terminal.take_title_changed() { leaf.title = leaf.terminal.title().to_string(); }
-                if leaf.terminal.take_bell() { log::debug!("Bell!"); }
+                if leaf.terminal.take_title_changed() {
+                    leaf.title = leaf.terminal.title().to_string();
+                }
+                if leaf.terminal.take_bell() {
+                    log::debug!("Bell!");
+                }
                 let responses = leaf.terminal.take_pending_responses();
                 for response in responses {
-                    if let Err(e) = leaf.child.write_all(&response) { log::warn!("Response error: {}", e); }
+                    if let Err(e) = leaf.child.write_all(&response) {
+                        log::warn!("Response error: {}", e);
+                    }
                 }
             });
             if tab_idx == self.active_tab {
@@ -1170,31 +1655,57 @@ impl App {
                 if let Some(leaf) = tab.pane_root.find_leaf(active_pane_id) {
                     if let Some(window) = &self.window {
                         let pane_count = tab.pane_root.leaf_count();
-                        if pane_count > 1 { window.set_title(&format!("{} [{} panes]", leaf.title, pane_count)); }
-                        else { window.set_title(&leaf.title); }
+                        if pane_count > 1 {
+                            window.set_title(&format!("{} [{} panes]", leaf.title, pane_count));
+                        } else {
+                            window.set_title(&leaf.title);
+                        }
                     }
                 }
             }
         }
-        if any_output { self.needs_redraw = true; }
+        if any_output {
+            self.needs_redraw = true;
+        }
     }
 
     fn render(&mut self) {
-        if self.renderer.is_none() || self.tabs.is_empty() { return; }
+        if self.renderer.is_none() || self.tabs.is_empty() {
+            return;
+        }
         let content_rect = self.content_rect();
         let tab_bar_height = self.tab_bar_height;
         let active_tab = self.active_tab;
-        let tab_infos: Vec<TabInfo<'_>> = self.tabs.iter().map(|t| TabInfo { title: t.title() }).collect();
+        let tab_infos: Vec<TabInfo<'_>> = self
+            .tabs
+            .iter()
+            .map(|t| TabInfo { title: t.title() })
+            .collect();
         let tab = &self.tabs[active_tab];
         let leaves = tab.pane_root.collect_leaves_with_rects(content_rect);
-        let pane_renders: Vec<_> = leaves.iter().filter_map(|(id, rect)| {
-            tab.pane_root.find_leaf(*id).map(|leaf| {
-                (*id, *rect, leaf.terminal.screen(), leaf.scroll_offset, *id == tab.active_pane_id)
+        let pane_renders: Vec<_> = leaves
+            .iter()
+            .filter_map(|(id, rect)| {
+                tab.pane_root.find_leaf(*id).map(|leaf| {
+                    (
+                        *id,
+                        *rect,
+                        leaf.terminal.screen(),
+                        leaf.scroll_offset,
+                        *id == tab.active_pane_id,
+                    )
+                })
             })
-        }).collect();
+            .collect();
         let dividers = tab.pane_root.collect_dividers(content_rect);
         let renderer = self.renderer.as_mut().unwrap();
-        if let Err(e) = renderer.render_panes(&pane_renders, &dividers, tab_bar_height, &tab_infos, active_tab) {
+        if let Err(e) = renderer.render_panes(
+            &pane_renders,
+            &dividers,
+            tab_bar_height,
+            &tab_infos,
+            active_tab,
+        ) {
             log::warn!("Render error: {:?}", e);
         }
         self.needs_redraw = false;
@@ -1202,16 +1713,22 @@ impl App {
     }
 
     fn check_child(&mut self) -> bool {
-        if self.tabs.is_empty() { return false; }
+        if self.tabs.is_empty() {
+            return false;
+        }
         self.tabs.retain_mut(|tab| {
             let alive = tab.pane_root.retain_living();
             if alive {
                 let ids = tab.pane_root.collect_leaf_ids();
-                if !ids.contains(&tab.active_pane_id) { tab.active_pane_id = tab.pane_root.first_leaf_id(); }
+                if !ids.contains(&tab.active_pane_id) {
+                    tab.active_pane_id = tab.pane_root.first_leaf_id();
+                }
             }
             alive
         });
-        if self.active_tab >= self.tabs.len() { self.active_tab = self.tabs.len().saturating_sub(1); }
+        if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len().saturating_sub(1);
+        }
         !self.tabs.is_empty()
     }
 }
