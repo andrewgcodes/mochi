@@ -1270,13 +1270,15 @@ impl App {
         }
 
         if button == MouseButton::Left && state == ElementState::Pressed {
-            if let Some((pid, _, _)) = self.pane_at_pixel(self.mouse_pixel.0, self.mouse_pixel.1) {
+            if let Some((pid, c, r)) = self.pane_at_pixel(self.mouse_pixel.0, self.mouse_pixel.1) {
                 let tab = &mut self.tabs[self.active_tab];
                 if tab.active_pane != pid {
                     tab.active_pane = pid;
                     tab.sync_title();
                     self.needs_redraw = true;
                 }
+                // Update mouse_cell to coordinates relative to the (possibly new) active pane
+                self.mouse_cell = (c, r);
             }
         }
 
@@ -1807,6 +1809,7 @@ impl App {
                         }
                         tab.root = Some(remaining);
                         tab.sync_title();
+                        self.needs_redraw = true;
                     }
                     None => {
                         tabs_to_remove.push(tab_idx);
@@ -1821,6 +1824,12 @@ impl App {
         }
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
+        }
+        // Resize remaining panes after removing dead ones
+        if !self.tabs.is_empty() && self.needs_redraw {
+            for i in 0..self.tabs.len() {
+                self.resize_all_panes_in_tab(i);
+            }
         }
         !self.tabs.is_empty()
     }
