@@ -1162,8 +1162,8 @@ impl Renderer {
                         continue;
                     }
 
-                    let is_selected =
-                        !selection.is_empty() && selection.contains(col, row as isize);
+                    let sel_row = row as isize - scroll_offset as isize;
+                    let is_selected = !selection.is_empty() && selection.contains(col, sel_row);
                     let is_cursor_position = !is_from_scrollback
                         && scroll_offset == 0
                         && actual_screen_row == Some(cursor.row)
