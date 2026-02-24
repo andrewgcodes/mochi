@@ -881,6 +881,21 @@ impl App {
                 .neighbor_in_direction(content_rect, tab.active_pane_id, nav_direction)
         {
             tab.active_pane_id = neighbor_id;
+            // Recalculate mouse_cell relative to the new active pane
+            if let Some(renderer) = &self.renderer {
+                let cell_size = renderer.cell_size();
+                let leaves = self.tabs[self.active_tab]
+                    .pane_root
+                    .collect_leaves_with_rects(content_rect);
+                if let Some((_, pane_rect)) = leaves.iter().find(|(id, _)| *id == neighbor_id) {
+                    let local_x = (self.mouse_pixel.0 - pane_rect.x as f64).max(0.0);
+                    let local_y = (self.mouse_pixel.1 - pane_rect.y as f64).max(0.0);
+                    self.mouse_cell = (
+                        (local_x / cell_size.width as f64) as u16,
+                        (local_y / cell_size.height as f64) as u16,
+                    );
+                }
+            }
             self.needs_redraw = true;
         }
     }
@@ -1227,6 +1242,7 @@ impl App {
                     if pane_id != tab.active_pane_id {
                         let tab = &mut self.tabs[self.active_tab];
                         tab.active_pane_id = pane_id;
+                        self.mouse_buttons[0] = true;
                         self.needs_redraw = true;
                         return;
                     }
