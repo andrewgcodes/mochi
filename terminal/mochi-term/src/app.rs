@@ -99,6 +99,9 @@ enum PaneNode {
         first: Box<PaneNode>,
         second: Box<PaneNode>,
     },
+    /// Temporary placeholder used during tree surgery to avoid spawning dummy processes.
+    /// Must never be observed outside of a `std::mem::replace` sequence.
+    Placeholder,
 }
 
 impl PaneNode {
@@ -110,6 +113,7 @@ impl PaneNode {
         match self {
             PaneNode::Leaf(leaf) => leaf.id,
             PaneNode::Split { first, .. } => first.first_leaf_id(),
+            PaneNode::Placeholder => 0,
         }
     }
 
@@ -125,6 +129,7 @@ impl PaneNode {
             PaneNode::Split { first, second, .. } => {
                 first.find_leaf_mut(id).or_else(|| second.find_leaf_mut(id))
             }
+            PaneNode::Placeholder => None,
         }
     }
 
@@ -140,6 +145,7 @@ impl PaneNode {
             PaneNode::Split { first, second, .. } => {
                 first.find_leaf(id).or_else(|| second.find_leaf(id))
             }
+            PaneNode::Placeholder => None,
         }
     }
 
@@ -151,12 +157,14 @@ impl PaneNode {
                 ids.extend(second.collect_leaf_ids());
                 ids
             }
+            PaneNode::Placeholder => vec![],
         }
     }
 
     fn collect_leaves_with_rects(&self, rect: PaneRect) -> Vec<(PaneId, PaneRect)> {
         match self {
             PaneNode::Leaf(leaf) => vec![(leaf.id, rect)],
+            PaneNode::Placeholder => vec![],
             PaneNode::Split {
                 direction,
                 ratio,
@@ -173,7 +181,7 @@ impl PaneNode {
 
     fn collect_dividers(&self, rect: PaneRect) -> Vec<(PaneRect, SplitDirection)> {
         match self {
-            PaneNode::Leaf(_) => vec![],
+            PaneNode::Leaf(_) | PaneNode::Placeholder => vec![],
             PaneNode::Split {
                 direction,
                 ratio,
@@ -193,6 +201,7 @@ impl PaneNode {
     fn contains_leaf(&self, id: PaneId) -> bool {
         match self {
             PaneNode::Leaf(leaf) => leaf.id == id,
+            PaneNode::Placeholder => false,
             PaneNode::Split { first, second, .. } => {
                 first.contains_leaf(id) || second.contains_leaf(id)
             }
@@ -208,10 +217,8 @@ impl PaneNode {
     ) -> bool {
         match self {
             PaneNode::Leaf(leaf) if leaf.id == id => {
-                let dummy_terminal = Terminal::new(1, 1);
-                let dummy_child = Child::spawn_shell(WindowSize::new(1, 1)).expect("spawn dummy");
-                let mut dummy_leaf = Box::new(LeafPane::new(dummy_terminal, dummy_child));
-                std::mem::swap(leaf, &mut dummy_leaf);
+                // Take ownership of the existing leaf by swapping in a lightweight placeholder
+                let old_self = std::mem::replace(self, PaneNode::Placeholder);
                 let new_leaf = LeafPane {
                     id: next_pane_id(),
                     terminal: new_terminal,
@@ -222,12 +229,12 @@ impl PaneNode {
                 *self = PaneNode::Split {
                     direction,
                     ratio: 0.5,
-                    first: Box::new(PaneNode::Leaf(dummy_leaf)),
+                    first: Box::new(old_self),
                     second: Box::new(PaneNode::Leaf(Box::new(new_leaf))),
                 };
                 true
             }
-            PaneNode::Leaf(_) => false,
+            PaneNode::Leaf(_) | PaneNode::Placeholder => false,
             PaneNode::Split { first, second, .. } => {
                 if first.contains_leaf(id) {
                     first.split_leaf(id, direction, new_terminal, new_child)
@@ -240,7 +247,7 @@ impl PaneNode {
 
     fn remove_leaf(&mut self, id: PaneId) -> RemoveResult {
         match self {
-            PaneNode::Leaf(_) => RemoveResult::NotFound,
+            PaneNode::Leaf(_) | PaneNode::Placeholder => RemoveResult::NotFound,
             PaneNode::Split { first, second, .. } => {
                 if let PaneNode::Leaf(leaf) = first.as_ref() {
                     if leaf.id == id {
@@ -255,20 +262,14 @@ impl PaneNode {
                 match first.remove_leaf(id) {
                     RemoveResult::PromoteSibling => {
                         if let PaneNode::Split { second: s2, .. } = first.as_mut() {
-                            let promoted = std::mem::replace(
-                                s2.as_mut(),
-                                PaneNode::Leaf(Box::new(make_dummy_leaf())),
-                            );
+                            let promoted = std::mem::replace(s2.as_mut(), PaneNode::Placeholder);
                             **first = promoted;
                         }
                         return RemoveResult::NotFound;
                     }
                     RemoveResult::PromoteFirst => {
                         if let PaneNode::Split { first: f1, .. } = first.as_mut() {
-                            let promoted = std::mem::replace(
-                                f1.as_mut(),
-                                PaneNode::Leaf(Box::new(make_dummy_leaf())),
-                            );
+                            let promoted = std::mem::replace(f1.as_mut(), PaneNode::Placeholder);
                             **first = promoted;
                         }
                         return RemoveResult::NotFound;
@@ -278,20 +279,14 @@ impl PaneNode {
                 match second.remove_leaf(id) {
                     RemoveResult::PromoteSibling => {
                         if let PaneNode::Split { second: s2, .. } = second.as_mut() {
-                            let promoted = std::mem::replace(
-                                s2.as_mut(),
-                                PaneNode::Leaf(Box::new(make_dummy_leaf())),
-                            );
+                            let promoted = std::mem::replace(s2.as_mut(), PaneNode::Placeholder);
                             **second = promoted;
                         }
                         return RemoveResult::NotFound;
                     }
                     RemoveResult::PromoteFirst => {
                         if let PaneNode::Split { first: f1, .. } = second.as_mut() {
-                            let promoted = std::mem::replace(
-                                f1.as_mut(),
-                                PaneNode::Leaf(Box::new(make_dummy_leaf())),
-                            );
+                            let promoted = std::mem::replace(f1.as_mut(), PaneNode::Placeholder);
                             **second = promoted;
                         }
                         return RemoveResult::NotFound;
@@ -306,6 +301,7 @@ impl PaneNode {
     fn leaf_count(&self) -> usize {
         match self {
             PaneNode::Leaf(_) => 1,
+            PaneNode::Placeholder => 0,
             PaneNode::Split { first, second, .. } => first.leaf_count() + second.leaf_count(),
         }
     }
@@ -313,6 +309,7 @@ impl PaneNode {
     fn for_each_leaf_mut<F: FnMut(&mut LeafPane)>(&mut self, f: &mut F) {
         match self {
             PaneNode::Leaf(leaf) => f(leaf),
+            PaneNode::Placeholder => {}
             PaneNode::Split { first, second, .. } => {
                 first.for_each_leaf_mut(f);
                 second.for_each_leaf_mut(f);
@@ -323,6 +320,7 @@ impl PaneNode {
     fn retain_living(&mut self) -> bool {
         match self {
             PaneNode::Leaf(leaf) => leaf.child.is_running(),
+            PaneNode::Placeholder => false,
             PaneNode::Split { first, second, .. } => {
                 let first_alive = first.retain_living();
                 let second_alive = second.retain_living();
@@ -330,18 +328,12 @@ impl PaneNode {
                     return false;
                 }
                 if !first_alive {
-                    let promoted = std::mem::replace(
-                        second.as_mut(),
-                        PaneNode::Leaf(Box::new(make_dummy_leaf())),
-                    );
+                    let promoted = std::mem::replace(second.as_mut(), PaneNode::Placeholder);
                     *self = promoted;
                     return true;
                 }
                 if !second_alive {
-                    let promoted = std::mem::replace(
-                        first.as_mut(),
-                        PaneNode::Leaf(Box::new(make_dummy_leaf())),
-                    );
+                    let promoted = std::mem::replace(first.as_mut(), PaneNode::Placeholder);
                     *self = promoted;
                     return true;
                 }
@@ -352,6 +344,7 @@ impl PaneNode {
 
     fn pane_at_position(&self, rect: PaneRect, px: f64, py: f64) -> Option<PaneId> {
         match self {
+            PaneNode::Placeholder => None,
             PaneNode::Leaf(leaf) => {
                 if px >= rect.x as f64
                     && px < (rect.x + rect.width) as f64
@@ -385,7 +378,7 @@ impl PaneNode {
         tolerance: f64,
     ) -> Option<DividerHit> {
         match self {
-            PaneNode::Leaf(_) => None,
+            PaneNode::Leaf(_) | PaneNode::Placeholder => None,
             PaneNode::Split {
                 direction,
                 ratio,
@@ -423,7 +416,7 @@ impl PaneNode {
 
     fn update_divider_ratio(&mut self, rect: PaneRect, hit: &DividerHit, px: f64, py: f64) -> bool {
         match self {
-            PaneNode::Leaf(_) => false,
+            PaneNode::Leaf(_) | PaneNode::Placeholder => false,
             PaneNode::Split {
                 direction,
                 ratio,
@@ -493,18 +486,6 @@ enum RemoveResult {
     NotFound,
     PromoteSibling,
     PromoteFirst,
-}
-
-fn make_dummy_leaf() -> LeafPane {
-    let terminal = Terminal::new(1, 1);
-    let child = Child::spawn_shell(WindowSize::new(1, 1)).expect("spawn dummy");
-    LeafPane {
-        id: 0,
-        terminal,
-        child,
-        title: String::new(),
-        scroll_offset: 0,
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -812,19 +793,13 @@ impl App {
         match result {
             RemoveResult::PromoteSibling => {
                 if let PaneNode::Split { second, .. } = &mut tab.pane_root {
-                    let promoted = std::mem::replace(
-                        second.as_mut(),
-                        PaneNode::Leaf(Box::new(make_dummy_leaf())),
-                    );
+                    let promoted = std::mem::replace(second.as_mut(), PaneNode::Placeholder);
                     tab.pane_root = promoted;
                 }
             }
             RemoveResult::PromoteFirst => {
                 if let PaneNode::Split { first, .. } = &mut tab.pane_root {
-                    let promoted = std::mem::replace(
-                        first.as_mut(),
-                        PaneNode::Leaf(Box::new(make_dummy_leaf())),
-                    );
+                    let promoted = std::mem::replace(first.as_mut(), PaneNode::Placeholder);
                     tab.pane_root = promoted;
                 }
             }
