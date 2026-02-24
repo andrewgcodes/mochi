@@ -1094,13 +1094,13 @@ impl App {
             let new_ratio = match drag.direction {
                 SplitDirection::Vertical => {
                     let parent_x = drag.parent_rect.x as f64;
-                    let parent_w = drag.parent_rect.w as f64;
-                    ((position.x - parent_x) / parent_w) as f32
+                    let usable_w = (drag.parent_rect.w - DIVIDER_WIDTH) as f64;
+                    ((position.x - parent_x) / usable_w) as f32
                 }
                 SplitDirection::Horizontal => {
                     let parent_y = drag.parent_rect.y as f64;
-                    let parent_h = drag.parent_rect.h as f64;
-                    ((position.y - parent_y) / parent_h) as f32
+                    let usable_h = (drag.parent_rect.h - DIVIDER_WIDTH) as f64;
+                    ((position.y - parent_y) / usable_h) as f32
                 }
             };
 
@@ -1510,7 +1510,7 @@ impl App {
                     }
                 }
 
-                if received_output {
+                if received_output && is_active_tab && !pane.terminal.is_synchronized_output() {
                     any_output = true;
                 }
 
