@@ -827,7 +827,7 @@ impl App {
             if state == ElementState::Pressed {
                 // Check if click is on the focused pane's scrollbar
                 let content_rect = self.content_rect();
-                let scrollbar_width = 12.0_f64;
+                let scrollbar_width = 8.0_f64;
                 let tab = &self.tabs[self.active_tab];
                 let focused_id = tab.panes.focused_pane_id;
                 let layouts = tab.panes.layout(content_rect);
