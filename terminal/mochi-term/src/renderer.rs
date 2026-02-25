@@ -12,6 +12,7 @@ use terminal_core::{Color, Screen, Selection};
 use winit::window::Window;
 
 use crate::config::ColorScheme;
+use crate::split::{divider_rects, PaneRect, SplitPaneContainer};
 
 /// Information about a tab for rendering
 pub struct TabInfo<'a> {
@@ -414,6 +415,395 @@ impl Renderer {
         buffer.present()?;
 
         Ok(())
+    }
+
+    /// Render all panes in a split pane container.
+    ///
+    /// Draws the tab bar, then renders each pane in its own viewport region,
+    /// draws dividers between panes, and highlights the focused pane border.
+    pub fn render_split_panes(
+        &mut self,
+        container: &SplitPaneContainer,
+        content_rect: PaneRect,
+        tab_bar_height: u32,
+        tabs: &[TabInfo<'_>],
+        active_tab: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let width = self.width;
+        let height = self.height;
+
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+
+        // Resize surface
+        self.surface.resize(
+            NonZeroU32::new(width).unwrap(),
+            NonZeroU32::new(height).unwrap(),
+        )?;
+
+        let bg_color = self.colors.background_rgb();
+        let fg_color = self.colors.foreground_rgb();
+
+        // Pre-cache glyphs for tab titles
+        for tab in tabs {
+            for c in tab.title.chars() {
+                if c != ' ' {
+                    self.ensure_glyph_cached(c, false);
+                }
+            }
+        }
+        self.ensure_glyph_cached('+', false);
+        self.ensure_glyph_cached('x', false);
+
+        // Pre-cache glyphs for all panes
+        let layouts = container.layout(content_rect);
+        let cell_width_px = self.cell_size.width;
+        let cell_height_px = self.cell_size.height;
+
+        for (pane_id, _rect) in &layouts {
+            if let Some(pane) = container.root().find_pane(*pane_id) {
+                let screen = pane.terminal.screen();
+                let rows = screen.rows();
+                let cols = screen.cols();
+                let scrollback = screen.scrollback();
+                let scrollback_len = scrollback.len();
+                let scroll_offset = pane.scroll_offset;
+
+                for row in 0..rows {
+                    let line = if scroll_offset > 0 {
+                        let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                        if scrollback_row < scrollback_len {
+                            if let Some(sb_line) = scrollback.get(scrollback_row) {
+                                for col in 0..cols.min(sb_line.cols()) {
+                                    let cell = sb_line.cell(col);
+                                    if !cell.is_continuation() && !cell.is_empty() {
+                                        let c = cell.display_char();
+                                        if c != ' ' {
+                                            self.ensure_glyph_cached(c, cell.attrs.bold);
+                                        }
+                                    }
+                                }
+                            }
+                            continue;
+                        } else {
+                            let screen_row = scrollback_row - scrollback_len;
+                            if screen_row < rows {
+                                screen.line(screen_row)
+                            } else {
+                                continue;
+                            }
+                        }
+                    } else {
+                        screen.line(row)
+                    };
+
+                    for col in 0..cols.min(line.cols()) {
+                        let cell = line.cell(col);
+                        if !cell.is_continuation() && !cell.is_empty() {
+                            let c = cell.display_char();
+                            if c != ' ' {
+                                self.ensure_glyph_cached(c, cell.attrs.bold);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut buffer = self.surface.buffer_mut()?;
+
+        // Clear with background color
+        let bg_pixel = Self::rgb_to_pixel(bg_color.0, bg_color.1, bg_color.2);
+        buffer.fill(bg_pixel);
+
+        // Draw tab bar
+        if tab_bar_height > 0 && !tabs.is_empty() {
+            Self::draw_tab_bar_static(
+                &mut buffer,
+                &self.glyph_cache,
+                tabs,
+                active_tab,
+                tab_bar_height,
+                width,
+                height,
+                &self.cell_size,
+                bg_color,
+                fg_color,
+            );
+        }
+
+        let sel_color = self.colors.selection_rgb();
+        let cursor_color = self.colors.cursor_rgb();
+        let baseline = self.cell_size.baseline;
+
+        // Render each pane
+        for (pane_id, rect) in &layouts {
+            if let Some(pane) = container.root().find_pane(*pane_id) {
+                let screen = pane.terminal.screen();
+                let selection = screen.selection();
+                let cursor = screen.cursor();
+                let rows = screen.rows();
+                let cols = screen.cols();
+                let scrollback = screen.scrollback();
+                let scrollback_len = scrollback.len();
+                let scroll_offset = pane.scroll_offset;
+
+                for row in 0..rows {
+                    let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
+                        let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
+                        if scrollback_row < scrollback_len {
+                            if let Some(sb_line) = scrollback.get(scrollback_row) {
+                                (sb_line, true, None)
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            let screen_row = scrollback_row - scrollback_len;
+                            if screen_row < rows {
+                                (screen.line(screen_row), false, Some(screen_row))
+                            } else {
+                                continue;
+                            }
+                        }
+                    } else {
+                        (screen.line(row), false, Some(row))
+                    };
+
+                    for col in 0..cols.min(line.cols()) {
+                        let cell = line.cell(col);
+                        if cell.is_continuation() {
+                            continue;
+                        }
+
+                        let x = rect.x as i32 + (col as f32 * cell_width_px) as i32;
+                        let y = rect.y as i32 + (row as f32 * cell_height_px) as i32;
+
+                        let is_selected =
+                            !selection.is_empty() && selection.contains(col, row as isize);
+                        let is_cursor_position = !is_from_scrollback
+                            && scroll_offset == 0
+                            && actual_screen_row == Some(cursor.row)
+                            && cursor.col == col;
+                        let is_solid_cursor = is_cursor_position && cursor.visible;
+                        let is_outline_cursor = is_cursor_position && !cursor.visible;
+
+                        let (fg, bg) = if is_selected {
+                            (fg_color, sel_color)
+                        } else if is_solid_cursor {
+                            (bg_color, cursor_color)
+                        } else {
+                            let fg = Self::resolve_color_static(
+                                &self.colors,
+                                &cell.attrs.effective_fg(),
+                                true,
+                                fg_color,
+                                bg_color,
+                            );
+                            let bg = Self::resolve_color_static(
+                                &self.colors,
+                                &cell.attrs.effective_bg(),
+                                false,
+                                fg_color,
+                                bg_color,
+                            );
+                            (fg, bg)
+                        };
+
+                        let cell_w = (cell.width() as f32 * cell_width_px) as i32;
+                        let cell_h = cell_height_px as i32;
+                        Self::fill_rect_static(
+                            &mut buffer,
+                            x,
+                            y,
+                            cell_w,
+                            cell_h,
+                            bg,
+                            width,
+                            height,
+                        );
+
+                        let c = cell.display_char();
+                        if c != ' ' && !cell.is_empty() {
+                            if let Some(glyph) = self.glyph_cache.get(&(c, cell.attrs.bold)) {
+                                Self::draw_glyph_static(
+                                    &mut buffer,
+                                    x,
+                                    y,
+                                    glyph,
+                                    fg,
+                                    baseline,
+                                    width,
+                                    height,
+                                );
+                            }
+                        }
+
+                        if is_outline_cursor {
+                            Self::draw_rect_outline_static(
+                                &mut buffer,
+                                x,
+                                y,
+                                cell_w,
+                                cell_h,
+                                cursor_color,
+                                width,
+                                height,
+                            );
+                        }
+                    }
+                }
+
+                // Draw scrollbar for this pane if it has scrollback
+                if scrollback_len > 0 {
+                    Self::draw_scrollbar_in_rect(
+                        &mut buffer,
+                        scroll_offset,
+                        scrollback_len,
+                        rows,
+                        rect,
+                        width,
+                        height,
+                    );
+                }
+            }
+        }
+
+        // Draw dividers between panes
+        let dividers = divider_rects(container.root(), content_rect);
+        let divider_color = Self::blend_color(bg_color, (128, 128, 128), 0.5);
+        for (div_rect, _dir) in &dividers {
+            Self::fill_rect_static(
+                &mut buffer,
+                div_rect.x as i32,
+                div_rect.y as i32,
+                div_rect.width as i32,
+                div_rect.height as i32,
+                divider_color,
+                width,
+                height,
+            );
+        }
+
+        // Draw focused pane border indicator (if there are multiple panes)
+        if container.pane_count() > 1 {
+            if let Some((_, focused_rect)) = layouts
+                .iter()
+                .find(|(id, _)| *id == container.focused_pane_id)
+            {
+                let accent = Self::blend_color(fg_color, (100, 149, 237), 0.5);
+                // Top border
+                Self::fill_rect_static(
+                    &mut buffer,
+                    focused_rect.x as i32,
+                    focused_rect.y as i32,
+                    focused_rect.width as i32,
+                    2,
+                    accent,
+                    width,
+                    height,
+                );
+                // Bottom border
+                Self::fill_rect_static(
+                    &mut buffer,
+                    focused_rect.x as i32,
+                    (focused_rect.y + focused_rect.height).saturating_sub(2) as i32,
+                    focused_rect.width as i32,
+                    2,
+                    accent,
+                    width,
+                    height,
+                );
+                // Left border
+                Self::fill_rect_static(
+                    &mut buffer,
+                    focused_rect.x as i32,
+                    focused_rect.y as i32,
+                    2,
+                    focused_rect.height as i32,
+                    accent,
+                    width,
+                    height,
+                );
+                // Right border
+                Self::fill_rect_static(
+                    &mut buffer,
+                    (focused_rect.x + focused_rect.width).saturating_sub(2) as i32,
+                    focused_rect.y as i32,
+                    2,
+                    focused_rect.height as i32,
+                    accent,
+                    width,
+                    height,
+                );
+            }
+        }
+
+        buffer.present()?;
+        Ok(())
+    }
+
+    /// Draw a scrollbar within a specific pane rect
+    #[allow(clippy::too_many_arguments)]
+    fn draw_scrollbar_in_rect(
+        buffer: &mut [u32],
+        scroll_offset: usize,
+        scrollback_len: usize,
+        visible_rows: usize,
+        pane_rect: &PaneRect,
+        buf_width: u32,
+        buf_height: u32,
+    ) {
+        let scrollbar_width: u32 = 8;
+        let scrollbar_x = pane_rect.x + pane_rect.width - scrollbar_width;
+        let scrollbar_y = pane_rect.y;
+        let scrollbar_height = pane_rect.height;
+
+        if scrollbar_height == 0 {
+            return;
+        }
+
+        let total_lines = scrollback_len + visible_rows;
+        let thumb_height =
+            ((visible_rows as f64 / total_lines as f64) * scrollbar_height as f64).max(20.0) as u32;
+
+        let scroll_range = scrollbar_height.saturating_sub(thumb_height);
+        let thumb_y = if scrollback_len > 0 {
+            let scroll_ratio =
+                (scrollback_len - scroll_offset.min(scrollback_len)) as f64 / scrollback_len as f64;
+            scrollbar_y + (scroll_ratio * scroll_range as f64) as u32
+        } else {
+            scrollbar_y + scroll_range
+        };
+
+        // Track background
+        Self::fill_rect_static(
+            buffer,
+            scrollbar_x as i32,
+            scrollbar_y as i32,
+            scrollbar_width as i32,
+            scrollbar_height as i32,
+            (40, 40, 40),
+            buf_width,
+            buf_height,
+        );
+
+        // Thumb
+        let thumb_color = if scroll_offset > 0 {
+            (120, 120, 120)
+        } else {
+            (80, 80, 80)
+        };
+        Self::fill_rect_static(
+            buffer,
+            scrollbar_x as i32,
+            thumb_y as i32,
+            scrollbar_width as i32,
+            thumb_height as i32,
+            thumb_color,
+            buf_width,
+            buf_height,
+        );
     }
 
     /// Draw a scrollbar on the right side of the terminal (static version)
