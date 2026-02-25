@@ -789,7 +789,8 @@ impl App {
             return;
         }
 
-        // Focus pane on left click in content area
+        // Focus pane on left click in content area and recompute mouse_cell
+        // relative to the newly focused pane's viewport.
         if button == MouseButton::Left && state == ElementState::Pressed {
             let content_rect = self.content_rect();
             let tab = &mut self.tabs[self.active_tab];
@@ -801,20 +802,43 @@ impl App {
                     self.needs_redraw = true;
                 }
             }
+            // Recompute mouse_cell relative to the (possibly new) focused pane
+            if let Some(renderer) = &self.renderer {
+                let cell_size = renderer.cell_size();
+                let focused_id = tab.panes.focused_pane_id;
+                let layouts = tab.panes.layout(content_rect);
+                let (pane_x, pane_y) = layouts
+                    .iter()
+                    .find(|(id, _)| *id == focused_id)
+                    .map(|(_, r)| (r.x as f64, r.y as f64))
+                    .unwrap_or((0.0, self.tab_bar_height as f64));
+                let col = ((self.mouse_pixel.0 - pane_x).max(0.0) / cell_size.width as f64) as u16;
+                let row =
+                    ((self.mouse_pixel.1 - pane_y).max(0.0) / cell_size.height as f64) as u16;
+                self.mouse_cell = (col, row);
+            }
         }
 
         // Handle scrollbar dragging first (left button only)
         if button == MouseButton::Left {
             if state == ElementState::Pressed {
-                // Check if click is on scrollbar (right 12 pixels of window)
-                if let Some(window) = &self.window {
-                    let window_width = window.inner_size().width as f64;
-                    let scrollbar_width = 12.0;
+                // Check if click is on the focused pane's scrollbar
+                let content_rect = self.content_rect();
+                let scrollbar_width = 12.0_f64;
+                let tab = &self.tabs[self.active_tab];
+                let focused_id = tab.panes.focused_pane_id;
+                let layouts = tab.panes.layout(content_rect);
+                if let Some((_, pane_rect)) = layouts.iter().find(|(id, _)| *id == focused_id) {
+                    let sb_left = pane_rect.x as f64 + pane_rect.width as f64 - scrollbar_width;
+                    let sb_right = pane_rect.x as f64 + pane_rect.width as f64;
+                    let pane_top = pane_rect.y as f64;
+                    let pane_bottom = pane_rect.y as f64 + pane_rect.height as f64;
 
-                    if self.mouse_pixel.0 >= window_width - scrollbar_width
-                        && self.mouse_pixel.1 >= self.tab_bar_height as f64
+                    if self.mouse_pixel.0 >= sb_left
+                        && self.mouse_pixel.0 < sb_right
+                        && self.mouse_pixel.1 >= pane_top
+                        && self.mouse_pixel.1 < pane_bottom
                     {
-                        let tab = &self.tabs[self.active_tab];
                         if let Some(pane) = tab.panes.focused_pane() {
                             let scrollback_len = pane.terminal.screen().scrollback().len();
                             if scrollback_len > 0 {
