@@ -580,8 +580,9 @@ impl Renderer {
                         let x = rect.x as i32 + (col as f32 * cell_width_px) as i32;
                         let y = rect.y as i32 + (row as f32 * cell_height_px) as i32;
 
+                        let sel_check_row = row as isize - scroll_offset as isize;
                         let is_selected =
-                            !selection.is_empty() && selection.contains(col, row as isize);
+                            !selection.is_empty() && selection.contains(col, sel_check_row);
                         let is_cursor_position = !is_from_scrollback
                             && scroll_offset == 0
                             && actual_screen_row == Some(cursor.row)
