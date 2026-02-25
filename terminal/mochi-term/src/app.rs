@@ -932,34 +932,42 @@ impl App {
 
         // Handle scrollbar dragging
         if self.scrollbar_dragging {
-            if let Some(window) = &self.window {
-                let tab = &mut self.tabs[self.active_tab];
-                if let Some(pane) = tab.panes.focused_pane_mut() {
-                    let window_height =
-                        (window.inner_size().height as f64 - self.tab_bar_height as f64).max(1.0);
-                    let scrollback_len = pane.terminal.screen().scrollback().len();
-                    let visible_rows = pane.terminal.screen().rows();
+            // Look up the focused pane's height from its layout rect so the
+            // scroll math matches the rendered scrollbar dimensions.
+            let content_rect = self.content_rect();
+            let tab = &self.tabs[self.active_tab];
+            let focused_id = tab.panes.focused_pane_id;
+            let layouts = tab.panes.layout(content_rect);
+            let pane_height = layouts
+                .iter()
+                .find(|(id, _)| *id == focused_id)
+                .map(|(_, r)| r.height as f64)
+                .unwrap_or(1.0)
+                .max(1.0);
 
-                    if scrollback_len > 0 && window_height > 0.0 {
-                        let delta_y = position.y - self.scrollbar_drag_start_y;
-                        let total_lines = scrollback_len + visible_rows;
-                        let thumb_height =
-                            ((visible_rows as f64 / total_lines as f64) * window_height).max(20.0);
-                        let scroll_range = window_height - thumb_height;
+            let tab = &mut self.tabs[self.active_tab];
+            if let Some(pane) = tab.panes.focused_pane_mut() {
+                let scrollback_len = pane.terminal.screen().scrollback().len();
+                let visible_rows = pane.terminal.screen().rows();
 
-                        if scroll_range > 0.0 {
-                            let scroll_delta =
-                                (-delta_y / scroll_range * scrollback_len as f64) as isize;
-                            let new_offset = (self.scrollbar_drag_start_offset as isize
-                                + scroll_delta)
-                                .max(0)
-                                .min(scrollback_len as isize)
-                                as usize;
+                if scrollback_len > 0 {
+                    let delta_y = position.y - self.scrollbar_drag_start_y;
+                    let total_lines = scrollback_len + visible_rows;
+                    let thumb_height =
+                        ((visible_rows as f64 / total_lines as f64) * pane_height).max(20.0);
+                    let scroll_range = pane_height - thumb_height;
 
-                            if new_offset != pane.scroll_offset {
-                                pane.scroll_offset = new_offset;
-                                self.needs_redraw = true;
-                            }
+                    if scroll_range > 0.0 {
+                        let scroll_delta =
+                            (-delta_y / scroll_range * scrollback_len as f64) as isize;
+                        let new_offset = (self.scrollbar_drag_start_offset as isize + scroll_delta)
+                            .max(0)
+                            .min(scrollback_len as isize)
+                            as usize;
+
+                        if new_offset != pane.scroll_offset {
+                            pane.scroll_offset = new_offset;
+                            self.needs_redraw = true;
                         }
                     }
                 }
