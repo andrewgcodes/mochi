@@ -945,9 +945,21 @@ impl App {
         };
 
         let cell_size = renderer.cell_size();
-        let col = (position.x / cell_size.width as f64) as u16;
-        let adjusted_y = (position.y - self.tab_bar_height as f64).max(0.0);
-        let row = (adjusted_y / cell_size.height as f64) as u16;
+
+        // Compute mouse cell relative to the focused pane's viewport,
+        // not the whole window, so that non-top-left panes get correct coords.
+        let content_rect = self.content_rect();
+        let tab = &self.tabs[self.active_tab];
+        let focused_id = tab.panes.focused_pane_id;
+        let layouts = tab.panes.layout(content_rect);
+        let (pane_x, pane_y) = layouts
+            .iter()
+            .find(|(id, _)| *id == focused_id)
+            .map(|(_, r)| (r.x as f64, r.y as f64))
+            .unwrap_or((0.0, self.tab_bar_height as f64));
+
+        let col = ((position.x - pane_x).max(0.0) / cell_size.width as f64) as u16;
+        let row = ((position.y - pane_y).max(0.0) / cell_size.height as f64) as u16;
 
         if col == self.mouse_cell.0 && row == self.mouse_cell.1 {
             return;
@@ -1255,8 +1267,7 @@ impl App {
 
         for (tab_idx, tab) in self.tabs.iter_mut().enumerate() {
             let is_active_tab = tab_idx == self.active_tab;
-            let mut active_tab_received_output = false;
-            let mut active_tab_sync_output_enabled = false;
+            let mut active_tab_needs_redraw = false;
 
             tab.panes.for_each_pane_mut(&mut |pane| {
                 let mut received_output = false;
@@ -1273,11 +1284,11 @@ impl App {
                     }
                 }
 
-                if is_active_tab && received_output {
-                    active_tab_received_output = true;
-                    if pane.terminal.is_synchronized_output() {
-                        active_tab_sync_output_enabled = true;
-                    }
+                // Only trigger redraw for panes that received output without
+                // synchronized output mode. This way one pane's sync mode
+                // doesn't block redraws caused by other panes.
+                if is_active_tab && received_output && !pane.terminal.is_synchronized_output() {
+                    active_tab_needs_redraw = true;
                 }
 
                 // Reset scroll offset when new output arrives
@@ -1304,8 +1315,7 @@ impl App {
                 }
             });
 
-            // Only trigger redraw for active tab when synchronized output is disabled.
-            if is_active_tab && active_tab_received_output && !active_tab_sync_output_enabled {
+            if active_tab_needs_redraw {
                 self.needs_redraw = true;
             }
         }
