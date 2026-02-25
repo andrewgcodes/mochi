@@ -675,8 +675,12 @@ impl App {
             .iter()
             .find(|(id, _)| *id == focused_id)
             .map(|(_, r)| {
-                let c = (r.width as f32 / cell_size.width / 2.0).floor() as usize;
-                let ro = (r.height as f32 / cell_size.height / 2.0).floor() as usize;
+                let (w_divisor, h_divisor) = match direction {
+                    SplitDirection::Vertical => (2.0, 1.0),
+                    SplitDirection::Horizontal => (1.0, 2.0),
+                };
+                let c = (r.width as f32 / cell_size.width / w_divisor).floor() as usize;
+                let ro = (r.height as f32 / cell_size.height / h_divisor).floor() as usize;
                 (c.max(1), ro.max(1))
             })
             .unwrap_or((80, 24));

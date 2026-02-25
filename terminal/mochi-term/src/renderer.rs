@@ -756,7 +756,7 @@ impl Renderer {
         buf_height: u32,
     ) {
         let scrollbar_width: u32 = 8;
-        let scrollbar_x = pane_rect.x + pane_rect.width - scrollbar_width;
+        let scrollbar_x = pane_rect.x + pane_rect.width.saturating_sub(scrollbar_width);
         let scrollbar_y = pane_rect.y;
         let scrollbar_height = pane_rect.height;
 
