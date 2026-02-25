@@ -813,8 +813,7 @@ impl App {
                     .map(|(_, r)| (r.x as f64, r.y as f64))
                     .unwrap_or((0.0, self.tab_bar_height as f64));
                 let col = ((self.mouse_pixel.0 - pane_x).max(0.0) / cell_size.width as f64) as u16;
-                let row =
-                    ((self.mouse_pixel.1 - pane_y).max(0.0) / cell_size.height as f64) as u16;
+                let row = ((self.mouse_pixel.1 - pane_y).max(0.0) / cell_size.height as f64) as u16;
                 self.mouse_cell = (col, row);
             }
         }
