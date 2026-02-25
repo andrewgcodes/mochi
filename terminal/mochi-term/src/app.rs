@@ -1254,6 +1254,10 @@ impl App {
         let mut buf = [0u8; 65536];
 
         for (tab_idx, tab) in self.tabs.iter_mut().enumerate() {
+            let is_active_tab = tab_idx == self.active_tab;
+            let mut active_tab_received_output = false;
+            let mut active_tab_sync_output_enabled = false;
+
             tab.panes.for_each_pane_mut(&mut |pane| {
                 let mut received_output = false;
 
@@ -1266,6 +1270,13 @@ impl App {
                         }
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                         Err(_) => break,
+                    }
+                }
+
+                if is_active_tab && received_output {
+                    active_tab_received_output = true;
+                    if pane.terminal.is_synchronized_output() {
+                        active_tab_sync_output_enabled = true;
                     }
                 }
 
@@ -1293,8 +1304,8 @@ impl App {
                 }
             });
 
-            // Mark redraw if this is the active tab
-            if tab_idx == self.active_tab {
+            // Only trigger redraw for active tab when synchronized output is disabled.
+            if is_active_tab && active_tab_received_output && !active_tab_sync_output_enabled {
                 self.needs_redraw = true;
             }
         }

@@ -74,7 +74,7 @@ impl Pane {
 /// A node in the split pane tree.
 pub enum SplitNode {
     /// A leaf node containing a single pane
-    Leaf(Pane),
+    Leaf(Box<Pane>),
     /// An internal node with two children and a split
     Split {
         direction: SplitDirection,
@@ -88,7 +88,7 @@ pub enum SplitNode {
 impl SplitNode {
     /// Create a leaf node
     pub fn leaf(pane: Pane) -> Self {
-        SplitNode::Leaf(pane)
+        SplitNode::Leaf(Box::new(pane))
     }
 
     /// Get a reference to the pane with the given id
@@ -96,7 +96,7 @@ impl SplitNode {
         match self {
             SplitNode::Leaf(pane) => {
                 if pane.id == id {
-                    Some(pane)
+                    Some(pane.as_ref())
                 } else {
                     None
                 }
@@ -112,7 +112,7 @@ impl SplitNode {
         match self {
             SplitNode::Leaf(pane) => {
                 if pane.id == id {
-                    Some(pane)
+                    Some(pane.as_mut())
                 } else {
                     None
                 }
@@ -135,7 +135,7 @@ impl SplitNode {
     /// Get the first leaf pane id (leftmost / topmost)
     pub fn first_pane_id(&self) -> PaneId {
         match self {
-            SplitNode::Leaf(pane) => pane.id,
+            SplitNode::Leaf(ref pane) => pane.id,
             SplitNode::Split { first, .. } => first.first_pane_id(),
         }
     }
@@ -143,7 +143,7 @@ impl SplitNode {
     /// Count the number of leaf panes
     pub fn pane_count(&self) -> usize {
         match self {
-            SplitNode::Leaf(_) => 1,
+            SplitNode::Leaf(..) => 1,
             SplitNode::Split { first, second, .. } => first.pane_count() + second.pane_count(),
         }
     }
@@ -151,7 +151,7 @@ impl SplitNode {
     /// Visit all panes mutably
     pub fn for_each_pane_mut<F: FnMut(&mut Pane)>(&mut self, f: &mut F) {
         match self {
-            SplitNode::Leaf(pane) => f(pane),
+            SplitNode::Leaf(ref mut pane) => f(pane.as_mut()),
             SplitNode::Split { first, second, .. } => {
                 first.for_each_pane_mut(f);
                 second.for_each_pane_mut(f);
@@ -162,7 +162,7 @@ impl SplitNode {
     /// Visit all panes immutably
     pub fn for_each_pane<F: FnMut(&Pane)>(&self, f: &mut F) {
         match self {
-            SplitNode::Leaf(pane) => f(pane),
+            SplitNode::Leaf(ref pane) => f(pane.as_ref()),
             SplitNode::Split { first, second, .. } => {
                 first.for_each_pane(f);
                 second.for_each_pane(f);
@@ -172,7 +172,7 @@ impl SplitNode {
 
     /// Check if this tree has only one pane (is a single leaf)
     pub fn is_single_pane(&self) -> bool {
-        matches!(self, SplitNode::Leaf(_))
+        matches!(self, SplitNode::Leaf(..))
     }
 
     /// Compute the layout rectangles for each pane.
@@ -365,7 +365,7 @@ fn insert_split(
                 direction,
                 ratio: 0.5,
                 first: Box::new(SplitNode::Leaf(pane)),
-                second: Box::new(SplitNode::Leaf(new_pane)),
+                second: Box::new(SplitNode::leaf(new_pane)),
             };
             (new_node, None)
         }
@@ -607,16 +607,6 @@ impl SplitPaneContainer {
     /// Visit all panes mutably
     pub fn for_each_pane_mut<F: FnMut(&mut Pane)>(&mut self, f: &mut F) {
         self.root_mut().for_each_pane_mut(f);
-    }
-
-    /// Visit all panes immutably
-    pub fn for_each_pane<F: FnMut(&Pane)>(&self, f: &mut F) {
-        self.root().for_each_pane(f);
-    }
-
-    /// Remove the focused pane. Returns false if it's the last pane.
-    pub fn remove_focused(&mut self) -> bool {
-        self.remove_pane(self.focused_pane_id)
     }
 
     /// Remove a specific pane by id. Returns false if it's the last pane.
