@@ -287,4 +287,66 @@ mod tests {
         assert!(line.cell(3).is_empty());
         assert!(line.cell(4).is_empty());
     }
+
+    // ===== BUG-EXPOSING TESTS =====
+
+    /// BUG: insert_cells doesn't preserve line length when n > available space.
+    ///
+    /// When inserting more cells than available space between col and end of line,
+    /// the function removes fewer cells than it inserts, causing the line to grow
+    /// beyond its original column count. This violates the invariant that a line
+    /// should always have exactly `cols` cells.
+    ///
+    /// Example: 5-cell line, insert_cells(4, 3, ...) removes min(3,1)=1 cell
+    /// from end, then inserts 3 cells, growing the line from 5 to 7 cells.
+    ///
+    /// File: line.rs, lines 105-133
+    #[test]
+    fn test_bug_insert_cells_grows_line_beyond_cols() {
+        let mut line = Line::new(5);
+        for i in 0..5 {
+            line.cell_mut(i).set_char((b'A' + i as u8) as char);
+        }
+        let original_len = line.cols();
+        assert_eq!(original_len, 5);
+
+        // Insert 3 cells at column 4 - only 1 cell of space available
+        line.insert_cells(4, 3, CellAttributes::default());
+
+        // BUG: Line grew beyond original size
+        assert_ne!(
+            line.cols(),
+            original_len,
+            "Bug confirmed: line grew from {} to {} cells",
+            original_len,
+            line.cols()
+        );
+        // Correct behavior: line should still have exactly 5 cells
+        // assert_eq!(line.cols(), original_len);
+    }
+
+    /// BUG: insert_cells with large n at col 0 grows line dramatically.
+    ///
+    /// Inserting more cells than the line width at column 0 causes the line
+    /// to grow to double its original size.
+    #[test]
+    fn test_bug_insert_cells_large_n_grows_line() {
+        let mut line = Line::new(5);
+        for i in 0..5 {
+            line.cell_mut(i).set_char((b'A' + i as u8) as char);
+        }
+
+        // Insert 10 cells at column 0 on a 5-cell line
+        line.insert_cells(0, 10, CellAttributes::default());
+
+        // BUG: Line should still be 5 cells, but it grew
+        assert_ne!(
+            line.cols(),
+            5,
+            "Bug confirmed: line grew to {} cells instead of staying at 5",
+            line.cols()
+        );
+        // Correct behavior:
+        // assert_eq!(line.cols(), 5);
+    }
 }

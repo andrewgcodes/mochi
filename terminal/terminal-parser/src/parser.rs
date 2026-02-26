@@ -963,4 +963,39 @@ mod tests {
         let actions = parser.parse_collect(b"A");
         assert_eq!(actions[0], Action::Print('A'));
     }
+
+    // ===== BUG-EXPOSING TESTS =====
+
+    /// BUG: CSI private markers '>', '<', '=' are silently discarded.
+    ///
+    /// The parser only tracks '?' as a private marker (private_marker = byte == b'?').
+    /// When '>', '<', or '=' appear as CSI prefixes, they are consumed but
+    /// private_marker is set to false, losing this information.
+    ///
+    /// This means CSI > 0 c (Secondary Device Attributes request) is parsed
+    /// as if it were CSI 0 c (Primary DA), which is incorrect.
+    ///
+    /// File: parser.rs, line 442
+    #[test]
+    fn test_bug_csi_private_marker_gt_lost() {
+        let mut parser = Parser::new();
+        // CSI > 0 c = Secondary Device Attributes request
+        let actions = parser.parse_collect(b"\x1b[>0c");
+
+        // Should produce a CSI action
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            Action::Csi(csi) => {
+                // BUG: private_marker should indicate '>' but is false
+                // because the parser only sets private_marker = true for '?'
+                assert!(
+                    !csi.private,
+                    "Bug confirmed: '>' private marker is lost, csi.private is false"
+                );
+                // Correct behavior: this should be marked as a private sequence
+                // so the terminal can distinguish CSI > 0 c from CSI 0 c
+            }
+            other => panic!("Expected CSI action, got {:?}", other),
+        }
+    }
 }

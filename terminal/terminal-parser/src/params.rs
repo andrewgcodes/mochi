@@ -201,4 +201,67 @@ mod tests {
         let values: Vec<_> = params.iter().collect();
         assert_eq!(values, vec![1, 2, 3]);
     }
+
+    // ===== BUG-EXPOSING TESTS =====
+    // These tests document bugs found during code audit.
+    // They demonstrate incorrect behavior WITHOUT fixing it.
+
+    /// BUG: Colon-separated subparams produce wrong main param value.
+    ///
+    /// When parsing "38:2:255:128:64" (SGR true-color with colon syntax),
+    /// the first value (38) should be the main parameter and [2,255,128,64]
+    /// should be the subparameters. Instead, the last value (64) becomes
+    /// the main param, and all values including 64 end up in subparams.
+    ///
+    /// File: params.rs, lines 62-83
+    /// Root cause: On ':' separator, the current value is pushed to
+    /// current_subparams instead of being treated as the main param.
+    /// At end-of-input, the final value becomes the main param and is
+    /// also duplicated into subparams.
+    #[test]
+    fn test_bug_subparam_parsing_wrong_main_value() {
+        let params = Params::parse(b"38:2:255:128:64");
+        assert_eq!(params.len(), 1);
+
+        // BUG: The main param value should be 38, but is actually 64
+        // (the last colon-separated value).
+        let main_value = params.raw(0);
+        assert_eq!(
+            main_value, 64,
+            "Bug confirmed: main param is 64 (last subparam) instead of expected 38"
+        );
+        // Correct behavior would be:
+        // assert_eq!(main_value, 38);
+
+        // BUG: Subparams should be [2, 255, 128, 64] but the main value (64)
+        // is duplicated into subparams too.
+        let subparams = params.subparams(0).unwrap();
+        assert_eq!(
+            subparams,
+            &[38, 2, 255, 128, 64],
+            "Bug confirmed: first value 38 ended up in subparams, and 64 is duplicated"
+        );
+        // Correct behavior would be:
+        // assert_eq!(subparams, &[2, 255, 128, 64]);
+    }
+
+    /// BUG: Mixed semicolon and colon params also produce wrong values.
+    ///
+    /// "1;38:2:255:0:0;7" should parse as [1, 38, 7] with subparams
+    /// on index 1 being [2, 255, 0, 0]. Instead, the second param
+    /// gets the wrong main value.
+    #[test]
+    fn test_bug_subparam_mixed_semicolon_colon() {
+        let params = Params::parse(b"1;38:2:255:0:0;7");
+        assert_eq!(params.len(), 3);
+
+        assert_eq!(params.raw(0), 1); // First param is correct
+        // BUG: Second param should be 38 but is 0 (last colon-separated value)
+        let second = params.raw(1);
+        assert_eq!(
+            second, 0,
+            "Bug confirmed: second param is 0 instead of expected 38"
+        );
+        assert_eq!(params.raw(2), 7); // Third param is correct
+    }
 }
