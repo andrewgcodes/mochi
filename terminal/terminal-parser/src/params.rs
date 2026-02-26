@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(params.len(), 3);
 
         assert_eq!(params.raw(0), 1); // First param is correct
-        // BUG: Second param should be 38 but is 0 (last colon-separated value)
+                                      // BUG: Second param should be 38 but is 0 (last colon-separated value)
         let second = params.raw(1);
         assert_eq!(
             second, 0,

@@ -1064,7 +1064,8 @@ mod tests {
         screen.move_cursor_to(1, 7); // 0-indexed col 6
         screen.tab();
         assert_eq!(
-            screen.cursor().col, 79,
+            screen.cursor().col,
+            79,
             "No tab stop at col 8, goes to end of line"
         );
 
@@ -1076,7 +1077,8 @@ mod tests {
         screen.move_cursor_to(1, 7); // 0-indexed col 6
         screen.tab();
         assert_eq!(
-            screen.cursor().col, 8,
+            screen.cursor().col,
+            8,
             "Bug confirmed: resize re-added unwanted default tab stop at col 8"
         );
         // Correct behavior: col 8 should NOT be a tab stop (user cleared it)
