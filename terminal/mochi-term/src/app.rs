@@ -946,21 +946,10 @@ impl App {
         };
         self.mouse_buttons[idx] = state == ElementState::Pressed;
 
-        let Some((content_x, content_y)) = self.content_mouse_position() else {
-            return;
-        };
-        let Some(content_area) = self.current_content_area() else {
-            return;
-        };
-        let Some(renderer) = &self.renderer else {
-            return;
-        };
-        let cell_size = renderer.cell_size();
-
-        let tab = &mut self.tabs[self.active_tab];
-
-        // Stop any in-progress drags on left release
+        // Stop any in-progress drags on left release (even if cursor is in tab bar)
         if button == MouseButton::Left && state == ElementState::Released {
+            let tab = &mut self.tabs[self.active_tab];
+
             if let Some(pane_id) = self.scrollbar_dragging_pane.take() {
                 if let Some(pane) = tab.panes.get_mut(&pane_id) {
                     pane.scroll_offset = pane
@@ -977,6 +966,19 @@ impl App {
 
             self.divider_dragging = None;
         }
+
+        let Some((content_x, content_y)) = self.content_mouse_position() else {
+            return;
+        };
+        let Some(content_area) = self.current_content_area() else {
+            return;
+        };
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
+        let cell_size = renderer.cell_size();
+
+        let tab = &mut self.tabs[self.active_tab];
 
         // Divider drag start
         if button == MouseButton::Left && state == ElementState::Pressed {
@@ -1078,9 +1080,6 @@ impl App {
             return;
         }
 
-        let Some((content_x, content_y)) = self.content_mouse_position() else {
-            return;
-        };
         let Some(content_area) = self.current_content_area() else {
             return;
         };
@@ -1091,11 +1090,15 @@ impl App {
 
         let tab = &mut self.tabs[self.active_tab];
 
+        // When dragging, keep updating even if cursor is in the tab bar.
+        let content_x_clamped = position.x;
+        let content_y_clamped = (position.y - self.tab_bar_height as f64).max(0.0);
+
         // Divider dragging
         if let Some(divider) = self.divider_dragging.clone() {
             let pos = match divider.direction {
-                SplitDirection::Horizontal => content_x,
-                SplitDirection::Vertical => content_y,
+                SplitDirection::Horizontal => content_x_clamped,
+                SplitDirection::Vertical => content_y_clamped,
             };
 
             if tab
@@ -1166,8 +1169,8 @@ impl App {
                     cell_size.width,
                     cell_size.height,
                     pane_rect,
-                    content_x,
-                    content_y,
+                    content_x_clamped,
+                    content_y_clamped,
                 );
                 let sel_col = cell_x as usize;
                 let sel_row = cell_y as isize - pane.scroll_offset as isize;
@@ -1179,6 +1182,12 @@ impl App {
                 return;
             }
         }
+
+        let content_y = position.y - self.tab_bar_height as f64;
+        if content_y < 0.0 {
+            return;
+        }
+        let content_x = position.x;
 
         // Mouse tracking move events
         let Some((pane_id, pane_rect)) =
