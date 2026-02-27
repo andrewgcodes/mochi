@@ -712,7 +712,8 @@ impl App {
             return;
         }
 
-        // Split pane and navigation shortcuts
+        // Split pane shortcuts (character-based only; arrow navigation is below
+        // the zoom handler so it doesn't shadow Ctrl+Shift+Arrow zoom on Linux)
         if ctrl_shift {
             match &event.logical_key {
                 // Split side-by-side
@@ -728,23 +729,6 @@ impl App {
                 // Close active pane (when multiple panes exist)
                 Key::Character(c) if c.to_lowercase() == "q" => {
                     self.close_active_pane();
-                    return;
-                }
-                // Navigate between panes
-                Key::Named(NamedKey::ArrowLeft) => {
-                    self.navigate_active_pane(NavDirection::Left);
-                    return;
-                }
-                Key::Named(NamedKey::ArrowRight) => {
-                    self.navigate_active_pane(NavDirection::Right);
-                    return;
-                }
-                Key::Named(NamedKey::ArrowUp) => {
-                    self.navigate_active_pane(NavDirection::Up);
-                    return;
-                }
-                Key::Named(NamedKey::ArrowDown) => {
-                    self.navigate_active_pane(NavDirection::Down);
                     return;
                 }
                 _ => {}
@@ -825,6 +809,30 @@ impl App {
                 }
                 Key::Named(NamedKey::ArrowDown) => {
                     self.change_font_size(-2.0);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // Pane navigation shortcuts (Ctrl+Shift+Arrow)
+        // Placed after zoom so that on Linux Ctrl+Shift+Up/Down goes to zoom first.
+        if ctrl_shift {
+            match &event.logical_key {
+                Key::Named(NamedKey::ArrowLeft) => {
+                    self.navigate_active_pane(NavDirection::Left);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowRight) => {
+                    self.navigate_active_pane(NavDirection::Right);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowUp) => {
+                    self.navigate_active_pane(NavDirection::Up);
+                    return;
+                }
+                Key::Named(NamedKey::ArrowDown) => {
+                    self.navigate_active_pane(NavDirection::Down);
                     return;
                 }
                 _ => {}
@@ -1667,12 +1675,23 @@ impl App {
             }
         }
 
-        // Remove any tabs that have no running panes
-        self.tabs
-            .retain(|tab| tab.panes.values().any(|p| p.child.is_running()));
-
-        if self.active_tab >= self.tabs.len() {
-            self.active_tab = self.tabs.len().saturating_sub(1);
+        // Remove tabs that have no running panes (iterate in reverse so
+        // removing an earlier index doesn't shift the active tab's position).
+        let mut i = self.tabs.len();
+        while i > 0 {
+            i -= 1;
+            let all_dead = !self.tabs[i].panes.values().any(|p| p.child.is_running());
+            if all_dead {
+                self.tabs.remove(i);
+                if i < self.active_tab {
+                    self.active_tab -= 1;
+                } else if i == self.active_tab {
+                    // The active tab itself was removed
+                    if self.active_tab >= self.tabs.len() {
+                        self.active_tab = self.tabs.len().saturating_sub(1);
+                    }
+                }
+            }
         }
 
         if self.tabs.is_empty() {
