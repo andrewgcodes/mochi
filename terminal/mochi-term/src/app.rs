@@ -21,9 +21,7 @@ use terminal_core::{Point, SelectionType};
 use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
 use crate::renderer::{PaneRenderInfo, Renderer, TabInfo};
-use crate::split_pane::{
-    DividerInfo, NavDirection, PaneId, PaneManager, Rect, SplitDirection, DIVIDER_WIDTH,
-};
+use crate::split_pane::{DividerInfo, NavDirection, PaneId, PaneManager, Rect, SplitDirection};
 use crate::terminal::Terminal;
 
 /// Padding added to cell height to compute tab bar height

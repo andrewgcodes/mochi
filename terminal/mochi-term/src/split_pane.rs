@@ -40,6 +40,7 @@ impl Rect {
 pub const DIVIDER_WIDTH: f64 = 4.0;
 
 /// Minimum pane size in pixels (width or height)
+#[allow(dead_code)]
 pub const MIN_PANE_SIZE: f64 = 50.0;
 
 /// A node in the split pane tree
@@ -64,11 +65,13 @@ impl PaneNode {
     }
 
     /// Check if this node is a leaf
+    #[allow(dead_code)]
     pub fn is_leaf(&self) -> bool {
         matches!(self, PaneNode::Leaf { .. })
     }
 
     /// Get the pane ID if this is a leaf
+    #[allow(dead_code)]
     pub fn pane_id(&self) -> Option<PaneId> {
         match self {
             PaneNode::Leaf { id } => Some(*id),
@@ -261,6 +264,7 @@ pub struct DividerInfo {
     /// The area of the parent split node (used for ratio updates)
     pub area: Rect,
     /// Current ratio
+    #[allow(dead_code)]
     pub ratio: f64,
 }
 
@@ -316,6 +320,7 @@ fn divider_rect(area: Rect, direction: SplitDirection, ratio: f64) -> Rect {
 }
 
 /// Check if a point is inside a rectangle
+#[allow(dead_code)]
 pub fn point_in_rect(x: f64, y: f64, rect: &Rect) -> bool {
     x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
 }
@@ -355,11 +360,13 @@ impl PaneManager {
     }
 
     /// Get the root node
+    #[allow(dead_code)]
     pub fn root(&self) -> &PaneNode {
         &self.root
     }
 
     /// Get the root node mutably
+    #[allow(dead_code)]
     pub fn root_mut(&mut self) -> &mut PaneNode {
         &mut self.root
     }
@@ -412,6 +419,7 @@ impl PaneManager {
     }
 
     /// Get all pane IDs
+    #[allow(dead_code)]
     pub fn pane_ids(&self) -> Vec<PaneId> {
         self.root.pane_ids()
     }
