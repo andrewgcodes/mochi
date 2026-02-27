@@ -972,7 +972,9 @@ impl App {
                 }
             }
 
-            self.divider_dragging = None;
+            if self.divider_dragging.take().is_some() {
+                return;
+            }
         }
 
         let Some((content_x, content_y)) = self.content_mouse_position() else {
