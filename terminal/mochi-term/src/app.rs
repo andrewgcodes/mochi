@@ -928,16 +928,25 @@ impl App {
         // Handle scrollbar dragging (left button only)
         if button == MouseButton::Left {
             if state == ElementState::Pressed {
-                // Check if click is on scrollbar (right 12 pixels of window)
-                if let Some(window) = &self.window {
-                    let window_width = window.inner_size().width as f64;
-                    let scrollbar_width = 12.0;
+                // Check if click is on scrollbar (right 12 pixels of the focused pane's rect)
+                let available = self.pane_area();
+                let tab = &self.tabs[self.active_tab];
+                let (pane_layouts, _) = tab.pane_root.calculate_layout(available);
+                let focused_id = tab.focused_pane_id;
+                let scrollbar_width = 12.0;
 
-                    if self.mouse_pixel.0 >= window_width - scrollbar_width
-                        && self.mouse_pixel.1 >= self.tab_bar_height as f64
+                if let Some(layout) = pane_layouts.iter().find(|l| l.id == focused_id) {
+                    let pane_rect = &layout.rect;
+                    let pane_right = (pane_rect.x + pane_rect.width) as f64;
+                    let pane_top = pane_rect.y as f64;
+                    let pane_bottom = (pane_rect.y + pane_rect.height) as f64;
+
+                    if self.mouse_pixel.0 >= pane_right - scrollbar_width
+                        && self.mouse_pixel.0 < pane_right
+                        && self.mouse_pixel.1 >= pane_top
+                        && self.mouse_pixel.1 < pane_bottom
                     {
-                        let tab = &self.tabs[self.active_tab];
-                        if let Some(leaf) = tab.pane_root.find_leaf(tab.focused_pane_id) {
+                        if let Some(leaf) = tab.pane_root.find_leaf(focused_id) {
                             let scrollback_len = leaf.terminal.screen().scrollback().len();
                             if scrollback_len > 0 {
                                 // Start scrollbar dragging
@@ -1495,9 +1504,13 @@ impl App {
     /// Poll PTY for output from all tabs
     fn poll_pty(&mut self) {
         let mut buf = [0u8; 65536];
+        let mut any_output = false;
 
         // Poll all tabs for output
         for (i, tab) in self.tabs.iter_mut().enumerate() {
+            let is_active_tab = i == self.active_tab;
+            let mut tab_output = false;
+
             tab.pane_root.for_each_leaf_mut(&mut |leaf| {
                 let mut received_output = false;
 
@@ -1516,6 +1529,13 @@ impl App {
                 // Reset scroll offset when new output arrives (auto-scroll to bottom)
                 if received_output && leaf.scroll_offset > 0 {
                     leaf.scroll_offset = 0;
+                }
+
+                if received_output {
+                    // Only trigger redraw if synchronized output mode is disabled
+                    if !leaf.terminal.is_synchronized_output() {
+                        tab_output = true;
+                    }
                 }
 
                 // Check for title change
@@ -1537,16 +1557,23 @@ impl App {
                 }
             });
 
+            // Only mark redraw for active tab output
+            if is_active_tab && tab_output {
+                any_output = true;
+            }
+
             // Update window title for active tab
-            if i == self.active_tab {
+            if is_active_tab {
                 if let Some(window) = &self.window {
                     window.set_title(tab.title());
                 }
             }
         }
 
-        // Mark redraw needed
-        self.needs_redraw = true;
+        // Only mark redraw needed when output was actually received
+        if any_output {
+            self.needs_redraw = true;
+        }
     }
 
     /// Render the terminal
