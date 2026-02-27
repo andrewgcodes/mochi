@@ -357,7 +357,9 @@ impl PaneNode {
                 let rows = (available.height as f32 / cell_height) as usize;
                 if cols > 0 && rows > 0 {
                     leaf.terminal.resize(cols, rows);
-                    let _ = leaf.child.resize(terminal_pty::WindowSize::new(cols as u16, rows as u16));
+                    let _ = leaf
+                        .child
+                        .resize(terminal_pty::WindowSize::new(cols as u16, rows as u16));
                 }
             }
             PaneNode::Split {

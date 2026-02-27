@@ -521,9 +521,11 @@ impl App {
         if let Some(renderer) = &self.renderer {
             let cell_size = renderer.cell_size();
             let available = self.pane_area();
-            self.tabs[self.active_tab]
-                .pane_root
-                .resize_to_layout(available, cell_size.width, cell_size.height);
+            self.tabs[self.active_tab].pane_root.resize_to_layout(
+                available,
+                cell_size.width,
+                cell_size.height,
+            );
         }
     }
 
@@ -1076,10 +1078,14 @@ impl App {
             // Calculate new ratio based on pixel delta
             let total_size = match self.divider_drag_direction {
                 SplitDirection::Horizontal => {
-                    self.divider_drag_available.width.saturating_sub(DIVIDER_SIZE) as f64
+                    self.divider_drag_available
+                        .width
+                        .saturating_sub(DIVIDER_SIZE) as f64
                 }
                 SplitDirection::Vertical => {
-                    self.divider_drag_available.height.saturating_sub(DIVIDER_SIZE) as f64
+                    self.divider_drag_available
+                        .height
+                        .saturating_sub(DIVIDER_SIZE) as f64
                 }
             };
 
@@ -1097,9 +1103,11 @@ impl App {
                     if let Some(renderer) = &self.renderer {
                         let cell_size = renderer.cell_size();
                         let available = self.pane_area();
-                        self.tabs[self.active_tab]
-                            .pane_root
-                            .resize_to_layout(available, cell_size.width, cell_size.height);
+                        self.tabs[self.active_tab].pane_root.resize_to_layout(
+                            available,
+                            cell_size.width,
+                            cell_size.height,
+                        );
                     }
                     self.needs_redraw = true;
                 }
@@ -1124,9 +1132,8 @@ impl App {
 
                         // Calculate the scroll range (total scrollable area)
                         let total_lines = scrollback_len + visible_rows;
-                        let thumb_height = ((visible_rows as f64 / total_lines as f64)
-                            * window_height)
-                            .max(20.0);
+                        let thumb_height =
+                            ((visible_rows as f64 / total_lines as f64) * window_height).max(20.0);
                         let scroll_range = window_height - thumb_height;
 
                         if scroll_range > 0.0 {
@@ -1134,11 +1141,11 @@ impl App {
                             let scroll_delta =
                                 (-delta_y / scroll_range * scrollback_len as f64) as isize;
 
-                            let new_offset =
-                                (self.scrollbar_drag_start_offset as isize + scroll_delta)
-                                    .max(0)
-                                    .min(scrollback_len as isize)
-                                    as usize;
+                            let new_offset = (self.scrollbar_drag_start_offset as isize
+                                + scroll_delta)
+                                .max(0)
+                                .min(scrollback_len as isize)
+                                as usize;
 
                             if new_offset != leaf.scroll_offset {
                                 leaf.scroll_offset = new_offset;
@@ -1575,10 +1582,8 @@ impl App {
         }
 
         // Convert dividers for the renderer
-        let divider_rects: Vec<(Rect, SplitDirection)> = dividers
-            .iter()
-            .map(|d| (d.rect, d.direction))
-            .collect();
+        let divider_rects: Vec<(Rect, SplitDirection)> =
+            dividers.iter().map(|d| (d.rect, d.direction)).collect();
 
         if let Some(renderer) = &mut self.renderer {
             if let Err(e) = renderer.render_panes(
@@ -1623,9 +1628,11 @@ impl App {
             if let Some(renderer) = &self.renderer {
                 let cell_size = renderer.cell_size();
                 let available = self.pane_area();
-                self.tabs[self.active_tab]
-                    .pane_root
-                    .resize_to_layout(available, cell_size.width, cell_size.height);
+                self.tabs[self.active_tab].pane_root.resize_to_layout(
+                    available,
+                    cell_size.width,
+                    cell_size.height,
+                );
             }
         }
 

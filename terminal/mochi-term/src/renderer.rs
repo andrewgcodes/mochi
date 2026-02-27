@@ -472,8 +472,7 @@ impl Renderer {
 
             for row in 0..rows {
                 let line = if pane.scroll_offset > 0 {
-                    let scrollback_row =
-                        scrollback_len.saturating_sub(pane.scroll_offset) + row;
+                    let scrollback_row = scrollback_len.saturating_sub(pane.scroll_offset) + row;
                     if scrollback_row < scrollback_len {
                         if let Some(sb_line) = scrollback.get(scrollback_row) {
                             for col in 0..cols.min(sb_line.cols()) {
@@ -554,8 +553,7 @@ impl Renderer {
 
             for row in 0..rows {
                 let (line, is_from_scrollback, actual_screen_row) = if scroll_offset > 0 {
-                    let scrollback_row =
-                        scrollback_len.saturating_sub(scroll_offset) + row;
+                    let scrollback_row = scrollback_len.saturating_sub(scroll_offset) + row;
                     if scrollback_row < scrollback_len {
                         if let Some(sb_line) = scrollback.get(scrollback_row) {
                             (sb_line, true, None)
@@ -619,9 +617,7 @@ impl Renderer {
                     // Draw background
                     let cell_w = (cell.width() as f32 * cell_width_px) as i32;
                     let cell_h = cell_height_px as i32;
-                    Self::fill_rect_static(
-                        &mut buffer, x, y, cell_w, cell_h, bg, width, height,
-                    );
+                    Self::fill_rect_static(&mut buffer, x, y, cell_w, cell_h, bg, width, height);
 
                     // Draw character
                     let c = cell.display_char();
