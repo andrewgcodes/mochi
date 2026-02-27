@@ -1157,8 +1157,7 @@ impl App {
                         let scroll_delta =
                             (-delta_y / scroll_range * scrollback_len as f64) as isize;
 
-                        let new_offset = (self.scrollbar_drag_start_offset as isize
-                            + scroll_delta)
+                        let new_offset = (self.scrollbar_drag_start_offset as isize + scroll_delta)
                             .max(0)
                             .min(scrollback_len as isize)
                             as usize;
