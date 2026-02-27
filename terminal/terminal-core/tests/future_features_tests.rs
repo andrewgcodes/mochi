@@ -99,7 +99,7 @@ fn test_search_special_chars() {
 fn test_search_unicode() {
     let mut screen = Screen::new(Dimensions::new(80, 24));
     for (i, ch) in "日本語テスト".chars().enumerate() {
-        screen.move_cursor_to(0, i * 2); // Wide chars take 2 columns
+        screen.move_cursor_to(1, i * 2 + 1); // 1-indexed; wide chars take 2 columns
         screen.print(ch);
     }
     let snap = screen.snapshot(false);
@@ -782,7 +782,7 @@ fn test_input_reverse_index_at_top() {
 #[test]
 fn test_input_index_at_bottom_scrolls() {
     let mut screen = Screen::new(Dimensions::new(80, 5));
-    screen.move_cursor_to(4, 0);
+    screen.move_cursor_to(5, 1); // 1-indexed: puts cursor at bottom row (row 4, 0-indexed)
     screen.index();
     let snap = screen.snapshot(false);
     assert_eq!(snap.cursor.row, 4);
@@ -942,7 +942,7 @@ fn test_wide_char_at_end_of_line() {
 fn test_wide_char_overwrite() {
     let mut screen = Screen::new(Dimensions::new(80, 24));
     screen.print('中'); // Takes columns 0 and 1
-    screen.move_cursor_to(0, 0);
+    screen.move_cursor_to(1, 1); // 1-indexed: row 0, col 0
     screen.print('A'); // Should erase the wide char
     let snap = screen.snapshot(false);
     assert!(snap.screen[0].text.starts_with('A'));
