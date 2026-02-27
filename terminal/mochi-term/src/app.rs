@@ -1126,40 +1126,46 @@ impl App {
 
         // Handle scrollbar dragging
         if self.scrollbar_dragging {
-            if let Some(window) = &self.window {
-                let tab = &mut self.tabs[self.active_tab];
-                let focused_id = tab.focused_pane_id;
-                if let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) {
-                    let window_height =
-                        (window.inner_size().height as f64 - self.tab_bar_height as f64).max(1.0);
-                    let scrollback_len = leaf.terminal.screen().scrollback().len();
-                    let visible_rows = leaf.terminal.screen().rows();
+            // Get the focused pane's layout rect for accurate scrollbar math
+            let available = self.pane_area();
+            let tab = &mut self.tabs[self.active_tab];
+            let focused_id = tab.focused_pane_id;
+            let (pane_layouts, _) = tab.pane_root.calculate_layout(available);
+            let pane_height = pane_layouts
+                .iter()
+                .find(|p| p.id == focused_id)
+                .map(|p| p.rect.height as f64)
+                .unwrap_or(1.0)
+                .max(1.0);
 
-                    if scrollback_len > 0 && window_height > 0.0 {
-                        // Calculate how much the mouse has moved
-                        let delta_y = position.y - self.scrollbar_drag_start_y;
+            if let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) {
+                let scrollback_len = leaf.terminal.screen().scrollback().len();
+                let visible_rows = leaf.terminal.screen().rows();
 
-                        // Calculate the scroll range (total scrollable area)
-                        let total_lines = scrollback_len + visible_rows;
-                        let thumb_height =
-                            ((visible_rows as f64 / total_lines as f64) * window_height).max(20.0);
-                        let scroll_range = window_height - thumb_height;
+                if scrollback_len > 0 && pane_height > 0.0 {
+                    // Calculate how much the mouse has moved
+                    let delta_y = position.y - self.scrollbar_drag_start_y;
 
-                        if scroll_range > 0.0 {
-                            // Convert pixel delta to scroll offset delta
-                            let scroll_delta =
-                                (-delta_y / scroll_range * scrollback_len as f64) as isize;
+                    // Calculate the scroll range (total scrollable area)
+                    let total_lines = scrollback_len + visible_rows;
+                    let thumb_height =
+                        ((visible_rows as f64 / total_lines as f64) * pane_height).max(20.0);
+                    let scroll_range = pane_height - thumb_height;
 
-                            let new_offset = (self.scrollbar_drag_start_offset as isize
-                                + scroll_delta)
-                                .max(0)
-                                .min(scrollback_len as isize)
-                                as usize;
+                    if scroll_range > 0.0 {
+                        // Convert pixel delta to scroll offset delta
+                        let scroll_delta =
+                            (-delta_y / scroll_range * scrollback_len as f64) as isize;
 
-                            if new_offset != leaf.scroll_offset {
-                                leaf.scroll_offset = new_offset;
-                                self.needs_redraw = true;
-                            }
+                        let new_offset = (self.scrollbar_drag_start_offset as isize
+                            + scroll_delta)
+                            .max(0)
+                            .min(scrollback_len as isize)
+                            as usize;
+
+                        if new_offset != leaf.scroll_offset {
+                            leaf.scroll_offset = new_offset;
+                            self.needs_redraw = true;
                         }
                     }
                 }
