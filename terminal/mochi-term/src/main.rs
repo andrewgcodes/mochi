@@ -7,6 +7,7 @@ mod config;
 mod event;
 mod input;
 mod renderer;
+mod split_pane;
 mod terminal;
 
 use std::error::Error;
