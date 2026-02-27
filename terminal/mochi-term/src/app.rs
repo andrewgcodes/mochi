@@ -1647,6 +1647,10 @@ impl App {
             return false;
         }
 
+        // Compute layout info before the mutable loop so we can resize after removal.
+        let content_area = self.current_content_area();
+        let cell_size = self.renderer.as_ref().map(|r| r.cell_size());
+
         // Remove any panes whose child has exited
         for tab in &mut self.tabs {
             let dead_panes: Vec<PaneId> = tab
@@ -1661,6 +1665,7 @@ impl App {
                 })
                 .collect();
 
+            let mut removed_any = false;
             for pane_id in dead_panes {
                 if tab.pane_manager.pane_count() <= 1 {
                     continue;
@@ -1670,10 +1675,19 @@ impl App {
                 tab.pane_manager.set_active_pane(pane_id);
                 if tab.pane_manager.remove_active() {
                     tab.panes.remove(&pane_id);
+                    removed_any = true;
                     if tab.panes.contains_key(&prev_active) {
                         tab.pane_manager.set_active_pane(prev_active);
                     }
                 }
+            }
+
+            // Resize surviving panes to fill the freed space
+            if removed_any {
+                if let (Some(ca), Some(cs)) = (content_area, cell_size) {
+                    Self::resize_tab_panes_for_area(tab, ca, cs);
+                }
+                self.needs_redraw = true;
             }
         }
 
