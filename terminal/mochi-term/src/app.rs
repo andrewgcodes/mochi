@@ -462,6 +462,7 @@ impl App {
         };
 
         let tab = &mut self.tabs[self.active_tab];
+        let prev_active = tab.active_pane_id();
         let new_id = match tab.pane_manager.split_active(direction) {
             Some(id) => id,
             None => return,
@@ -495,6 +496,13 @@ impl App {
             }
             Err(e) => {
                 log::error!("Failed to spawn child for split pane: {}", e);
+
+                // Roll back the tree modification since we couldn't create the pane
+                tab.pane_manager.set_active_pane(new_id);
+                let _ = tab.pane_manager.remove_active();
+                if tab.panes.contains_key(&prev_active) {
+                    tab.pane_manager.set_active_pane(prev_active);
+                }
             }
         }
     }
@@ -1508,9 +1516,7 @@ impl App {
                             pane.terminal.process(&buf[..n]);
                             received_output = true;
 
-                            if tab_idx == self.active_tab
-                                && pane_id == active_pane_id
-                                && !pane.terminal.is_synchronized_output()
+                            if tab_idx == self.active_tab && !pane.terminal.is_synchronized_output()
                             {
                                 self.needs_redraw = true;
                             }
@@ -1652,11 +1658,6 @@ impl App {
             }
         }
 
-        let active_tab_running = self.tabs[self.active_tab]
-            .panes
-            .values()
-            .any(|p| p.child.is_running());
-
         // Remove any tabs that have no running panes
         self.tabs
             .retain(|tab| tab.panes.values().any(|p| p.child.is_running()));
@@ -1665,6 +1666,14 @@ impl App {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
 
-        !self.tabs.is_empty() && active_tab_running
+        if self.tabs.is_empty() {
+            return false;
+        }
+
+        // Check if the (possibly new) active tab has running panes
+        self.tabs[self.active_tab]
+            .panes
+            .values()
+            .any(|p| p.child.is_running())
     }
 }
