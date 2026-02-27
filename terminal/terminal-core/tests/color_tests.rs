@@ -405,7 +405,7 @@ fn test_all_256_indexed_colors_produce_valid_rgb() {
     assert_eq!(Color::Indexed(0).to_rgb(), (0, 0, 0)); // black
     assert_eq!(Color::Indexed(196).to_rgb(), (255, 0, 0)); // pure red
     assert_eq!(Color::Indexed(15).to_rgb(), (255, 255, 255)); // bright white
-    // Verify grayscale indices 232-255 have equal r/g/b components
+                                                              // Verify grayscale indices 232-255 have equal r/g/b components
     for i in 232u8..=255 {
         let (r, g, b) = Color::Indexed(i).to_rgb();
         assert_eq!(r, g, "Grayscale index {} should have r==g", i);
