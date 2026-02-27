@@ -189,8 +189,10 @@ fn test_cell_block_element() {
 
 #[test]
 fn test_cell_with_char_and_attrs_bold() {
-    let mut attrs = CellAttributes::default();
-    attrs.bold = true;
+    let attrs = CellAttributes {
+        bold: true,
+        ..Default::default()
+    };
     let cell = Cell::with_char_and_attrs('X', attrs);
     assert_eq!(cell.display_char(), 'X');
     assert!(cell.attrs.bold);
@@ -198,18 +200,22 @@ fn test_cell_with_char_and_attrs_bold() {
 
 #[test]
 fn test_cell_with_char_and_attrs_fg_color() {
-    let mut attrs = CellAttributes::default();
-    attrs.fg = Color::Indexed(1);
+    let attrs = CellAttributes {
+        fg: Color::Indexed(1),
+        ..Default::default()
+    };
     let cell = Cell::with_char_and_attrs('R', attrs);
     assert_eq!(cell.attrs.fg, Color::Indexed(1));
 }
 
 #[test]
 fn test_cell_with_char_and_attrs_multiple() {
-    let mut attrs = CellAttributes::default();
-    attrs.bold = true;
-    attrs.italic = true;
-    attrs.underline = true;
+    let attrs = CellAttributes {
+        bold: true,
+        italic: true,
+        underline: true,
+        ..Default::default()
+    };
     let cell = Cell::with_char_and_attrs('M', attrs);
     assert!(cell.attrs.bold);
     assert!(cell.attrs.italic);
@@ -323,8 +329,10 @@ fn test_cell_clear_resets_width() {
 
 #[test]
 fn test_cell_clear_applies_attrs() {
-    let mut attrs = CellAttributes::default();
-    attrs.bold = true;
+    let attrs = CellAttributes {
+        bold: true,
+        ..Default::default()
+    };
     let mut cell = Cell::with_char('X');
     cell.clear(attrs);
     assert!(cell.attrs.bold);

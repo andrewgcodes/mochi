@@ -1,6 +1,6 @@
 //! Comprehensive tests for terminal line representation
 
-use terminal_core::{Cell, CellAttributes, Color, Line};
+use terminal_core::{CellAttributes, Color, Line};
 
 // ============================================================================
 // Line Creation

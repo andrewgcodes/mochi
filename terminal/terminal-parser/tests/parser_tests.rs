@@ -1,6 +1,6 @@
 //! Comprehensive tests for the terminal escape sequence parser
 
-use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser, ParserState};
+use terminal_parser::{Action, EscAction, OscAction, Parser, ParserState};
 
 // ============================================================================
 // Parser Creation and State
@@ -1420,9 +1420,7 @@ fn test_parser_esc_followed_by_esc() {
     // Second ESC should cancel the first
     let actions = parser.parse_collect(b"\x1b\x1b7");
     // Should eventually produce SaveCursor
-    let has_save = actions
-        .iter()
-        .any(|a| *a == Action::Esc(EscAction::SaveCursor));
+    let has_save = actions.contains(&Action::Esc(EscAction::SaveCursor));
     assert!(has_save);
 }
 

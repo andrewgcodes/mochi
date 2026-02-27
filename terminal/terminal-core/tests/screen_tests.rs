@@ -1,6 +1,6 @@
 //! Comprehensive tests for the terminal screen state machine
 
-use terminal_core::{CellAttributes, Charset, Color, Dimensions, Point, Screen, SelectionType};
+use terminal_core::{Charset, Color, Dimensions, Point, Screen, SelectionType};
 
 // ============================================================================
 // Screen Creation
@@ -987,7 +987,7 @@ fn test_screen_snapshot_with_scrollback() {
 
 #[test]
 fn test_screen_snapshot_without_scrollback() {
-    let mut screen = Screen::new(Dimensions::new(10, 3));
+    let screen = Screen::new(Dimensions::new(10, 3));
     let snap = screen.snapshot(false);
     assert!(snap.scrollback.is_none());
 }
