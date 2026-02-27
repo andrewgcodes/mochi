@@ -300,12 +300,19 @@ fn test_theme_16_standard_colors() {
 
 #[test]
 fn test_theme_256_color_palette() {
-    for i in 0..=255 {
-        let color = Color::Indexed(i);
-        let (r, g, b) = color.to_rgb();
-        // All RGB values should be valid (0-255)
-        // Verify we get valid RGB tuple
-        let _ = (r, g, b);
+    // Verify known color mappings for specific indices
+    assert_eq!(Color::Indexed(0).to_rgb(), (0, 0, 0)); // black
+    assert_eq!(Color::Indexed(196).to_rgb(), (255, 0, 0)); // pure red in color cube
+    assert_eq!(Color::Indexed(15).to_rgb(), (255, 255, 255)); // bright white
+    // Verify grayscale indices 232-255 have equal r/g/b components
+    for i in 232..=255u8 {
+        let (r, g, b) = Color::Indexed(i).to_rgb();
+        assert_eq!(r, g, "Grayscale index {} should have r==g", i);
+        assert_eq!(g, b, "Grayscale index {} should have g==b", i);
+    }
+    // Verify all 256 colors produce some output without panicking
+    for i in 0..=255u8 {
+        let _rgb = Color::Indexed(i).to_rgb();
     }
 }
 
