@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default, unused_imports)]
 //! Comprehensive tests for Grid, Line, and Modes
 //!
 //! ~150 tests covering grid operations, line manipulation, and terminal modes.

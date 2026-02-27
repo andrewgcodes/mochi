@@ -1,3 +1,4 @@
+#![allow(clippy::len_zero, clippy::clone_on_copy)]
 //! Additional integration tests for Screen combining multiple operations
 //!
 //! ~150 tests covering complex screen interactions, edge cases, and

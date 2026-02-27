@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default, unused_imports)]
 //! Comprehensive tests for Screen, Scrollback, Selection, Charset, and Snapshot
 //!
 //! ~200 tests covering the main terminal screen interface and related components.

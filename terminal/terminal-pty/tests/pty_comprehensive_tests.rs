@@ -83,7 +83,7 @@ fn test_window_size_from_winsize() {
 #[test]
 fn test_window_size_clone() {
     let size = WindowSize::new(80, 24);
-    let cloned = size.clone();
+    let cloned = size;
     assert_eq!(size, cloned);
 }
 

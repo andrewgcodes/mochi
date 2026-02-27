@@ -23,6 +23,7 @@ fn parse(input: &[u8]) -> Vec<Action> {
     parser.parse_collect(input)
 }
 
+#[allow(dead_code)]
 fn parse_str(input: &str) -> Vec<Action> {
     parse(input.as_bytes())
 }
@@ -57,6 +58,7 @@ fn first_osc(actions: &[Action]) -> &OscAction {
         .expect("Expected OSC action")
 }
 
+#[allow(dead_code)]
 fn first_esc(actions: &[Action]) -> &EscAction {
     actions
         .iter()
@@ -1600,7 +1602,7 @@ fn test_utf8_invalid_continuation() {
     let actions = parse(&[0xC3, 0xC4, 0x80]);
     // First 2-byte seq (0xC3) should fail because 0xC4 is not a valid continuation,
     // producing a replacement char. Then 0xC4 0x80 should decode to U+0100 'Ā'
-    let has_replacement = actions.iter().any(|a| *a == Action::Print('\u{FFFD}'));
+    let _has_replacement = actions.iter().any(|a| *a == Action::Print('\u{FFFD}'));
     // The parser may handle this differently; just check we get some output
     assert!(!actions.is_empty());
 }
