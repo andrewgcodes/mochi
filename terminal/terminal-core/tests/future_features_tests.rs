@@ -879,13 +879,19 @@ fn test_scroll_region_clear() {
 #[test]
 fn test_scroll_region_scroll_within() {
     let mut screen = Screen::new(Dimensions::new(80, 10));
+    // Place content outside scroll region
+    screen.move_cursor_to(1, 1);
+    screen.print('T'); // row 0 - outside region above
     screen.set_scroll_region(2, 8);
-    // Content in scroll region should scroll independently
-    screen.move_cursor_to(7, 0);
+    // Move cursor to the bottom of the scroll region (row 8, 1-indexed = row 7, 0-indexed)
+    screen.move_cursor_to(8, 1);
     screen.print('X');
-    screen.index(); // Should scroll within region
+    screen.index(); // Should scroll within region since cursor is at scroll bottom
     let snap = screen.snapshot(false);
+    // Cursor should remain at scroll bottom after scrolling
     assert_eq!(snap.cursor.row, 7);
+    // Content above scroll region should be unaffected
+    assert_eq!(snap.screen[0].text, "T");
 }
 
 // ============================================================
