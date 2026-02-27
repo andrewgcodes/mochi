@@ -1,3 +1,4 @@
+#![allow(clippy::manual_contains)]
 //! Comprehensive tests for the terminal parser
 //!
 //! Tests cover:
