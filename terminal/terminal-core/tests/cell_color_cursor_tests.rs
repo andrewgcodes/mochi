@@ -1,4 +1,4 @@
-#![allow(clippy::field_reassign_with_default, clippy::clone_on_copy)]
+#![allow(clippy::field_reassign_with_default, clippy::clone_on_copy, unused_assignments)]
 //! Comprehensive tests for Cell, CellAttributes, Color, Cursor, and SavedCursor
 //!
 //! ~150 tests covering cell operations, color handling, and cursor management.
