@@ -650,7 +650,10 @@ fn test_osc_set_color() {
 #[test]
 fn test_osc_set_current_directory() {
     let action = OscAction::SetCurrentDirectory("/home/user".to_string());
-    assert_eq!(action, OscAction::SetCurrentDirectory("/home/user".to_string()));
+    assert_eq!(
+        action,
+        OscAction::SetCurrentDirectory("/home/user".to_string())
+    );
 }
 
 #[test]
@@ -679,19 +682,28 @@ fn test_osc_hyperlink_with_params() {
 #[test]
 fn test_osc_set_foreground_color() {
     let action = OscAction::SetForegroundColor("rgb:ff/ff/ff".to_string());
-    assert_eq!(action, OscAction::SetForegroundColor("rgb:ff/ff/ff".to_string()));
+    assert_eq!(
+        action,
+        OscAction::SetForegroundColor("rgb:ff/ff/ff".to_string())
+    );
 }
 
 #[test]
 fn test_osc_set_background_color() {
     let action = OscAction::SetBackgroundColor("rgb:00/00/00".to_string());
-    assert_eq!(action, OscAction::SetBackgroundColor("rgb:00/00/00".to_string()));
+    assert_eq!(
+        action,
+        OscAction::SetBackgroundColor("rgb:00/00/00".to_string())
+    );
 }
 
 #[test]
 fn test_osc_set_cursor_color() {
     let action = OscAction::SetCursorColor("rgb:ff/00/00".to_string());
-    assert_eq!(action, OscAction::SetCursorColor("rgb:ff/00/00".to_string()));
+    assert_eq!(
+        action,
+        OscAction::SetCursorColor("rgb:ff/00/00".to_string())
+    );
 }
 
 #[test]

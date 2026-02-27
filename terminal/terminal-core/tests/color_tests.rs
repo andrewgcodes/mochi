@@ -72,7 +72,10 @@ fn test_color_indexed_white() {
 
 #[test]
 fn test_color_bright_black() {
-    assert_eq!(Color::Indexed(Color::BRIGHT_BLACK).to_rgb(), (127, 127, 127));
+    assert_eq!(
+        Color::Indexed(Color::BRIGHT_BLACK).to_rgb(),
+        (127, 127, 127)
+    );
 }
 
 #[test]
@@ -97,7 +100,10 @@ fn test_color_bright_blue() {
 
 #[test]
 fn test_color_bright_magenta() {
-    assert_eq!(Color::Indexed(Color::BRIGHT_MAGENTA).to_rgb(), (255, 0, 255));
+    assert_eq!(
+        Color::Indexed(Color::BRIGHT_MAGENTA).to_rgb(),
+        (255, 0, 255)
+    );
 }
 
 #[test]
@@ -107,7 +113,10 @@ fn test_color_bright_cyan() {
 
 #[test]
 fn test_color_bright_white() {
-    assert_eq!(Color::Indexed(Color::BRIGHT_WHITE).to_rgb(), (255, 255, 255));
+    assert_eq!(
+        Color::Indexed(Color::BRIGHT_WHITE).to_rgb(),
+        (255, 255, 255)
+    );
 }
 
 // ============================================================================
@@ -237,7 +246,14 @@ fn test_color_indexed_helper() {
 
 #[test]
 fn test_color_rgb_helper() {
-    assert_eq!(Color::rgb(10, 20, 30), Color::Rgb { r: 10, g: 20, b: 30 });
+    assert_eq!(
+        Color::rgb(10, 20, 30),
+        Color::Rgb {
+            r: 10,
+            g: 20,
+            b: 30
+        }
+    );
 }
 
 // ============================================================================

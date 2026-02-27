@@ -1,6 +1,6 @@
 //! Comprehensive tests for the terminal screen state machine
 
-use terminal_core::{CellAttributes, Color, Charset, Dimensions, Screen, SelectionType, Point};
+use terminal_core::{CellAttributes, Charset, Color, Dimensions, Point, Screen, SelectionType};
 
 // ============================================================================
 // Screen Creation
@@ -607,7 +607,7 @@ fn test_screen_erase_display_scrollback_preserved() {
     let mut screen = Screen::new(Dimensions::new(10, 3));
     screen.print('A');
     screen.erase_display(3); // Mode 3 - ignored per implementation
-    // Scrollback should still be intact (implementation ignores mode 3)
+                             // Scrollback should still be intact (implementation ignores mode 3)
 }
 
 // ============================================================================
@@ -1152,7 +1152,9 @@ fn test_screen_insert_mode() {
 #[test]
 fn test_screen_selection_mut() {
     let mut screen = Screen::new(Dimensions::new(80, 24));
-    screen.selection_mut().start(Point::new(0, 0), SelectionType::Normal);
+    screen
+        .selection_mut()
+        .start(Point::new(0, 0), SelectionType::Normal);
     assert!(screen.selection().active);
 }
 

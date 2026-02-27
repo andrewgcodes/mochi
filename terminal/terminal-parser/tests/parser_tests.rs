@@ -800,7 +800,7 @@ fn test_parser_sgr_combined() {
     let actions = parser.parse_collect(b"\x1b[1;31;42m");
     if let Action::Csi(csi) = &actions[0] {
         assert_eq!(csi.params.len(), 3);
-        assert_eq!(csi.param(0, 0), 1);  // bold
+        assert_eq!(csi.param(0, 0), 1); // bold
         assert_eq!(csi.param(1, 0), 31); // fg red
         assert_eq!(csi.param(2, 0), 42); // bg green
     } else {
@@ -941,7 +941,10 @@ fn test_parser_osc_set_title_st() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(b"\x1b]0;My Title\x1b\\");
     // Should produce OSC action
-    let osc_actions: Vec<_> = actions.iter().filter(|a| matches!(a, Action::Osc(_))).collect();
+    let osc_actions: Vec<_> = actions
+        .iter()
+        .filter(|a| matches!(a, Action::Osc(_)))
+        .collect();
     assert!(!osc_actions.is_empty());
 }
 
@@ -1194,12 +1197,18 @@ fn test_parser_streaming_byte_at_a_time() {
         all_actions.extend(actions);
     }
     // Should have: CSI (bold+red), H, e, l, l, o, CSI (reset)
-    let prints: Vec<char> = all_actions.iter().filter_map(|a| match a {
-        Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = all_actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(prints, vec!['H', 'e', 'l', 'l', 'o']);
-    let csi_count = all_actions.iter().filter(|a| matches!(a, Action::Csi(_))).count();
+    let csi_count = all_actions
+        .iter()
+        .filter(|a| matches!(a, Action::Csi(_)))
+        .count();
     assert_eq!(csi_count, 2);
 }
 
@@ -1211,10 +1220,13 @@ fn test_parser_streaming_byte_at_a_time() {
 fn test_parser_print_between_csi() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(b"\x1b[1mHello\x1b[0m");
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(prints, vec!['H', 'e', 'l', 'l', 'o']);
 }
 
@@ -1243,7 +1255,10 @@ fn test_parser_esc_between_text() {
 fn test_parser_multiple_sgr_sequences() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(b"\x1b[1m\x1b[31m\x1b[42m");
-    let csi_count = actions.iter().filter(|a| matches!(a, Action::Csi(_))).count();
+    let csi_count = actions
+        .iter()
+        .filter(|a| matches!(a, Action::Csi(_)))
+        .count();
     assert_eq!(csi_count, 3);
 }
 
@@ -1308,11 +1323,17 @@ fn test_parser_state_returns_to_ground_after_esc() {
 fn test_parser_utf8_hello_world_cjk() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect("Hello 世界 🎉".as_bytes());
-    let chars: Vec<char> = actions.iter().filter_map(|a| match a {
-        Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
-    assert_eq!(chars, vec!['H', 'e', 'l', 'l', 'o', ' ', '世', '界', ' ', '🎉']);
+    let chars: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        chars,
+        vec!['H', 'e', 'l', 'l', 'o', ' ', '世', '界', ' ', '🎉']
+    );
 }
 
 #[test]
@@ -1323,10 +1344,13 @@ fn test_parser_utf8_mixed_with_escapes() {
     input.extend_from_slice("日本語".as_bytes());
     input.extend_from_slice(b"\x1b[0m");
     let actions = parser.parse_collect(&input);
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(prints, vec!['日', '本', '語']);
 }
 
@@ -1338,7 +1362,10 @@ fn test_parser_utf8_mixed_with_escapes() {
 fn test_parser_dcs_sequence() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(b"\x1bPdata\x1b\\");
-    let dcs_count = actions.iter().filter(|a| matches!(a, Action::Dcs { .. })).count();
+    let dcs_count = actions
+        .iter()
+        .filter(|a| matches!(a, Action::Dcs { .. }))
+        .count();
     assert!(dcs_count > 0 || actions.iter().any(|a| matches!(a, Action::Dcs { .. })));
 }
 
@@ -1350,7 +1377,10 @@ fn test_parser_dcs_sequence() {
 fn test_parser_apc_sequence() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(b"\x1b_data\x1b\\");
-    let apc_count = actions.iter().filter(|a| matches!(a, Action::Apc(_))).count();
+    let apc_count = actions
+        .iter()
+        .filter(|a| matches!(a, Action::Apc(_)))
+        .count();
     assert!(apc_count > 0);
 }
 
@@ -1358,7 +1388,10 @@ fn test_parser_apc_sequence() {
 fn test_parser_pm_sequence() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(b"\x1b^data\x1b\\");
-    let pm_count = actions.iter().filter(|a| matches!(a, Action::Pm(_))).count();
+    let pm_count = actions
+        .iter()
+        .filter(|a| matches!(a, Action::Pm(_)))
+        .count();
     assert!(pm_count > 0);
 }
 
@@ -1387,7 +1420,9 @@ fn test_parser_esc_followed_by_esc() {
     // Second ESC should cancel the first
     let actions = parser.parse_collect(b"\x1b\x1b7");
     // Should eventually produce SaveCursor
-    let has_save = actions.iter().any(|a| *a == Action::Esc(EscAction::SaveCursor));
+    let has_save = actions
+        .iter()
+        .any(|a| *a == Action::Esc(EscAction::SaveCursor));
     assert!(has_save);
 }
 
@@ -1406,7 +1441,10 @@ fn test_parser_rapid_mode_changes() {
     let mut parser = Parser::new();
     // Rapidly enable and disable bracketed paste
     let actions = parser.parse_collect(b"\x1b[?2004h\x1b[?2004l");
-    let csi_count = actions.iter().filter(|a| matches!(a, Action::Csi(_))).count();
+    let csi_count = actions
+        .iter()
+        .filter(|a| matches!(a, Action::Csi(_)))
+        .count();
     assert_eq!(csi_count, 2);
 }
 
@@ -1415,7 +1453,12 @@ fn test_parser_all_printable_ascii() {
     let mut parser = Parser::new();
     for byte in 0x20u8..=0x7E {
         let actions = parser.parse_collect(&[byte]);
-        assert_eq!(actions.len(), 1, "Byte 0x{:02X} should produce one action", byte);
+        assert_eq!(
+            actions.len(),
+            1,
+            "Byte 0x{:02X} should produce one action",
+            byte
+        );
         assert_eq!(actions[0], Action::Print(byte as char));
     }
 }

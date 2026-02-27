@@ -316,12 +316,17 @@ fn test_utf8_streaming_2byte_split() {
     let mut parser = Parser::new();
     // é = 0xC3 0xA9
     let a1 = parser.parse_collect(&[0xC3]);
-    assert!(a1.iter().all(|a| !matches!(a, terminal_parser::Action::Print(_))));
+    assert!(a1
+        .iter()
+        .all(|a| !matches!(a, terminal_parser::Action::Print(_))));
     let a2 = parser.parse_collect(&[0xA9]);
-    let chars: Vec<char> = a2.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let chars: Vec<char> = a2
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(chars, vec!['é']);
 }
 
@@ -330,12 +335,17 @@ fn test_utf8_streaming_3byte_split_1_2() {
     let mut parser = Parser::new();
     // 中 = 0xE4 0xB8 0xAD
     let a1 = parser.parse_collect(&[0xE4]);
-    assert!(a1.iter().all(|a| !matches!(a, terminal_parser::Action::Print(_))));
+    assert!(a1
+        .iter()
+        .all(|a| !matches!(a, terminal_parser::Action::Print(_))));
     let a2 = parser.parse_collect(&[0xB8, 0xAD]);
-    let chars: Vec<char> = a2.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let chars: Vec<char> = a2
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(chars, vec!['中']);
 }
 
@@ -344,12 +354,17 @@ fn test_utf8_streaming_3byte_split_2_1() {
     let mut parser = Parser::new();
     // 中 = 0xE4 0xB8 0xAD
     let a1 = parser.parse_collect(&[0xE4, 0xB8]);
-    assert!(a1.iter().all(|a| !matches!(a, terminal_parser::Action::Print(_))));
+    assert!(a1
+        .iter()
+        .all(|a| !matches!(a, terminal_parser::Action::Print(_))));
     let a2 = parser.parse_collect(&[0xAD]);
-    let chars: Vec<char> = a2.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let chars: Vec<char> = a2
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(chars, vec!['中']);
 }
 
@@ -362,10 +377,13 @@ fn test_utf8_streaming_3byte_split_1_1_1() {
     let a2 = parser.parse_collect(&[0xB8]);
     assert!(a2.is_empty());
     let a3 = parser.parse_collect(&[0xAD]);
-    let chars: Vec<char> = a3.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let chars: Vec<char> = a3
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(chars, vec!['中']);
 }
 
@@ -376,10 +394,13 @@ fn test_utf8_streaming_4byte_split_1_3() {
     let a1 = parser.parse_collect(&[0xF0]);
     assert!(a1.is_empty());
     let a2 = parser.parse_collect(&[0x9F, 0x98, 0x80]);
-    let chars: Vec<char> = a2.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let chars: Vec<char> = a2
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(chars, vec!['😀']);
 }
 
@@ -390,10 +411,13 @@ fn test_utf8_streaming_4byte_split_2_2() {
     let a1 = parser.parse_collect(&[0xF0, 0x9F]);
     assert!(a1.is_empty());
     let a2 = parser.parse_collect(&[0x98, 0x80]);
-    let chars: Vec<char> = a2.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let chars: Vec<char> = a2
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(chars, vec!['😀']);
 }
 
@@ -403,10 +427,13 @@ fn test_utf8_streaming_4byte_split_3_1() {
     let a1 = parser.parse_collect(&[0xF0, 0x9F, 0x98]);
     assert!(a1.is_empty());
     let a2 = parser.parse_collect(&[0x80]);
-    let chars: Vec<char> = a2.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let chars: Vec<char> = a2
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(chars, vec!['😀']);
 }
 
@@ -420,10 +447,13 @@ fn test_utf8_streaming_4byte_split_1_1_1_1() {
     let a3 = parser.parse_collect(&[0x98]);
     assert!(a3.is_empty());
     let a4 = parser.parse_collect(&[0x80]);
-    let chars: Vec<char> = a4.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let chars: Vec<char> = a4
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(chars, vec!['😀']);
 }
 
@@ -488,10 +518,13 @@ fn test_utf8_invalid_start_byte_0xff() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(&[0xFF]);
     // Should not produce a Print action for invalid bytes
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert!(prints.is_empty() || prints == vec!['\u{FFFD}']);
 }
 
@@ -499,10 +532,13 @@ fn test_utf8_invalid_start_byte_0xff() {
 fn test_utf8_invalid_start_byte_0xfe() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(&[0xFE]);
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert!(prints.is_empty() || prints == vec!['\u{FFFD}']);
 }
 
@@ -511,10 +547,13 @@ fn test_utf8_invalid_continuation_only() {
     let mut parser = Parser::new();
     // 0x80 is a continuation byte without a start byte
     let actions = parser.parse_collect(&[0x80]);
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert!(prints.is_empty() || prints == vec!['\u{FFFD}']);
 }
 
@@ -524,10 +563,13 @@ fn test_utf8_truncated_2byte() {
     // Start 2-byte but never finish, then ASCII
     parser.parse_collect(&[0xC3]); // Start of é
     let actions = parser.parse_collect(b"A"); // ASCII should reset
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     // Should eventually get 'A' after handling the incomplete sequence
     assert!(prints.contains(&'A'));
 }
@@ -537,10 +579,13 @@ fn test_utf8_overlong_2byte() {
     let mut parser = Parser::new();
     // Overlong encoding of 'A' (0x41) as 2-byte: 0xC1 0x81
     let actions = parser.parse_collect(&[0xC1, 0x81]);
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     // Should not produce 'A' from overlong encoding
     assert!(!prints.contains(&'A'));
 }
@@ -559,10 +604,13 @@ fn test_utf8_null_byte_is_control() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(&[0x00]);
     // Null byte should be treated as control, not print
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert!(prints.is_empty());
 }
 
@@ -570,10 +618,13 @@ fn test_utf8_null_byte_is_control() {
 fn test_utf8_del_is_not_printed() {
     let mut parser = Parser::new();
     let actions = parser.parse_collect(&[0x7F]);
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert!(prints.is_empty());
 }
 
@@ -637,10 +688,13 @@ fn test_utf8_surrogate_high_rejected() {
     // U+D800 = 0xED 0xA0 0x80 (high surrogate, invalid in UTF-8)
     let mut parser = Parser::new();
     let actions = parser.parse_collect(&[0xED, 0xA0, 0x80]);
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     // Should not produce a valid char from surrogate range
     for c in &prints {
         let cp = *c as u32;
@@ -653,10 +707,13 @@ fn test_utf8_surrogate_low_rejected() {
     // U+DC00 = 0xED 0xB0 0x80 (low surrogate, invalid in UTF-8)
     let mut parser = Parser::new();
     let actions = parser.parse_collect(&[0xED, 0xB0, 0x80]);
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     for c in &prints {
         let cp = *c as u32;
         assert!(!(0xD800..=0xDFFF).contains(&cp));
@@ -676,10 +733,13 @@ fn test_utf8_between_escape_sequences() {
     input.extend_from_slice(b"\x1b[1m"); // bold
     input.extend_from_slice("本".as_bytes());
     let actions = parser.parse_collect(&input);
-    let prints: Vec<char> = actions.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = actions
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(prints, vec!['日', '本']);
 }
 
@@ -689,9 +749,12 @@ fn test_utf8_after_reset() {
     parser.parse_collect(b"\x1b[1m"); // Some CSI
     parser.reset();
     let chars = parser.parse_collect("日本語".as_bytes());
-    let prints: Vec<char> = chars.iter().filter_map(|a| match a {
-        terminal_parser::Action::Print(c) => Some(*c),
-        _ => None,
-    }).collect();
+    let prints: Vec<char> = chars
+        .iter()
+        .filter_map(|a| match a {
+            terminal_parser::Action::Print(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
     assert_eq!(prints, vec!['日', '本', '語']);
 }

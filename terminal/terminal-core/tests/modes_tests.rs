@@ -271,7 +271,7 @@ fn test_set_dec_mode_2026_synchronized_output() {
 fn test_set_dec_mode_unknown() {
     let mut modes = Modes::new();
     modes.set_dec_mode(9999, true); // Unknown mode - should not panic
-    // Just verify it doesn't crash
+                                    // Just verify it doesn't crash
 }
 
 // ============================================================================

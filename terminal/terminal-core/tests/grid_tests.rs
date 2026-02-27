@@ -118,7 +118,9 @@ fn test_grid_clear_with_attrs() {
 fn test_grid_clear_below() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.clear_below(2, 5, CellAttributes::default());
     assert_eq!(grid.line(0).cell(0).display_char(), 'A');
@@ -157,7 +159,9 @@ fn test_grid_clear_below_out_of_bounds() {
 fn test_grid_clear_above() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.clear_above(2, 3, CellAttributes::default());
     assert!(grid.line(0).is_empty());
@@ -184,7 +188,9 @@ fn test_grid_clear_above_out_of_bounds() {
 fn test_grid_scroll_up_full() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     let scrolled = grid.scroll_up(0, 4, 1, CellAttributes::default());
     assert_eq!(scrolled.len(), 1);
@@ -197,7 +203,9 @@ fn test_grid_scroll_up_full() {
 fn test_grid_scroll_up_multiple() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     let scrolled = grid.scroll_up(0, 4, 3, CellAttributes::default());
     assert_eq!(scrolled.len(), 3);
@@ -209,7 +217,9 @@ fn test_grid_scroll_up_multiple() {
 fn test_grid_scroll_up_region() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.scroll_up(1, 3, 1, CellAttributes::default());
     assert_eq!(grid.line(0).cell(0).display_char(), 'A');
@@ -230,7 +240,9 @@ fn test_grid_scroll_up_invalid_region() {
 fn test_grid_scroll_up_n_exceeds_region() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     let scrolled = grid.scroll_up(0, 4, 100, CellAttributes::default());
     assert_eq!(scrolled.len(), 5); // Clamped to region size
@@ -244,7 +256,9 @@ fn test_grid_scroll_up_n_exceeds_region() {
 fn test_grid_scroll_down_full() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.scroll_down(0, 4, 1, CellAttributes::default());
     assert!(grid.line(0).is_empty());
@@ -256,7 +270,9 @@ fn test_grid_scroll_down_full() {
 fn test_grid_scroll_down_region() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.scroll_down(1, 3, 1, CellAttributes::default());
     assert_eq!(grid.line(0).cell(0).display_char(), 'A');
@@ -282,7 +298,9 @@ fn test_grid_scroll_down_invalid_region() {
 fn test_grid_insert_lines() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.insert_lines(1, 2, 4, CellAttributes::default());
     assert_eq!(grid.line(0).cell(0).display_char(), 'A');
@@ -296,7 +314,9 @@ fn test_grid_insert_lines() {
 fn test_grid_insert_lines_at_top() {
     let mut grid = Grid::new(Dimensions::new(10, 3));
     for row in 0..3 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.insert_lines(0, 1, 2, CellAttributes::default());
     assert!(grid.line(0).is_empty());
@@ -320,7 +340,9 @@ fn test_grid_insert_lines_out_of_bounds() {
 fn test_grid_delete_lines() {
     let mut grid = Grid::new(Dimensions::new(10, 5));
     for row in 0..5 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.delete_lines(1, 2, 4, CellAttributes::default());
     assert_eq!(grid.line(0).cell(0).display_char(), 'A');
@@ -334,7 +356,9 @@ fn test_grid_delete_lines() {
 fn test_grid_delete_lines_at_top() {
     let mut grid = Grid::new(Dimensions::new(10, 3));
     for row in 0..3 {
-        grid.line_mut(row).cell_mut(0).set_char((b'A' + row as u8) as char);
+        grid.line_mut(row)
+            .cell_mut(0)
+            .set_char((b'A' + row as u8) as char);
     }
     grid.delete_lines(0, 1, 2, CellAttributes::default());
     assert_eq!(grid.line(0).cell(0).display_char(), 'B');
