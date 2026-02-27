@@ -89,6 +89,8 @@ pub struct DividerInfo {
     pub direction: SplitDirection,
     /// Path to this split node in the tree (sequence of choices: false=first, true=second)
     pub path: Vec<bool>,
+    /// The available rectangle of the parent split node that owns this divider
+    pub parent_rect: Rect,
 }
 
 /// Information about a pane's layout
@@ -335,6 +337,7 @@ impl PaneNode {
                     rect: divider_rect,
                     direction: *direction,
                     path: path.clone(),
+                    parent_rect: available,
                 });
 
                 path.push(false);

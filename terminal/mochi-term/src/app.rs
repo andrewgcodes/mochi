@@ -907,7 +907,7 @@ impl App {
                         self.divider_dragging = true;
                         self.divider_drag_path = divider.path.clone();
                         self.divider_drag_direction = divider.direction;
-                        self.divider_drag_available = available;
+                        self.divider_drag_available = divider.parent_rect;
                         self.divider_drag_start_pixel = match divider.direction {
                             SplitDirection::Horizontal => self.mouse_pixel.0,
                             SplitDirection::Vertical => self.mouse_pixel.1,
@@ -1663,11 +1663,27 @@ impl App {
             }
         }
 
-        // Remove tabs with no running children
+        // Remove tabs with no running children, tracking the active tab's identity
+        let active_tab_ptr = if self.active_tab < self.tabs.len() {
+            Some(std::ptr::from_ref(&self.tabs[self.active_tab]))
+        } else {
+            None
+        };
         self.tabs.retain(|tab| tab.pane_root.any_child_running());
 
-        // Adjust active tab index if needed
-        if self.active_tab >= self.tabs.len() {
+        // Find the active tab's new index after retain
+        if let Some(ptr) = active_tab_ptr {
+            if let Some(new_idx) = self
+                .tabs
+                .iter()
+                .position(|tab| std::ptr::from_ref(tab) == ptr)
+            {
+                self.active_tab = new_idx;
+            } else {
+                // Active tab was removed
+                self.active_tab = self.tabs.len().saturating_sub(1);
+            }
+        } else if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
 
