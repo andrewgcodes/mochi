@@ -430,7 +430,7 @@ fn test_child_signal_sigterm() {
 
 #[test]
 fn test_error_display_io() {
-    let err = terminal_pty::Error::Io(io::Error::new(io::ErrorKind::Other, "test"));
+    let err = terminal_pty::Error::Io(io::Error::other("test"));
     let msg = format!("{}", err);
     assert!(msg.contains("test"));
 }
@@ -465,7 +465,7 @@ fn test_error_display_child_error() {
 
 #[test]
 fn test_error_from_io() {
-    let io_err = io::Error::new(io::ErrorKind::Other, "io_test");
+    let io_err = io::Error::other("io_test");
     let err: terminal_pty::Error = io_err.into();
     assert!(matches!(err, terminal_pty::Error::Io(_)));
 }
