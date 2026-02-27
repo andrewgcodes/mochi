@@ -282,7 +282,7 @@ impl Drop for Child {
 mod tests {
     use super::*;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_spawn_shell() {
@@ -362,19 +362,26 @@ mod tests {
         // Send a command with unique marker
         child.write_all(b"echo MARKER_test123_MARKER\n").unwrap();
 
-        // Wait for response
-        thread::sleep(Duration::from_millis(300));
-
+        // Wait for response (up to 3 seconds)
         let mut output = String::new();
+        let start = Instant::now();
 
-        // Read all available output
-        loop {
-            match child.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => output.push_str(&String::from_utf8_lossy(&buf[..n])),
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(_) => break,
+        while start.elapsed() < Duration::from_secs(3) {
+            // Read all available output
+            loop {
+                match child.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => output.push_str(&String::from_utf8_lossy(&buf[..n])),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(_) => break,
+                }
             }
+
+            if output.contains("MARKER_test123_MARKER") {
+                break;
+            }
+
+            thread::sleep(Duration::from_millis(50));
         }
 
         assert!(
