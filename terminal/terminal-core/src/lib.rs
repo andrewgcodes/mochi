@@ -22,9 +22,9 @@ mod selection;
 mod snapshot;
 
 pub use cell::{Cell, CellAttributes};
-pub use charset::{parse_charset_designation, Charset, CharsetState};
+pub use charset::{parse_charset_designation, translate_char, Charset, CharsetState};
 pub use color::Color;
-pub use cursor::{Cursor, CursorStyle};
+pub use cursor::{Cursor, CursorStyle, SavedCursor};
 pub use grid::Grid;
 pub use line::Line;
 pub use modes::Modes;
