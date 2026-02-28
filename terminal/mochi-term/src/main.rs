@@ -15,6 +15,7 @@ use app::App;
 use clap::Parser;
 use config::{CliArgs, Config};
 
+// Entry point for the Mochi terminal emulator application.
 fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logging with "warn" level by default for faster startup
     // Users can set RUST_LOG=info or RUST_LOG=debug for more verbose output
