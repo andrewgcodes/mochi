@@ -6,6 +6,7 @@ mod app;
 mod config;
 mod event;
 mod input;
+mod pane;
 mod renderer;
 mod terminal;
 
