@@ -19,7 +19,8 @@ use terminal_core::{Point, SelectionType};
 
 use crate::config::Config;
 use crate::input::{encode_bracketed_paste, encode_focus, encode_key, encode_mouse, MouseEvent};
-use crate::renderer::{Renderer, TabInfo};
+use crate::renderer::{PaneRenderInfo, Renderer, TabInfo};
+use crate::split_pane::{PaneId, PaneIdCounter, PaneNode, Rect, SplitDirection, DIVIDER_SIZE};
 use crate::terminal::Terminal;
 
 /// Padding added to cell height to compute tab bar height
@@ -36,22 +37,28 @@ fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
     cell_size.height as u32 + TAB_BAR_PADDING
 }
 
-/// A single terminal tab
+/// A single terminal tab, containing a tree of split panes
 struct Tab {
-    terminal: Terminal,
-    child: Child,
-    title: String,
-    scroll_offset: usize,
+    /// Root of the split pane tree
+    pane_root: PaneNode,
+    /// ID of the currently focused pane within this tab
+    focused_pane_id: PaneId,
 }
 
 impl Tab {
-    fn new(terminal: Terminal, child: Child) -> Self {
+    fn new(pane_root: PaneNode, focused_pane_id: PaneId) -> Self {
         Self {
-            terminal,
-            child,
-            title: String::from("Terminal"),
-            scroll_offset: 0,
+            pane_root,
+            focused_pane_id,
         }
+    }
+
+    /// Get the title of the focused pane (for tab bar display)
+    fn title(&self) -> &str {
+        self.pane_root
+            .find_leaf(self.focused_pane_id)
+            .map(|leaf| leaf.title.as_str())
+            .unwrap_or("Terminal")
     }
 }
 
@@ -63,7 +70,7 @@ pub struct App {
     window: Option<Rc<Window>>,
     /// Renderer
     renderer: Option<Renderer>,
-    /// Tabs (each tab has its own terminal and child process)
+    /// Tabs (each tab has its own split pane tree)
     tabs: Vec<Tab>,
     /// Active tab index
     active_tab: usize,
@@ -72,7 +79,7 @@ pub struct App {
     clipboard: Option<Clipboard>,
     /// Current modifiers state
     modifiers: ModifiersState,
-    /// Mouse position (in cells)
+    /// Mouse position (in cells, relative to focused pane)
     mouse_cell: (u16, u16),
     /// Mouse position (in pixels)
     mouse_pixel: (f64, f64),
@@ -92,6 +99,20 @@ pub struct App {
     scrollbar_drag_start_y: f64,
     /// Scroll offset when scrollbar drag started
     scrollbar_drag_start_offset: usize,
+    /// Counter for generating unique pane IDs
+    pane_id_counter: PaneIdCounter,
+    /// Whether we're currently dragging a pane divider
+    divider_dragging: bool,
+    /// Path to the split node being dragged (false=first, true=second)
+    divider_drag_path: Vec<bool>,
+    /// Direction of the divider being dragged
+    divider_drag_direction: SplitDirection,
+    /// Starting pixel position of divider drag
+    divider_drag_start_pixel: f64,
+    /// Ratio when divider drag started
+    divider_drag_start_ratio: f64,
+    /// Available rect when divider drag started (for ratio calculation)
+    divider_drag_available: Rect,
 }
 
 impl App {
@@ -115,7 +136,26 @@ impl App {
             scrollbar_dragging: false,
             scrollbar_drag_start_y: 0.0,
             scrollbar_drag_start_offset: 0,
+            pane_id_counter: PaneIdCounter::new(),
+            divider_dragging: false,
+            divider_drag_path: Vec::new(),
+            divider_drag_direction: SplitDirection::Horizontal,
+            divider_drag_start_pixel: 0.0,
+            divider_drag_start_ratio: 0.5,
+            divider_drag_available: Rect::new(0, 0, 0, 0),
         })
+    }
+
+    /// Get the available rectangle for pane content (below tab bar)
+    fn pane_area(&self) -> Rect {
+        let (width, height) = if let Some(window) = &self.window {
+            let size = window.inner_size();
+            (size.width, size.height)
+        } else {
+            (0, 0)
+        };
+        let content_height = height.saturating_sub(self.tab_bar_height);
+        Rect::new(0, self.tab_bar_height, width, content_height)
     }
 
     /// Run the application
@@ -221,12 +261,14 @@ impl App {
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        // Create first tab
+        // Create first tab with a single pane
+        let pane_id = self.pane_id_counter.next_id();
         let terminal = Terminal::new(cols.max(1), rows.max(1));
         let child = Child::spawn_shell(WindowSize::new(cols as u16, rows as u16))?;
         child.set_nonblocking(true)?;
 
-        let tab = Tab::new(terminal, child);
+        let pane_root = PaneNode::new_leaf(pane_id, terminal, child);
+        let tab = Tab::new(pane_root, pane_id);
         self.tabs.push(tab);
         self.active_tab = 0;
 
@@ -249,11 +291,13 @@ impl App {
         let terminal_height = size.height.saturating_sub(self.tab_bar_height);
         let rows = (terminal_height as f32 / cell_size.height) as usize;
 
+        let pane_id = self.pane_id_counter.next_id();
         let terminal = Terminal::new(cols.max(1), rows.max(1));
         match Child::spawn_shell(WindowSize::new(cols as u16, rows as u16)) {
             Ok(child) => {
                 let _ = child.set_nonblocking(true);
-                let tab = Tab::new(terminal, child);
+                let pane_root = PaneNode::new_leaf(pane_id, terminal, child);
+                let tab = Tab::new(pane_root, pane_id);
                 self.tabs.push(tab);
                 self.active_tab = self.tabs.len() - 1;
                 self.needs_redraw = true;
@@ -349,21 +393,168 @@ impl App {
         // Update renderer
         renderer.resize(size.width, size.height);
 
-        // Calculate new terminal dimensions (account for tab bar)
         let cell_size = renderer.cell_size();
-        let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
-        let rows = (terminal_height as f32 / cell_size.height) as usize;
 
-        // Resize all tabs
-        if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-            }
+        // Resize all tabs' pane trees
+        let content_height = size.height.saturating_sub(self.tab_bar_height);
+        let available = Rect::new(0, self.tab_bar_height, size.width, content_height);
+
+        for tab in &mut self.tabs {
+            tab.pane_root
+                .resize_to_layout(available, cell_size.width, cell_size.height);
         }
 
         self.needs_redraw = true;
+    }
+
+    /// Split the focused pane in the active tab
+    fn split_focused_pane(&mut self, direction: SplitDirection) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
+
+        let cell_size = renderer.cell_size();
+        let available = self.pane_area();
+
+        let tab = &mut self.tabs[self.active_tab];
+        let target_id = tab.focused_pane_id;
+
+        // Calculate layout to determine how big the new pane will be
+        let (pane_layouts, _) = tab.pane_root.calculate_layout(available);
+        let target_rect = pane_layouts
+            .iter()
+            .find(|p| p.id == target_id)
+            .map(|p| p.rect);
+
+        let Some(target_rect) = target_rect else {
+            return;
+        };
+
+        // Check if the pane is big enough to split
+        let min_dim = match direction {
+            SplitDirection::Horizontal => target_rect.width,
+            SplitDirection::Vertical => target_rect.height,
+        };
+        if min_dim < 2 * crate::split_pane::MIN_PANE_SIZE + DIVIDER_SIZE {
+            log::warn!("Pane too small to split");
+            return;
+        }
+
+        // Calculate dimensions for the new pane (half of current)
+        let (new_cols, new_rows) = match direction {
+            SplitDirection::Horizontal => {
+                let half_w = (target_rect.width - DIVIDER_SIZE) / 2;
+                let cols = (half_w as f32 / cell_size.width) as usize;
+                let rows = (target_rect.height as f32 / cell_size.height) as usize;
+                (cols.max(1), rows.max(1))
+            }
+            SplitDirection::Vertical => {
+                let half_h = (target_rect.height - DIVIDER_SIZE) / 2;
+                let cols = (target_rect.width as f32 / cell_size.width) as usize;
+                let rows = (half_h as f32 / cell_size.height) as usize;
+                (cols.max(1), rows.max(1))
+            }
+        };
+
+        let new_pane_id = self.pane_id_counter.next_id();
+        let terminal = Terminal::new(new_cols, new_rows);
+        match Child::spawn_shell(WindowSize::new(new_cols as u16, new_rows as u16)) {
+            Ok(child) => {
+                let _ = child.set_nonblocking(true);
+                let new_leaf = PaneNode::new_leaf(new_pane_id, terminal, child);
+
+                if tab.pane_root.split_pane(target_id, direction, new_leaf) {
+                    // Focus the new pane
+                    tab.focused_pane_id = new_pane_id;
+
+                    // Resize all panes to their new layout
+                    tab.pane_root
+                        .resize_to_layout(available, cell_size.width, cell_size.height);
+
+                    self.needs_redraw = true;
+                    log::info!(
+                        "Split pane {:?} {:?}, new pane {:?}",
+                        target_id,
+                        direction,
+                        new_pane_id
+                    );
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to spawn shell for split: {}", e);
+            }
+        }
+    }
+
+    /// Close the focused pane in the active tab
+    fn close_focused_pane(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+
+        let tab = &mut self.tabs[self.active_tab];
+
+        // If only one pane, close the tab instead
+        if tab.pane_root.leaf_count() <= 1 {
+            if !self.close_current_tab() {
+                // Last tab - clear tabs to trigger exit
+                self.tabs.clear();
+            }
+            return;
+        }
+
+        let target_id = tab.focused_pane_id;
+
+        // Get a new focus target before removing
+        let new_focus = tab.pane_root.next_pane_id(target_id);
+
+        if tab.pane_root.remove_pane(target_id) {
+            tab.focused_pane_id = new_focus;
+            self.needs_redraw = true;
+            log::info!("Closed pane {:?}, focus now on {:?}", target_id, new_focus);
+        }
+
+        // Resize panes to fill the space (done outside the tab borrow)
+        if let Some(renderer) = &self.renderer {
+            let cell_size = renderer.cell_size();
+            let available = self.pane_area();
+            self.tabs[self.active_tab].pane_root.resize_to_layout(
+                available,
+                cell_size.width,
+                cell_size.height,
+            );
+        }
+    }
+
+    /// Focus the next pane in the active tab
+    fn focus_next_pane(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        let next_id = tab.pane_root.next_pane_id(tab.focused_pane_id);
+        if next_id != tab.focused_pane_id {
+            tab.focused_pane_id = next_id;
+            self.needs_redraw = true;
+            log::info!("Focused pane {:?}", next_id);
+        }
+    }
+
+    /// Focus the previous pane in the active tab
+    fn focus_prev_pane(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        let prev_id = tab.pane_root.prev_pane_id(tab.focused_pane_id);
+        if prev_id != tab.focused_pane_id {
+            tab.focused_pane_id = prev_id;
+            self.needs_redraw = true;
+            log::info!("Focused pane {:?}", prev_id);
+        }
     }
 
     /// Handle keyboard input
@@ -397,6 +588,31 @@ impl App {
                     self.handle_reload_config();
                     return;
                 }
+                // Split pane horizontally: Ctrl+Shift+D
+                Key::Character(c) if c.to_lowercase() == "d" => {
+                    self.split_focused_pane(SplitDirection::Horizontal);
+                    return;
+                }
+                // Split pane vertically: Ctrl+Shift+E
+                Key::Character(c) if c.to_lowercase() == "e" => {
+                    self.split_focused_pane(SplitDirection::Vertical);
+                    return;
+                }
+                // Close focused pane: Ctrl+Shift+X
+                Key::Character(c) if c.to_lowercase() == "x" => {
+                    self.close_focused_pane();
+                    return;
+                }
+                // Focus next pane: Ctrl+Shift+]
+                Key::Character(c) if c == "]" => {
+                    self.focus_next_pane();
+                    return;
+                }
+                // Focus previous pane: Ctrl+Shift+[
+                Key::Character(c) if c == "[" => {
+                    self.focus_prev_pane();
+                    return;
+                }
                 // Toggle theme: Ctrl+Shift+T (macOS only; on Linux Ctrl+Shift+T is new tab)
                 #[cfg(target_os = "macos")]
                 Key::Character(c) if c.to_lowercase() == "t" => {
@@ -409,15 +625,16 @@ impl App {
 
         // macOS: Cmd+V for paste, Cmd+C for copy, Cmd+N for new window, Cmd+T for new tab,
         // Cmd+W to close tab, Cmd+1-9 to switch tabs (standard macOS shortcuts)
+        // Cmd+D for horizontal split, Cmd+Shift+D for vertical split
         #[cfg(target_os = "macos")]
         if self.modifiers.super_key() && !self.modifiers.control_key() && !self.modifiers.alt_key()
         {
             match &event.logical_key {
-                Key::Character(c) if c.to_lowercase() == "v" => {
+                Key::Character(c) if c.to_lowercase() == "v" && !self.modifiers.shift_key() => {
                     self.handle_paste();
                     return;
                 }
-                Key::Character(c) if c.to_lowercase() == "c" => {
+                Key::Character(c) if c.to_lowercase() == "c" && !self.modifiers.shift_key() => {
                     self.handle_copy();
                     return;
                 }
@@ -425,15 +642,29 @@ impl App {
                     self.handle_new_window();
                     return;
                 }
-                Key::Character(c) if c.to_lowercase() == "t" => {
+                Key::Character(c) if c.to_lowercase() == "t" && !self.modifiers.shift_key() => {
                     self.create_new_tab();
                     return;
                 }
+                Key::Character(c) if c.to_lowercase() == "d" && !self.modifiers.shift_key() => {
+                    self.split_focused_pane(SplitDirection::Horizontal);
+                    return;
+                }
+                Key::Character(c) if c.to_lowercase() == "d" && self.modifiers.shift_key() => {
+                    self.split_focused_pane(SplitDirection::Vertical);
+                    return;
+                }
                 Key::Character(c) if c.to_lowercase() == "w" => {
-                    if !self.close_current_tab() {
-                        // Only one tab left - close the terminal window
-                        self.tabs.clear();
-                    }
+                    // Close pane first, then tab if only one pane
+                    self.close_focused_pane();
+                    return;
+                }
+                Key::Character(c) if c == "]" => {
+                    self.focus_next_pane();
+                    return;
+                }
+                Key::Character(c) if c == "[" => {
+                    self.focus_prev_pane();
                     return;
                 }
                 Key::Character(c) if c == "1" => {
@@ -485,10 +716,7 @@ impl App {
                     return;
                 }
                 Key::Character(c) if c.to_lowercase() == "w" => {
-                    if !self.close_current_tab() {
-                        // Only one tab left - close the terminal window
-                        self.tabs.clear();
-                    }
+                    self.close_focused_pane();
                     return;
                 }
                 _ => {}
@@ -498,7 +726,13 @@ impl App {
         if self.tabs.is_empty() {
             return;
         }
+
         let tab = &mut self.tabs[self.active_tab];
+        let focused_id = tab.focused_pane_id;
+
+        let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) else {
+            return;
+        };
 
         // IMPORTANT: Handle control characters FIRST, before any other shortcut processing
         // This fixes the modifier state synchronization issue where ModifiersChanged and
@@ -521,7 +755,7 @@ impl App {
                         first_char,
                         first_char as u8
                     );
-                    let _ = tab.child.write_all(&[first_char as u8]);
+                    let _ = leaf.child.write_all(&[first_char as u8]);
                     return;
                 }
             }
@@ -538,7 +772,7 @@ impl App {
                         ch,
                         ch as u8
                     );
-                    let _ = tab.child.write_all(&[ch as u8]);
+                    let _ = leaf.child.write_all(&[ch as u8]);
                     return;
                 }
             }
@@ -578,12 +812,12 @@ impl App {
             }
         }
 
-        let application_cursor_keys = tab.terminal.screen().modes().cursor_keys_application;
+        let application_cursor_keys = leaf.terminal.screen().modes().cursor_keys_application;
 
         if let Some(data) = encode_key(&event.logical_key, self.modifiers, application_cursor_keys)
         {
             log::debug!("Sending key data: {:?}", data);
-            let _ = tab.child.write_all(&data);
+            let _ = leaf.child.write_all(&data);
         }
     }
 
@@ -592,7 +826,6 @@ impl App {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
-        let Some(window) = &self.window else { return };
 
         let current_size = renderer.font_size();
         let new_size = (current_size + delta).clamp(8.0, 72.0);
@@ -604,19 +837,14 @@ impl App {
         renderer.set_font_size(new_size);
 
         // Recalculate terminal dimensions (account for tab bar)
-        let size = window.inner_size();
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
-        let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
-        let rows = (terminal_height as f32 / cell_size.height) as usize;
+        let available = self.pane_area();
 
-        // Resize all tabs
-        if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-            }
+        // Resize all tabs' pane trees
+        for tab in &mut self.tabs {
+            tab.pane_root
+                .resize_to_layout(available, cell_size.width, cell_size.height);
         }
 
         self.needs_redraw = true;
@@ -635,19 +863,14 @@ impl App {
         renderer.set_font_size(default_size);
 
         // Recalculate terminal dimensions (account for tab bar)
-        let size = window.inner_size();
         let cell_size = renderer.cell_size();
         self.tab_bar_height = compute_tab_bar_height(&cell_size);
-        let cols = (size.width as f32 / cell_size.width) as usize;
-        let terminal_height = size.height.saturating_sub(self.tab_bar_height);
-        let rows = (terminal_height as f32 / cell_size.height) as usize;
+        let available = self.pane_area();
 
-        // Resize all tabs
-        if cols > 0 && rows > 0 {
-            for tab in &mut self.tabs {
-                tab.terminal.resize(cols, rows);
-                let _ = tab.child.resize(WindowSize::new(cols as u16, rows as u16));
-            }
+        // Resize all tabs' pane trees
+        for tab in &mut self.tabs {
+            tab.pane_root
+                .resize_to_layout(available, cell_size.width, cell_size.height);
         }
 
         self.needs_redraw = true;
@@ -668,25 +891,70 @@ impl App {
             return;
         }
 
-        // Handle scrollbar dragging first (left button only)
+        // Handle divider dragging (left button only)
         if button == MouseButton::Left {
             if state == ElementState::Pressed {
-                // Check if click is on scrollbar (right 12 pixels of window)
-                if let Some(window) = &self.window {
-                    let window_width = window.inner_size().width as f64;
-                    let scrollbar_width = 12.0;
+                // Check if click is on a divider
+                let available = self.pane_area();
+                let tab = &self.tabs[self.active_tab];
+                let (_, dividers) = tab.pane_root.calculate_layout(available);
 
-                    if self.mouse_pixel.0 >= window_width - scrollbar_width
-                        && self.mouse_pixel.1 >= self.tab_bar_height as f64
+                let px = self.mouse_pixel.0 as u32;
+                let py = self.mouse_pixel.1 as u32;
+
+                for divider in &dividers {
+                    if divider.rect.contains(px, py) {
+                        self.divider_dragging = true;
+                        self.divider_drag_path = divider.path.clone();
+                        self.divider_drag_direction = divider.direction;
+                        self.divider_drag_available = divider.parent_rect;
+                        self.divider_drag_start_pixel = match divider.direction {
+                            SplitDirection::Horizontal => self.mouse_pixel.0,
+                            SplitDirection::Vertical => self.mouse_pixel.1,
+                        };
+                        // Get the current ratio from the tree
+                        self.divider_drag_start_ratio =
+                            self.get_ratio_at_path(&divider.path).unwrap_or(0.5);
+                        return;
+                    }
+                }
+            } else if self.divider_dragging {
+                // Mouse released - stop divider dragging
+                self.divider_dragging = false;
+                return;
+            }
+        }
+
+        // Handle scrollbar dragging (left button only)
+        if button == MouseButton::Left {
+            if state == ElementState::Pressed {
+                // Check if click is on scrollbar (right 12 pixels of the focused pane's rect)
+                let available = self.pane_area();
+                let tab = &self.tabs[self.active_tab];
+                let (pane_layouts, _) = tab.pane_root.calculate_layout(available);
+                let focused_id = tab.focused_pane_id;
+                let scrollbar_width = 12.0;
+
+                if let Some(layout) = pane_layouts.iter().find(|l| l.id == focused_id) {
+                    let pane_rect = &layout.rect;
+                    let pane_right = (pane_rect.x + pane_rect.width) as f64;
+                    let pane_top = pane_rect.y as f64;
+                    let pane_bottom = (pane_rect.y + pane_rect.height) as f64;
+
+                    if self.mouse_pixel.0 >= pane_right - scrollbar_width
+                        && self.mouse_pixel.0 < pane_right
+                        && self.mouse_pixel.1 >= pane_top
+                        && self.mouse_pixel.1 < pane_bottom
                     {
-                        let tab = &self.tabs[self.active_tab];
-                        let scrollback_len = tab.terminal.screen().scrollback().len();
-                        if scrollback_len > 0 {
-                            // Start scrollbar dragging
-                            self.scrollbar_dragging = true;
-                            self.scrollbar_drag_start_y = self.mouse_pixel.1;
-                            self.scrollbar_drag_start_offset = tab.scroll_offset;
-                            return;
+                        if let Some(leaf) = tab.pane_root.find_leaf(focused_id) {
+                            let scrollback_len = leaf.terminal.screen().scrollback().len();
+                            if scrollback_len > 0 {
+                                // Start scrollbar dragging
+                                self.scrollbar_dragging = true;
+                                self.scrollbar_drag_start_y = self.mouse_pixel.1;
+                                self.scrollbar_drag_start_offset = leaf.scroll_offset;
+                                return;
+                            }
                         }
                     }
                 }
@@ -699,25 +967,44 @@ impl App {
             }
         }
 
+        // Click on a pane to focus it
+        if button == MouseButton::Left && state == ElementState::Pressed {
+            let available = self.pane_area();
+            let tab = &mut self.tabs[self.active_tab];
+            let px = self.mouse_pixel.0 as u32;
+            let py = self.mouse_pixel.1 as u32;
+
+            if let Some(clicked_pane_id) = tab.pane_root.find_pane_at(available, px, py) {
+                if clicked_pane_id != tab.focused_pane_id {
+                    tab.focused_pane_id = clicked_pane_id;
+                    self.needs_redraw = true;
+                }
+            }
+        }
+
         let tab = &mut self.tabs[self.active_tab];
-        let modes = tab.terminal.screen().modes().clone();
+        let focused_id = tab.focused_pane_id;
+        let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) else {
+            return;
+        };
+        let modes = leaf.terminal.screen().modes().clone();
 
         // Handle text selection when mouse tracking is NOT enabled
         if !modes.mouse_tracking_enabled() {
             if button == MouseButton::Left {
                 let col = self.mouse_cell.0 as usize;
-                let row = self.mouse_cell.1 as isize - tab.scroll_offset as isize;
+                let row = self.mouse_cell.1 as isize - leaf.scroll_offset as isize;
 
                 if state == ElementState::Pressed {
                     // Start a new selection
-                    tab.terminal
+                    leaf.terminal
                         .screen_mut()
                         .selection_mut()
                         .start(Point::new(col, row), SelectionType::Normal);
                     self.needs_redraw = true;
                 } else {
                     // Finish selection
-                    tab.terminal.screen_mut().selection_mut().finish();
+                    leaf.terminal.screen_mut().selection_mut().finish();
                 }
             }
             // Track button state for selection dragging
@@ -744,7 +1031,7 @@ impl App {
             modes.mouse_button_event,
             modes.mouse_any_event,
         ) {
-            let _ = tab.child.write_all(&data);
+            let _ = leaf.child.write_all(&data);
         }
 
         // Track button state
@@ -757,6 +1044,29 @@ impl App {
         self.mouse_buttons[idx] = state == ElementState::Pressed;
     }
 
+    /// Get the ratio of a split at the given path
+    fn get_ratio_at_path(&self, path: &[bool]) -> Option<f64> {
+        if self.tabs.is_empty() {
+            return None;
+        }
+        let tab = &self.tabs[self.active_tab];
+        Self::get_ratio_at_path_recursive(&tab.pane_root, path)
+    }
+
+    fn get_ratio_at_path_recursive(node: &PaneNode, path: &[bool]) -> Option<f64> {
+        match (path.first(), node) {
+            (None, PaneNode::Split { ratio, .. }) => Some(*ratio),
+            (Some(&choice), PaneNode::Split { first, second, .. }) => {
+                if choice {
+                    Self::get_ratio_at_path_recursive(second, &path[1..])
+                } else {
+                    Self::get_ratio_at_path_recursive(first, &path[1..])
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Handle mouse motion
     fn handle_mouse_motion(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
         // Update pixel position
@@ -766,29 +1076,84 @@ impl App {
             return;
         }
 
+        // Handle divider dragging
+        if self.divider_dragging {
+            let current_pixel = match self.divider_drag_direction {
+                SplitDirection::Horizontal => position.x,
+                SplitDirection::Vertical => position.y,
+            };
+            let delta = current_pixel - self.divider_drag_start_pixel;
+
+            // Calculate new ratio based on pixel delta
+            let total_size = match self.divider_drag_direction {
+                SplitDirection::Horizontal => {
+                    self.divider_drag_available
+                        .width
+                        .saturating_sub(DIVIDER_SIZE) as f64
+                }
+                SplitDirection::Vertical => {
+                    self.divider_drag_available
+                        .height
+                        .saturating_sub(DIVIDER_SIZE) as f64
+                }
+            };
+
+            if total_size > 0.0 {
+                let ratio_delta = delta / total_size;
+                let new_ratio = (self.divider_drag_start_ratio + ratio_delta).clamp(0.1, 0.9);
+
+                let path = self.divider_drag_path.clone();
+                let updated = self.tabs[self.active_tab]
+                    .pane_root
+                    .update_ratio_at_path(&path, new_ratio);
+
+                if updated {
+                    // Resize panes after ratio change
+                    if let Some(renderer) = &self.renderer {
+                        let cell_size = renderer.cell_size();
+                        let available = self.pane_area();
+                        self.tabs[self.active_tab].pane_root.resize_to_layout(
+                            available,
+                            cell_size.width,
+                            cell_size.height,
+                        );
+                    }
+                    self.needs_redraw = true;
+                }
+            }
+            return;
+        }
+
         // Handle scrollbar dragging
         if self.scrollbar_dragging {
-            if let Some(window) = &self.window {
-                let tab = &mut self.tabs[self.active_tab];
-                let window_height =
-                    (window.inner_size().height as f64 - self.tab_bar_height as f64).max(1.0);
-                let scrollback_len = tab.terminal.screen().scrollback().len();
-                let visible_rows = tab.terminal.screen().rows();
+            // Get the focused pane's layout rect for accurate scrollbar math
+            let available = self.pane_area();
+            let tab = &mut self.tabs[self.active_tab];
+            let focused_id = tab.focused_pane_id;
+            let (pane_layouts, _) = tab.pane_root.calculate_layout(available);
+            let pane_height = pane_layouts
+                .iter()
+                .find(|p| p.id == focused_id)
+                .map(|p| p.rect.height as f64)
+                .unwrap_or(1.0)
+                .max(1.0);
 
-                if scrollback_len > 0 && window_height > 0.0 {
+            if let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) {
+                let scrollback_len = leaf.terminal.screen().scrollback().len();
+                let visible_rows = leaf.terminal.screen().rows();
+
+                if scrollback_len > 0 && pane_height > 0.0 {
                     // Calculate how much the mouse has moved
                     let delta_y = position.y - self.scrollbar_drag_start_y;
 
                     // Calculate the scroll range (total scrollable area)
                     let total_lines = scrollback_len + visible_rows;
                     let thumb_height =
-                        ((visible_rows as f64 / total_lines as f64) * window_height).max(20.0);
-                    let scroll_range = window_height - thumb_height;
+                        ((visible_rows as f64 / total_lines as f64) * pane_height).max(20.0);
+                    let scroll_range = pane_height - thumb_height;
 
                     if scroll_range > 0.0 {
                         // Convert pixel delta to scroll offset delta
-                        // Moving down (positive delta) should decrease scroll_offset (show newer content)
-                        // Moving up (negative delta) should increase scroll_offset (show older content)
                         let scroll_delta =
                             (-delta_y / scroll_range * scrollback_len as f64) as isize;
 
@@ -797,8 +1162,8 @@ impl App {
                             .min(scrollback_len as isize)
                             as usize;
 
-                        if new_offset != tab.scroll_offset {
-                            tab.scroll_offset = new_offset;
+                        if new_offset != leaf.scroll_offset {
+                            leaf.scroll_offset = new_offset;
                             self.needs_redraw = true;
                         }
                     }
@@ -811,10 +1176,33 @@ impl App {
             return;
         };
 
+        // Calculate mouse cell position relative to the focused pane
         let cell_size = renderer.cell_size();
-        let col = (position.x / cell_size.width as f64) as u16;
-        let adjusted_y = (position.y - self.tab_bar_height as f64).max(0.0);
-        let row = (adjusted_y / cell_size.height as f64) as u16;
+        let available = self.pane_area();
+        let tab = &mut self.tabs[self.active_tab];
+        let focused_id = tab.focused_pane_id;
+        let (pane_layouts, _) = tab.pane_root.calculate_layout(available);
+
+        // Find the focused pane's rect
+        let pane_rect = pane_layouts
+            .iter()
+            .find(|p| p.id == focused_id)
+            .map(|p| p.rect);
+
+        let (col, row) = if let Some(rect) = pane_rect {
+            let local_x = (position.x - rect.x as f64).max(0.0);
+            let local_y = (position.y - rect.y as f64).max(0.0);
+            (
+                (local_x / cell_size.width as f64) as u16,
+                (local_y / cell_size.height as f64) as u16,
+            )
+        } else {
+            let adjusted_y = (position.y - self.tab_bar_height as f64).max(0.0);
+            (
+                (position.x / cell_size.width as f64) as u16,
+                (adjusted_y / cell_size.height as f64) as u16,
+            )
+        };
 
         if col == self.mouse_cell.0 && row == self.mouse_cell.1 {
             return;
@@ -822,15 +1210,17 @@ impl App {
 
         self.mouse_cell = (col, row);
 
-        let tab = &mut self.tabs[self.active_tab];
-        let modes = tab.terminal.screen().modes().clone();
+        let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) else {
+            return;
+        };
+        let modes = leaf.terminal.screen().modes().clone();
 
         // Handle text selection dragging when mouse tracking is NOT enabled
         if !modes.mouse_tracking_enabled() && self.mouse_buttons[0] {
             // Left button is held - update selection
             let sel_col = col as usize;
-            let sel_row = row as isize - tab.scroll_offset as isize;
-            tab.terminal
+            let sel_row = row as isize - leaf.scroll_offset as isize;
+            leaf.terminal
                 .screen_mut()
                 .selection_mut()
                 .update(Point::new(sel_col, sel_row));
@@ -849,7 +1239,7 @@ impl App {
                 modes.mouse_button_event,
                 modes.mouse_any_event,
             ) {
-                let _ = tab.child.write_all(&data);
+                let _ = leaf.child.write_all(&data);
             }
         }
     }
@@ -861,7 +1251,11 @@ impl App {
         }
 
         let tab = &mut self.tabs[self.active_tab];
-        let modes = tab.terminal.screen().modes().clone();
+        let focused_id = tab.focused_pane_id;
+        let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) else {
+            return;
+        };
+        let modes = leaf.terminal.screen().modes().clone();
         let lines = match delta {
             MouseScrollDelta::LineDelta(_, y) => y as i32,
             MouseScrollDelta::PixelDelta(pos) => (pos.y / 20.0) as i32,
@@ -884,17 +1278,17 @@ impl App {
                 modes.mouse_button_event,
                 modes.mouse_any_event,
             ) {
-                let _ = tab.child.write_all(&data);
+                let _ = leaf.child.write_all(&data);
             }
         } else {
             // Scroll the viewport through scrollback history
-            let scrollback_len = tab.terminal.screen().scrollback().len();
+            let scrollback_len = leaf.terminal.screen().scrollback().len();
             if lines > 0 {
                 // Scroll up (show older content)
-                tab.scroll_offset = (tab.scroll_offset + lines as usize).min(scrollback_len);
+                leaf.scroll_offset = (leaf.scroll_offset + lines as usize).min(scrollback_len);
             } else {
                 // Scroll down (show newer content)
-                tab.scroll_offset = tab.scroll_offset.saturating_sub((-lines) as usize);
+                leaf.scroll_offset = leaf.scroll_offset.saturating_sub((-lines) as usize);
             }
             self.needs_redraw = true;
         }
@@ -906,8 +1300,11 @@ impl App {
             return;
         }
         let tab = &self.tabs[self.active_tab];
+        let Some(leaf) = tab.pane_root.find_leaf(tab.focused_pane_id) else {
+            return;
+        };
 
-        let screen = tab.terminal.screen();
+        let screen = leaf.terminal.screen();
         let selection = screen.selection();
 
         if selection.is_empty() {
@@ -984,18 +1381,22 @@ impl App {
         }
 
         let tab = &mut self.tabs[self.active_tab];
+        let focused_id = tab.focused_pane_id;
+        let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) else {
+            return;
+        };
 
         match clipboard.get_text() {
             Ok(text) => {
                 if text.is_empty() {
                     return;
                 }
-                let data = if tab.terminal.screen().modes().bracketed_paste {
+                let data = if leaf.terminal.screen().modes().bracketed_paste {
                     encode_bracketed_paste(&text)
                 } else {
                     text.into_bytes()
                 };
-                if let Err(e) = tab.child.write_all(&data) {
+                if let Err(e) = leaf.child.write_all(&data) {
                     log::warn!("Failed to write paste data to PTY: {}", e);
                 } else {
                     log::debug!("Pasted {} bytes", data.len());
@@ -1095,120 +1496,203 @@ impl App {
             return;
         }
         let tab = &mut self.tabs[self.active_tab];
+        let focused_id = tab.focused_pane_id;
 
-        if tab.terminal.screen().modes().focus_events {
-            let data = encode_focus(focused);
-            let _ = tab.child.write_all(&data);
+        if let Some(leaf) = tab.pane_root.find_leaf_mut(focused_id) {
+            if leaf.terminal.screen().modes().focus_events {
+                let data = encode_focus(focused);
+                let _ = leaf.child.write_all(&data);
+            }
         }
     }
 
     /// Poll PTY for output from all tabs
     fn poll_pty(&mut self) {
         let mut buf = [0u8; 65536];
+        let mut any_output = false;
 
         // Poll all tabs for output
         for (i, tab) in self.tabs.iter_mut().enumerate() {
-            let mut received_output = false;
+            let is_active_tab = i == self.active_tab;
+            let mut tab_output = false;
 
-            loop {
-                match tab.child.pty_mut().try_read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        tab.terminal.process(&buf[..n]);
-                        received_output = true;
-                        // Only trigger redraw if synchronized output mode is disabled
-                        // and this is the active tab
-                        if i == self.active_tab && !tab.terminal.is_synchronized_output() {
-                            self.needs_redraw = true;
+            tab.pane_root.for_each_leaf_mut(&mut |leaf| {
+                let mut received_output = false;
+
+                loop {
+                    match leaf.child.pty_mut().try_read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            leaf.terminal.process(&buf[..n]);
+                            received_output = true;
                         }
-                    }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(_) => break,
-                }
-            }
-
-            // Reset scroll offset when new output arrives (auto-scroll to bottom)
-            if received_output && tab.scroll_offset > 0 {
-                tab.scroll_offset = 0;
-            }
-
-            // Check for title change (only update window title for active tab)
-            if tab.terminal.take_title_changed() {
-                tab.title = tab.terminal.title().to_string();
-                if i == self.active_tab {
-                    if let Some(window) = &self.window {
-                        window.set_title(&tab.title);
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(_) => break,
                     }
                 }
+
+                // Reset scroll offset when new output arrives (auto-scroll to bottom)
+                if received_output && leaf.scroll_offset > 0 {
+                    leaf.scroll_offset = 0;
+                }
+
+                if received_output {
+                    // Only trigger redraw if synchronized output mode is disabled
+                    if !leaf.terminal.is_synchronized_output() {
+                        tab_output = true;
+                    }
+                }
+
+                // Check for title change
+                if leaf.terminal.take_title_changed() {
+                    leaf.title = leaf.terminal.title().to_string();
+                }
+
+                // Check for bell
+                if leaf.terminal.take_bell() {
+                    log::debug!("Bell!");
+                }
+
+                // Send any pending responses back to the PTY (DSR, DA1, etc.)
+                let responses = leaf.terminal.take_pending_responses();
+                for response in responses {
+                    if let Err(e) = leaf.child.write_all(&response) {
+                        log::warn!("Failed to send response to PTY: {}", e);
+                    }
+                }
+            });
+
+            // Only mark redraw for active tab output
+            if is_active_tab && tab_output {
+                any_output = true;
             }
 
-            // Check for bell
-            if tab.terminal.take_bell() {
-                log::debug!("Bell!");
-            }
-
-            // Send any pending responses back to the PTY (DSR, DA1, etc.)
-            let responses = tab.terminal.take_pending_responses();
-            for response in responses {
-                if let Err(e) = tab.child.write_all(&response) {
-                    log::warn!("Failed to send response to PTY: {}", e);
+            // Update window title for active tab
+            if is_active_tab {
+                if let Some(window) = &self.window {
+                    window.set_title(tab.title());
                 }
             }
+        }
+
+        // Only mark redraw needed when output was actually received
+        if any_output {
+            self.needs_redraw = true;
         }
     }
 
     /// Render the terminal
     fn render(&mut self) {
-        let Some(renderer) = &mut self.renderer else {
-            return;
-        };
-
-        if self.tabs.is_empty() {
+        if self.renderer.is_none() || self.tabs.is_empty() {
             return;
         }
 
         let tab_infos: Vec<TabInfo<'_>> = self
             .tabs
             .iter()
-            .map(|t| TabInfo { title: &t.title })
+            .map(|t| TabInfo { title: t.title() })
             .collect();
-        let tab = &self.tabs[self.active_tab];
-        let screen = tab.terminal.screen();
-        let selection = screen.selection();
 
-        if let Err(e) = renderer.render(
-            screen,
-            selection,
-            tab.scroll_offset,
-            self.tab_bar_height,
-            &tab_infos,
-            self.active_tab,
-        ) {
-            log::warn!("Render error: {:?}", e);
+        let available = self.pane_area();
+        let tab = &self.tabs[self.active_tab];
+        let (pane_layouts, dividers) = tab.pane_root.calculate_layout(available);
+
+        // Build PaneRenderInfo for each pane
+        let mut pane_render_infos: Vec<PaneRenderInfo<'_>> = Vec::new();
+        for layout in &pane_layouts {
+            if let Some(leaf) = tab.pane_root.find_leaf(layout.id) {
+                let screen = leaf.terminal.screen();
+                let selection = screen.selection();
+                pane_render_infos.push(PaneRenderInfo {
+                    screen,
+                    selection,
+                    scroll_offset: leaf.scroll_offset,
+                    rect: layout.rect,
+                    is_focused: layout.id == tab.focused_pane_id,
+                });
+            }
+        }
+
+        // Convert dividers for the renderer
+        let divider_rects: Vec<(Rect, SplitDirection)> =
+            dividers.iter().map(|d| (d.rect, d.direction)).collect();
+
+        if let Some(renderer) = &mut self.renderer {
+            if let Err(e) = renderer.render_panes(
+                &pane_render_infos,
+                &divider_rects,
+                self.tab_bar_height,
+                &tab_infos,
+                self.active_tab,
+            ) {
+                log::warn!("Render error: {:?}", e);
+            }
         }
 
         self.needs_redraw = false;
         self.last_render = Instant::now();
     }
 
-    /// Check if active tab's child is still running
+    /// Check if active tab's children are still running
     fn check_child(&mut self) -> bool {
         if self.tabs.is_empty() {
             return false;
         }
 
-        // Check if active tab's child is running
-        let active_running = self.tabs[self.active_tab].child.is_running();
+        // Remove dead panes from the active tab
+        let dead_ids = self.tabs[self.active_tab].pane_root.dead_pane_ids();
+        let mut removed_any = false;
+        for dead_id in &dead_ids {
+            let tab = &mut self.tabs[self.active_tab];
+            if tab.pane_root.leaf_count() > 1 {
+                let was_focused = tab.focused_pane_id == *dead_id;
+                if was_focused {
+                    tab.focused_pane_id = tab.pane_root.next_pane_id(*dead_id);
+                }
+                tab.pane_root.remove_pane(*dead_id);
+                removed_any = true;
+                self.needs_redraw = true;
+            }
+        }
 
-        // Remove any tabs whose children have exited
-        self.tabs.retain(|tab| tab.child.is_running());
+        // Resize after removing dead panes (avoids borrow conflicts)
+        if removed_any {
+            if let Some(renderer) = &self.renderer {
+                let cell_size = renderer.cell_size();
+                let available = self.pane_area();
+                self.tabs[self.active_tab].pane_root.resize_to_layout(
+                    available,
+                    cell_size.width,
+                    cell_size.height,
+                );
+            }
+        }
 
-        // Adjust active tab index if needed
-        if self.active_tab >= self.tabs.len() {
+        // Remove tabs with no running children, tracking the active tab's identity
+        let active_tab_ptr = if self.active_tab < self.tabs.len() {
+            Some(std::ptr::from_ref(&self.tabs[self.active_tab]))
+        } else {
+            None
+        };
+        self.tabs.retain(|tab| tab.pane_root.any_child_running());
+
+        // Find the active tab's new index after retain
+        if let Some(ptr) = active_tab_ptr {
+            if let Some(new_idx) = self
+                .tabs
+                .iter()
+                .position(|tab| std::ptr::from_ref(tab) == ptr)
+            {
+                self.active_tab = new_idx;
+            } else {
+                // Active tab was removed
+                self.active_tab = self.tabs.len().saturating_sub(1);
+            }
+        } else if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
 
         // Return true if there are still tabs with running children
-        !self.tabs.is_empty() && (active_running || self.tabs[self.active_tab].child.is_running())
+        !self.tabs.is_empty()
     }
 }
