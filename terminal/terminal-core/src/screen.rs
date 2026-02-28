@@ -915,4 +915,213 @@ mod tests {
         assert_eq!(screen.cursor().col, 19);
         assert!(screen.cursor().attrs.bold);
     }
+
+    // ===== BUG-EXPOSING TESTS =====
+    // These tests document bugs found during code audit.
+    // They demonstrate incorrect behavior WITHOUT fixing it.
+
+    /// BUG: Wide character at last column is written without its continuation cell.
+    ///
+    /// When a wide character (width=2, e.g. CJK) is printed at the last column
+    /// (cols-1), the character is written to that cell but there's no room for
+    /// the continuation cell at cols. The character should instead wrap to the
+    /// next line, but the current code writes it in-place without its second cell.
+    ///
+    /// File: screen.rs, line 246
+    #[test]
+    fn test_bug_wide_char_at_last_column_no_continuation() {
+        let mut screen = Screen::new(Dimensions::new(5, 3));
+
+        // Move cursor to last column (col 4, 0-indexed)
+        screen.move_cursor_to(1, 5); // 1-indexed: row 1, col 5
+
+        // Print a wide character (width=2) - it needs 2 cells but only 1 is available
+        screen.print('中'); // CJK character, width=2
+
+        // BUG: The wide char is written at col 4 without continuation at col 5
+        // (which doesn't exist). The cell at col 4 has width=2 but no matching
+        // continuation cell, which is an inconsistent state.
+        let cell = screen.line(0).cell(4);
+        assert_eq!(
+            cell.display_char(),
+            '中',
+            "Bug confirmed: wide char written at last column"
+        );
+        assert_eq!(
+            cell.width(),
+            2,
+            "Bug confirmed: cell claims width=2 but has no continuation cell"
+        );
+        // Correct behavior: the wide char should wrap to the next line
+        // and col 4 should remain empty or contain a space placeholder.
+    }
+
+    /// BUG: Linefeed scrolls when cursor is BELOW the scroll region.
+    ///
+    /// When a scroll region is set (e.g., rows 1-3) and the cursor is below
+    /// the region (e.g., row 4), a linefeed triggers scrolling of the region.
+    /// The check uses `>=` (cursor.row >= scroll_bottom) instead of `==`.
+    /// The cursor should just move down if below the region, not trigger a scroll.
+    ///
+    /// File: screen.rs, lines 302-303
+    #[test]
+    fn test_bug_linefeed_scrolls_when_cursor_below_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 6));
+
+        // Fill screen with letters
+        for row in 0..6 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+        // Screen: A, B, C, D, E, F
+
+        // Set scroll region to rows 2-4 (0-indexed: 1-3)
+        screen.set_scroll_region(2, 4);
+
+        // Move cursor to row 5 (0-indexed: 4), which is BELOW the scroll region
+        screen.cursor_mut().row = 4;
+
+        // Linefeed should just move cursor down to row 5, NOT scroll the region
+        screen.linefeed();
+
+        // BUG: The scroll region (rows 1-3) was scrolled even though
+        // the cursor was outside it (at row 4).
+        // Row 1 should still have 'B' but it was scrolled away.
+        assert_eq!(
+            screen.line(1).cell(0).display_char(),
+            'C',
+            "Bug confirmed: scroll region was incorrectly scrolled when cursor was below it"
+        );
+        // Correct behavior: row 1 should still be 'B' (no scrolling occurred)
+        // assert_eq!(screen.line(1).cell(0).display_char(), 'B');
+    }
+
+    /// BUG: reverse_index scrolls when cursor is ABOVE the scroll region.
+    ///
+    /// When a scroll region is set (e.g., rows 2-4) and the cursor is above
+    /// the region (e.g., row 0), a reverse index triggers scrolling of the
+    /// region. The check uses `<=` (cursor.row <= scroll_top) instead of `==`.
+    ///
+    /// File: screen.rs, lines 319-320
+    #[test]
+    fn test_bug_reverse_index_scrolls_when_cursor_above_region() {
+        let mut screen = Screen::new(Dimensions::new(10, 6));
+
+        // Fill screen with letters
+        for row in 0..6 {
+            screen.move_cursor_to(row + 1, 1);
+            screen.print((b'A' + row as u8) as char);
+        }
+        // Screen: A, B, C, D, E, F
+
+        // Set scroll region to rows 3-5 (0-indexed: 2-4)
+        screen.set_scroll_region(3, 5);
+
+        // Move cursor to row 1 (0-indexed: 0), which is ABOVE the scroll region
+        screen.cursor_mut().row = 0;
+
+        // Reverse index should just move cursor up (or do nothing at row 0),
+        // NOT scroll the region
+        screen.reverse_index();
+
+        // BUG: The scroll region (rows 2-4) was scrolled down even though
+        // the cursor was outside it (at row 0).
+        // Row 2 should still have 'C' but a blank line was inserted.
+        assert!(
+            screen.line(2).cell(0).is_empty(),
+            "Bug confirmed: scroll region was incorrectly scrolled when cursor was above it"
+        );
+        // Correct behavior: row 2 should still be 'C' (no scrolling occurred)
+        // assert_eq!(screen.line(2).cell(0).display_char(), 'C');
+    }
+
+    /// BUG: Resize unconditionally adds default tab stops on top of custom ones.
+    ///
+    /// When the terminal is resized, the resize() function adds default tab
+    /// stops (every 8 columns) WITHOUT first clearing existing stops. If the
+    /// application had cleared the default tab stops and set custom ones,
+    /// resizing re-adds the defaults on top of the custom ones, creating
+    /// unwanted tab stops the application never intended.
+    ///
+    /// File: screen.rs, lines 637-641
+    #[test]
+    fn test_bug_resize_adds_unwanted_default_tab_stops() {
+        let mut screen = Screen::new(Dimensions::new(80, 24));
+
+        // Clear all default tab stops
+        screen.clear_tab_stop(3); // mode 3 = clear all
+
+        // Set ONLY a custom tab stop at column 5
+        screen.move_cursor_to(1, 6); // 1-indexed col 6 = 0-indexed col 5
+        screen.set_tab_stop();
+
+        // Verify: from col 0, tab goes to our custom stop at col 5 (not col 8)
+        screen.move_cursor_to(1, 1);
+        screen.tab();
+        assert_eq!(screen.cursor().col, 5, "Custom tab stop at col 5 works");
+
+        // Verify: from col 6, tab should go to end (no stop at col 8)
+        screen.move_cursor_to(1, 7); // 0-indexed col 6
+        screen.tab();
+        assert_eq!(
+            screen.cursor().col,
+            79,
+            "No tab stop at col 8, goes to end of line"
+        );
+
+        // Now resize (even to same size triggers the tab stop reset logic)
+        screen.resize(Dimensions::new(80, 24));
+
+        // BUG: Default tab stops at 0, 8, 16, 24, ... are re-added
+        // Now tabbing from col 6 hits the unwanted default stop at col 8
+        screen.move_cursor_to(1, 7); // 0-indexed col 6
+        screen.tab();
+        assert_eq!(
+            screen.cursor().col,
+            8,
+            "Bug confirmed: resize re-added unwanted default tab stop at col 8"
+        );
+        // Correct behavior: col 8 should NOT be a tab stop (user cleared it)
+        // assert_eq!(screen.cursor().col, 79);
+    }
+
+    /// BUG: enter_alternate_screen resets cursor attributes.
+    ///
+    /// When entering the alternate screen, cursor.reset() is called which
+    /// resets ALL cursor state including attributes (colors, bold, etc.).
+    /// The cursor position being reset is standard, but attributes should
+    /// be preserved so applications can keep their current styling.
+    ///
+    /// File: screen.rs, lines 615-618
+    #[test]
+    fn test_bug_enter_alternate_screen_resets_attrs() {
+        let mut screen = Screen::new(Dimensions::new(80, 24));
+
+        // Set some cursor attributes
+        screen.cursor_mut().attrs.bold = true;
+        screen.cursor_mut().attrs.italic = true;
+        screen.cursor_mut().attrs.fg = crate::Color::Indexed(1); // Red
+
+        // Enter alternate screen
+        screen.enter_alternate_screen();
+
+        // BUG: cursor.reset() clears all attributes
+        assert!(
+            !screen.cursor().attrs.bold,
+            "Bug confirmed: bold attribute was reset when entering alternate screen"
+        );
+        assert!(
+            !screen.cursor().attrs.italic,
+            "Bug confirmed: italic attribute was reset"
+        );
+        assert_eq!(
+            screen.cursor().attrs.fg,
+            crate::Color::Default,
+            "Bug confirmed: fg color was reset"
+        );
+        // Correct behavior: attributes should be preserved
+        // assert!(screen.cursor().attrs.bold);
+        // assert!(screen.cursor().attrs.italic);
+        // assert_eq!(screen.cursor().attrs.fg, crate::Color::Indexed(1));
+    }
 }
