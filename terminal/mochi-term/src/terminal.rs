@@ -183,6 +183,8 @@ impl Terminal {
             EscAction::FullReset => {
                 self.screen.reset();
                 self.parser.reset();
+                self.last_printed_char = None;
+                self.title_stack.clear();
             }
             EscAction::ApplicationKeypad => {
                 // Application keypad mode - affects key encoding
