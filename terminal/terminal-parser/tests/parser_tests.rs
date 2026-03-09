@@ -750,6 +750,7 @@ fn test_csi_action_is() {
         intermediates: vec![],
         final_byte: b'H',
         private: false,
+        prefix: None,
     };
     assert!(csi.is(b'H'));
     assert!(!csi.is(b'J'));
@@ -762,6 +763,7 @@ fn test_csi_action_is_with_intermediates() {
         intermediates: vec![b' '],
         final_byte: b'q',
         private: false,
+        prefix: None,
     };
     assert!(!csi.is(b'q')); // has intermediates, so is() returns false
 }
@@ -773,6 +775,7 @@ fn test_csi_action_is_private() {
         intermediates: vec![],
         final_byte: b'h',
         private: true,
+        prefix: Some(b'?'),
     };
     assert!(csi.is_private(b'h'));
     assert!(!csi.is(b'h'));
@@ -785,6 +788,7 @@ fn test_csi_action_param_defaults() {
         intermediates: vec![],
         final_byte: b'H',
         private: false,
+        prefix: None,
     };
     assert_eq!(csi.param(0, 1), 10);
     assert_eq!(csi.param(1, 1), 20);
