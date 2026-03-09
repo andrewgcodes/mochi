@@ -85,6 +85,9 @@ pub struct CsiAction {
     pub final_byte: u8,
     /// Whether this is a private sequence (starts with ?)
     pub private: bool,
+    /// CSI prefix/marker byte (?, >, <, =) if present
+    /// This allows distinguishing between e.g. CSI > c (DA2) and CSI ? c (DA1)
+    pub prefix: Option<u8>,
 }
 
 impl CsiAction {
@@ -93,14 +96,20 @@ impl CsiAction {
         self.params.get(index).unwrap_or(default)
     }
 
-    /// Check if this is a specific CSI sequence
+    /// Check if this is a specific CSI sequence (no prefix, no intermediates)
     pub fn is(&self, final_byte: u8) -> bool {
-        self.final_byte == final_byte && self.intermediates.is_empty() && !self.private
+        self.final_byte == final_byte
+            && self.intermediates.is_empty()
+            && !self.private
+            && self.prefix.is_none()
     }
 
-    /// Check if this is a specific private CSI sequence
+    /// Check if this is a specific private CSI sequence (? prefix)
     pub fn is_private(&self, final_byte: u8) -> bool {
-        self.final_byte == final_byte && self.intermediates.is_empty() && self.private
+        self.final_byte == final_byte
+            && self.intermediates.is_empty()
+            && self.private
+            && self.prefix == Some(b'?')
     }
 }
 
@@ -150,6 +159,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            prefix: None,
         };
 
         assert_eq!(csi.param(0, 1), 10);
@@ -164,6 +174,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            prefix: None,
         };
 
         assert!(csi.is(b'H'));
@@ -178,6 +189,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'h',
             private: true,
+            prefix: Some(b'?'),
         };
 
         assert!(csi.is_private(b'h'));

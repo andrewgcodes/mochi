@@ -3,7 +3,7 @@
 //! Integrates the parser and screen model to handle terminal emulation.
 
 use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
-use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
+use terminal_parser::{Action, CsiAction, EscAction, OscAction, Params, Parser};
 
 /// Terminal emulator state
 pub struct Terminal {
@@ -23,6 +23,10 @@ pub struct Terminal {
     /// Pending responses to send back to the PTY
     /// Used for DSR (Device Status Report), DA1 (Primary Device Attributes), etc.
     pending_responses: Vec<Vec<u8>>,
+    /// Last printed character (for REP - CSI Ps b)
+    last_printed_char: Option<char>,
+    /// Title stack for CSI 22/23 t (push/pop title)
+    title_stack: Vec<String>,
 }
 
 impl Terminal {
@@ -36,6 +40,8 @@ impl Terminal {
             bell: false,
             sync_output_first_enable: false,
             pending_responses: Vec::new(),
+            last_printed_char: None,
+            title_stack: Vec::new(),
         }
     }
 
@@ -91,6 +97,7 @@ impl Terminal {
     fn handle_action(&mut self, action: Action) {
         match action {
             Action::Print(c) => {
+                self.last_printed_char = Some(c);
                 self.screen.print(c);
             }
             Action::Control(byte) => {
@@ -105,9 +112,8 @@ impl Terminal {
             Action::Osc(osc) => {
                 self.handle_osc(osc);
             }
-            Action::Dcs { .. } => {
-                // DCS sequences are currently not implemented
-                log::debug!("DCS sequence ignored");
+            Action::Dcs { params, data } => {
+                self.handle_dcs(params, data);
             }
             Action::Apc(_) | Action::Pm(_) | Action::Sos(_) => {
                 // These are consumed but ignored
@@ -177,6 +183,8 @@ impl Terminal {
             EscAction::FullReset => {
                 self.screen.reset();
                 self.parser.reset();
+                self.last_printed_char = None;
+                self.title_stack.clear();
             }
             EscAction::ApplicationKeypad => {
                 // Application keypad mode - affects key encoding
@@ -222,10 +230,27 @@ impl Terminal {
 
     /// Handle CSI sequences
     fn handle_csi(&mut self, csi: CsiAction) {
-        // Handle private sequences
-        if csi.private {
-            self.handle_csi_private(&csi);
-            return;
+        // Handle sequences with a prefix byte (?, >, <, =)
+        if let Some(prefix) = csi.prefix {
+            match prefix {
+                b'?' => {
+                    self.handle_csi_private(&csi);
+                    return;
+                }
+                b'>' => {
+                    self.handle_csi_gt(&csi);
+                    return;
+                }
+                _ => {
+                    log::debug!(
+                        "Unknown CSI prefix '{}': {:?} {}",
+                        prefix as char,
+                        csi.params,
+                        csi.final_byte as char
+                    );
+                    return;
+                }
+            }
         }
 
         // Handle sequences with intermediates
@@ -383,9 +408,22 @@ impl Terminal {
                 let bottom = csi.param(1, self.screen.rows() as u16) as usize;
                 self.screen.set_scroll_region(top, bottom);
             }
+            b'b' => {
+                // REP - Repeat previous character
+                if let Some(c) = self.last_printed_char {
+                    let n = csi.param(0, 1) as usize;
+                    for _ in 0..n {
+                        self.screen.print(c);
+                    }
+                }
+            }
             b's' => {
                 // Save cursor (ANSI.SYS)
                 self.screen.save_cursor();
+            }
+            b't' => {
+                // Window manipulation (XTWINOPS)
+                self.handle_window_ops(&csi);
             }
             b'u' => {
                 // Restore cursor (ANSI.SYS)
@@ -403,6 +441,26 @@ impl Terminal {
 
     /// Handle CSI sequences with private marker (?)
     fn handle_csi_private(&mut self, csi: &CsiAction) {
+        // Check for DECRPM query: CSI ? Ps $ p
+        if csi.intermediates == [b'$'] && csi.final_byte == b'p' {
+            // DECRPM - DEC Private Mode Report
+            let mode = csi.param(0, 0);
+            let status = if self.screen.modes().get_dec_mode(mode) {
+                1 // set
+            } else {
+                // Check if the mode is recognized
+                match mode {
+                    1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 25 | 47 | 1000 | 1002 | 1003 | 1004
+                    | 1006 | 1047 | 1048 | 1049 | 2004 | 2026 => 2, // reset
+                    _ => 0, // not recognized
+                }
+            };
+            let response = format!("\x1b[?{};{}$y", mode, status);
+            self.queue_response(response.into_bytes());
+            log::debug!("DECRPM query for mode {}: status {}", mode, status);
+            return;
+        }
+
         match csi.final_byte {
             b'h' => {
                 // DECSET - DEC Private Mode Set
@@ -418,13 +476,28 @@ impl Terminal {
             }
             b'c' => {
                 // DA1 - Primary Device Attributes
-                // Respond as VT220 with advanced video option
-                // Response: CSI ? 62 ; 1 ; 2 ; 6 ; 7 ; 8 ; 9 c
-                // This indicates: VT220, 132 columns, printer, selective erase,
-                // user-defined keys, national replacement character sets, technical characters
-                // A simpler response that works well: CSI ? 1 ; 2 c (VT100 with AVO)
-                self.queue_response(b"\x1b[?1;2c".to_vec());
-                log::debug!("DA1 request: responding as VT100 with AVO");
+                // Respond as VT220 with ANSI color and ANSI text locator
+                // 62 = VT220, 22 = ANSI color (256-color)
+                // This provides better compatibility with tmux and other TUI apps
+                self.queue_response(b"\x1b[?62;22c".to_vec());
+                log::debug!("DA1 request: responding as VT220 with ANSI color");
+            }
+            b'n' => {
+                // DECDSR - DEC-specific Device Status Report
+                let mode = csi.param(0, 0);
+                match mode {
+                    6 => {
+                        // Extended cursor position report (DECXCPR)
+                        let row = self.screen.cursor().row + 1;
+                        let col = self.screen.cursor().col + 1;
+                        let response = format!("\x1b[?{};{}R", row, col);
+                        self.queue_response(response.into_bytes());
+                        log::debug!("DECXCPR: responding row={} col={}", row, col);
+                    }
+                    _ => {
+                        log::debug!("Unknown DECDSR mode: {}", mode);
+                    }
+                }
             }
             _ => {
                 log::debug!(
@@ -434,6 +507,109 @@ impl Terminal {
                 );
             }
         }
+    }
+
+    /// Handle CSI > sequences (secondary device attributes, XTVERSION, etc.)
+    fn handle_csi_gt(&mut self, csi: &CsiAction) {
+        match csi.final_byte {
+            b'c' => {
+                // DA2 - Secondary Device Attributes
+                // Respond as xterm version 10: CSI > 0 ; 10 ; 1 c
+                // Pp=0 (VT100), Pv=10 (firmware version), Pc=1 (ROM cartridge)
+                // tmux uses this to determine terminal capabilities
+                self.queue_response(b"\x1b[>0;10;1c".to_vec());
+                log::debug!("DA2 request: responding as xterm-compatible");
+            }
+            b'q' => {
+                // XTVERSION - Report terminal version
+                // Respond with: DCS >| mochi(0.1.0) ST
+                self.queue_response(b"\x1bP>|mochi(0.1.0)\x1b\\".to_vec());
+                log::debug!("XTVERSION request: responding with mochi version");
+            }
+            b'm' => {
+                // XTMODKEYS - xterm modify keys
+                // tmux queries this; just acknowledge without error
+                log::debug!("XTMODKEYS: {:?}", csi.params);
+            }
+            _ => {
+                log::debug!(
+                    "Unknown CSI > sequence: {:?} {}",
+                    csi.params,
+                    csi.final_byte as char
+                );
+            }
+        }
+    }
+
+    /// Handle CSI t - Window manipulation operations
+    fn handle_window_ops(&mut self, csi: &CsiAction) {
+        let op = csi.param(0, 0);
+        match op {
+            8 => {
+                // Resize window to Ps2 rows and Ps3 cols (we report current size instead)
+                // Some apps use CSI 8 ; rows ; cols t to resize, but we just report
+                log::debug!("Window resize request ignored (not supported)");
+            }
+            14 => {
+                // Report window size in pixels
+                // Response: CSI 4 ; height ; width t
+                // We approximate using cell size * grid dimensions
+                let rows = self.screen.rows();
+                let cols = self.screen.cols();
+                // Use reasonable default cell size (8x16)
+                let response = format!("\x1b[4;{};{}t", rows * 16, cols * 8);
+                self.queue_response(response.into_bytes());
+                log::debug!("Report window size in pixels");
+            }
+            18 => {
+                // Report text area size in characters
+                // Response: CSI 8 ; rows ; cols t
+                let rows = self.screen.rows();
+                let cols = self.screen.cols();
+                let response = format!("\x1b[8;{};{}t", rows, cols);
+                self.queue_response(response.into_bytes());
+                log::debug!("Report text area size: {}x{}", cols, rows);
+            }
+            22 => {
+                // Push title to stack
+                let sub = csi.param(1, 0);
+                if sub == 0 || sub == 2 {
+                    let current_title = self.title().to_string();
+                    self.title_stack.push(current_title);
+                    log::debug!("Pushed title to stack (depth: {})", self.title_stack.len());
+                }
+            }
+            23 => {
+                // Pop title from stack
+                let sub = csi.param(1, 0);
+                if sub == 0 || sub == 2 {
+                    if let Some(title) = self.title_stack.pop() {
+                        self.title = title.clone();
+                        self.screen.set_title(&title);
+                        self.title_changed = true;
+                        log::debug!(
+                            "Popped title from stack (depth: {})",
+                            self.title_stack.len()
+                        );
+                    }
+                }
+            }
+            _ => {
+                log::debug!("Unknown window operation: {}", op);
+            }
+        }
+    }
+
+    /// Handle DCS (Device Control String) sequences
+    fn handle_dcs(&mut self, params: Params, data: Vec<u8>) {
+        // Check for DECRQSS (Request Status String): DCS $ q <data> ST
+        // tmux uses this to query terminal settings
+        let data_str = String::from_utf8_lossy(&data);
+        log::debug!("DCS sequence: params={:?} data={:?}", params, data_str);
+
+        // For now, we log DCS sequences for debugging but don't respond to most.
+        // The key thing is that DCS sequences are properly parsed and don't break
+        // the terminal state, which they now do since we handle them through the parser.
     }
 
     /// Handle CSI sequences with intermediate bytes
@@ -879,5 +1055,98 @@ mod tests {
         assert_eq!(term.title(), "My Title");
         assert!(term.take_title_changed());
         assert!(!term.take_title_changed()); // Should be cleared
+    }
+
+    #[test]
+    fn test_da1_response() {
+        let mut term = Terminal::new(80, 24);
+        // Send DA1 request: CSI ? c (or CSI ? 0 c)
+        term.process(b"\x1b[?c");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        // Should respond as VT220 with ANSI color
+        assert_eq!(responses[0], b"\x1b[?62;22c");
+    }
+
+    #[test]
+    fn test_da2_response() {
+        let mut term = Terminal::new(80, 24);
+        // Send DA2 request: CSI > c
+        term.process(b"\x1b[>c");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        // Should respond as xterm-compatible
+        assert_eq!(responses[0], b"\x1b[>0;10;1c");
+    }
+
+    #[test]
+    fn test_decrpm_query() {
+        let mut term = Terminal::new(80, 24);
+        // Query bracketed paste mode (2004) - should be reset (2)
+        term.process(b"\x1b[?2004$p");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0], b"\x1b[?2004;2$y");
+
+        // Enable bracketed paste then query again
+        term.process(b"\x1b[?2004h");
+        term.process(b"\x1b[?2004$p");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0], b"\x1b[?2004;1$y");
+    }
+
+    #[test]
+    fn test_rep_repeat_character() {
+        let mut term = Terminal::new(80, 24);
+        // Print 'A' then repeat it 4 times
+        term.process(b"A\x1b[4b");
+        // Should have 'A' at positions 0-4
+        assert_eq!(term.screen().cursor().col, 5);
+        for i in 0..5 {
+            assert_eq!(term.screen().line(0).cell(i).display_char(), 'A');
+        }
+    }
+
+    #[test]
+    fn test_window_ops_report_size() {
+        let mut term = Terminal::new(80, 24);
+        // Request text area size: CSI 18 t
+        term.process(b"\x1b[18t");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0], b"\x1b[8;24;80t");
+    }
+
+    #[test]
+    fn test_title_push_pop() {
+        let mut term = Terminal::new(80, 24);
+        // Set title
+        term.process(b"\x1b]0;Original Title\x07");
+        assert_eq!(term.title(), "Original Title");
+        term.take_title_changed();
+
+        // Push title: CSI 22 ; 0 t
+        term.process(b"\x1b[22;0t");
+
+        // Set new title
+        term.process(b"\x1b]0;New Title\x07");
+        assert_eq!(term.title(), "New Title");
+        term.take_title_changed();
+
+        // Pop title: CSI 23 ; 0 t
+        term.process(b"\x1b[23;0t");
+        assert_eq!(term.title(), "Original Title");
+        assert!(term.take_title_changed());
+    }
+
+    #[test]
+    fn test_xtversion_response() {
+        let mut term = Terminal::new(80, 24);
+        // Send XTVERSION request: CSI > 0 q
+        term.process(b"\x1b[>0q");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0], b"\x1bP>|mochi(0.1.0)\x1b\\");
     }
 }
