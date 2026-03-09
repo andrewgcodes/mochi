@@ -564,9 +564,11 @@ impl Parser {
             }
             0x20..=0x2F => {
                 // Intermediate byte (e.g., '+' in DCS + q for XTGETTCAP)
+                // Transition to DcsParam to prevent further param collection after intermediates
                 if self.dcs_intermediates.len() < MAX_INTERMEDIATES {
                     self.dcs_intermediates.push(byte);
                 }
+                self.state = ParserState::DcsParam;
             }
             0x40..=0x7E => {
                 // Final byte - enter passthrough
@@ -582,7 +584,11 @@ impl Parser {
     fn handle_dcs_param(&mut self, byte: u8) {
         match byte {
             b'0'..=b'9' | b';' => {
-                self.dcs_params.push(byte);
+                // Only collect params if no intermediates have been seen yet
+                if self.dcs_intermediates.is_empty() {
+                    self.dcs_params.push(byte);
+                }
+                // If intermediates already collected, ignore param bytes per VT spec
             }
             0x20..=0x2F => {
                 // Intermediate byte

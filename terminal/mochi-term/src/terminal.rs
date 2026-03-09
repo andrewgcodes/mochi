@@ -951,9 +951,12 @@ impl Terminal {
             }
             _ => {
                 // Check for tmux passthrough: DCS tmux; <escaped-data> ST
-                // The data starts after the final byte, so check if it looks like tmux passthrough
+                // The parser consumes the first byte after intermediates as the DCS final_byte,
+                // so for "tmux;..." the 't' is consumed as final_byte and data starts with "mux;..."
+                // Reconstruct the full string by prepending the final_byte.
                 let data_str = String::from_utf8_lossy(data);
-                if let Some(inner) = data_str.strip_prefix("tmux;") {
+                let full_str = format!("{}{}", final_byte as char, data_str);
+                if let Some(inner) = full_str.strip_prefix("tmux;") {
                     // tmux passthrough - unwrap the escaped content and process it
                     // In tmux passthrough, ESC ESC becomes ESC
                     let unescaped = inner.replace("\x1b\x1b", "\x1b");
