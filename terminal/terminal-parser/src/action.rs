@@ -101,9 +101,9 @@ impl CsiAction {
         self.params.get(index).unwrap_or(default)
     }
 
-    /// Check if this is a specific CSI sequence
+    /// Check if this is a specific unprefixed CSI sequence
     pub fn is(&self, final_byte: u8) -> bool {
-        self.final_byte == final_byte && self.intermediates.is_empty() && !self.private
+        self.final_byte == final_byte && self.intermediates.is_empty() && self.prefix == 0
     }
 
     /// Check if this is a specific private CSI sequence
