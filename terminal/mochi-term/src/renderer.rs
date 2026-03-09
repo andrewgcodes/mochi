@@ -221,6 +221,7 @@ impl Renderer {
         }
         self.ensure_glyph_cached('+', false);
         self.ensure_glyph_cached('x', false);
+        self.ensure_glyph_cached('\u{25D0}', false); // ◐ theme toggle icon
 
         // Pre-cache all glyphs we'll need (from both screen and scrollback if scrolled)
         for row in 0..rows {
@@ -796,6 +797,7 @@ impl Renderer {
         let tab_padding: u32 = 10;
         let close_btn_width: u32 = 20;
         let new_tab_btn_width: u32 = 32;
+        let theme_btn_width: u32 = 32;
         let tab_max_width: u32 = 200;
 
         let tab_bar_bg = Self::blend_color(bg_color, (0, 0, 0), 0.3);
@@ -817,7 +819,7 @@ impl Renderer {
         );
 
         let num_tabs = tabs.len() as u32;
-        let available_width = buf_width.saturating_sub(new_tab_btn_width);
+        let available_width = buf_width.saturating_sub(new_tab_btn_width + theme_btn_width);
         let tab_width = if num_tabs > 0 {
             (available_width / num_tabs).min(tab_max_width)
         } else {
@@ -929,6 +931,35 @@ impl Renderer {
                 plus_text_y,
                 glyph,
                 fg_color,
+                cell_size.baseline,
+                buf_width,
+                buf_height,
+            );
+        }
+
+        // Draw theme toggle button (after the + button)
+        let theme_btn_x = plus_btn_x + new_tab_btn_width as i32;
+        let theme_text_x = theme_btn_x + ((theme_btn_width as f32 - cell_size.width) / 2.0) as i32;
+        let theme_text_y = ((tab_bar_height as f32 - cell_size.height) / 2.0).max(0.0) as i32;
+        let theme_bg = Self::blend_color(tab_bar_bg, bg_color, 0.15);
+        Self::fill_rect_static(
+            buffer,
+            theme_btn_x,
+            0,
+            theme_btn_width as i32,
+            tab_bar_height as i32,
+            theme_bg,
+            buf_width,
+            buf_height,
+        );
+        if let Some(glyph) = glyph_cache.get(&('\u{25D0}', false)) {
+            let theme_icon_color = Self::blend_color(fg_color, (100, 200, 150), 0.4);
+            Self::draw_glyph_static(
+                buffer,
+                theme_text_x,
+                theme_text_y,
+                glyph,
+                theme_icon_color,
                 cell_size.baseline,
                 buf_width,
                 buf_height,

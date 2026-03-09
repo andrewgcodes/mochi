@@ -112,7 +112,6 @@ impl ThemeName {
     }
 
     /// Cycle to the next theme (for toggle keybinding)
-    #[allow(dead_code)]
     pub fn next(self) -> Self {
         match self {
             ThemeName::Mochi => ThemeName::Dark,
