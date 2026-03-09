@@ -105,9 +105,13 @@ impl Terminal {
             Action::Osc(osc) => {
                 self.handle_osc(osc);
             }
-            Action::Dcs { .. } => {
-                // DCS sequences are currently not implemented
-                log::debug!("DCS sequence ignored");
+            Action::Dcs {
+                params: _,
+                intermediates,
+                final_byte,
+                data,
+            } => {
+                self.handle_dcs(&intermediates, final_byte, &data);
             }
             Action::Apc(_) | Action::Pm(_) | Action::Sos(_) => {
                 // These are consumed but ignored
@@ -222,8 +226,8 @@ impl Terminal {
 
     /// Handle CSI sequences
     fn handle_csi(&mut self, csi: CsiAction) {
-        // Handle private sequences
-        if csi.private {
+        // Handle prefixed sequences (?, >, <, =)
+        if csi.prefix != 0 {
             self.handle_csi_private(&csi);
             return;
         }
@@ -401,8 +405,20 @@ impl Terminal {
         }
     }
 
-    /// Handle CSI sequences with private marker (?)
+    /// Handle CSI sequences with private marker (?) or other prefixes (>, <, =)
     fn handle_csi_private(&mut self, csi: &CsiAction) {
+        // Handle non-? prefixes (>, <, =)
+        if csi.prefix != b'?' {
+            self.handle_csi_prefixed(csi);
+            return;
+        }
+
+        // Check for DECRQM: CSI ? Ps $ p
+        if csi.final_byte == b'p' && csi.intermediates == [b'$'] {
+            self.handle_decrqm(csi);
+            return;
+        }
+
         match csi.final_byte {
             b'h' => {
                 // DECSET - DEC Private Mode Set
@@ -418,13 +434,32 @@ impl Terminal {
             }
             b'c' => {
                 // DA1 - Primary Device Attributes
-                // Respond as VT220 with advanced video option
-                // Response: CSI ? 62 ; 1 ; 2 ; 6 ; 7 ; 8 ; 9 c
-                // This indicates: VT220, 132 columns, printer, selective erase,
-                // user-defined keys, national replacement character sets, technical characters
-                // A simpler response that works well: CSI ? 1 ; 2 c (VT100 with AVO)
-                self.queue_response(b"\x1b[?1;2c".to_vec());
-                log::debug!("DA1 request: responding as VT100 with AVO");
+                // Respond as VT220 with features: 132 columns, printer port, selective erase,
+                // user-defined keys, national replacement charsets, technical chars, ANSI color
+                // This richer response helps tmux detect terminal capabilities
+                self.queue_response(b"\x1b[?62;1;2;4;6;7;8;9;15;22c".to_vec());
+                log::debug!("DA1 request: responding as VT220 with extended capabilities");
+            }
+            b'n' => {
+                // DECDSR - DEC-specific Device Status Report
+                let mode = csi.param(0, 0);
+                match mode {
+                    6 => {
+                        // DECXCPR - Extended Cursor Position Report
+                        let row = self.screen.cursor().row + 1;
+                        let col = self.screen.cursor().col + 1;
+                        let response = format!("\x1b[?{};{}R", row, col);
+                        self.queue_response(response.into_bytes());
+                        log::debug!(
+                            "DECXCPR: extended cursor position report row={} col={}",
+                            row,
+                            col
+                        );
+                    }
+                    _ => {
+                        log::debug!("Unknown DECDSR mode: {}", mode);
+                    }
+                }
             }
             _ => {
                 log::debug!(
@@ -434,6 +469,150 @@ impl Terminal {
                 );
             }
         }
+    }
+
+    /// Handle CSI sequences with non-? prefixes (>, <, =)
+    fn handle_csi_prefixed(&mut self, csi: &CsiAction) {
+        match (csi.prefix, csi.final_byte) {
+            (b'>', b'c') => {
+                // DA2 - Secondary Device Attributes
+                // Response: CSI > Pp ; Pv ; Pc c
+                // Pp=0 (VT100), Pv=136 (firmware version), Pc=0 (ROM cartridge)
+                // tmux uses this to identify the terminal and enable features
+                self.queue_response(b"\x1b[>0;136;0c".to_vec());
+                log::debug!("DA2 request: responding with terminal identification");
+            }
+            (b'>', b'q') => {
+                // XTVERSION - Report terminal version
+                // Response: DCS > | terminal-name(version) ST
+                // tmux uses this to identify the terminal
+                self.queue_response(b"\x1bP>|mochi(0.1.0)\x1b\\".to_vec());
+                log::debug!("XTVERSION request: responding with mochi version");
+            }
+            (b'>', b'm') => {
+                // xterm modifyOtherKeys - reset
+                // tmux sends CSI > 4 ; 0 m to reset modifyOtherKeys
+                log::debug!("modifyOtherKeys reset (ignored)");
+            }
+            (b'>', b'n') => {
+                // Disable key modifier options
+                log::debug!("Disable key modifier options (ignored)");
+            }
+            (b'=', b'c') => {
+                // DA3 - Tertiary Device Attributes
+                // Response: DCS ! | device-id ST
+                self.queue_response(b"\x1bP!|00000000\x1b\\".to_vec());
+                log::debug!("DA3 request: responding with device ID");
+            }
+            _ => {
+                log::debug!(
+                    "Unknown prefixed CSI: {:?} {:?} {}",
+                    csi.prefix as char,
+                    csi.params,
+                    csi.final_byte as char
+                );
+            }
+        }
+    }
+
+    /// Handle DECRQM - DEC Private Mode Request
+    /// tmux uses this to probe which modes the terminal supports
+    /// Response: CSI ? Ps ; Pm $ y
+    /// Pm: 0=not recognized, 1=set, 2=reset, 3=permanently set, 4=permanently reset
+    fn handle_decrqm(&mut self, csi: &CsiAction) {
+        let mode = csi.param(0, 0);
+        let status = match mode {
+            // Modes we actively track
+            1 => {
+                if self.screen.modes().cursor_keys_application {
+                    1
+                } else {
+                    2
+                }
+            }
+            6 => {
+                if self.screen.modes().origin_mode {
+                    1
+                } else {
+                    2
+                }
+            }
+            7 => {
+                if self.screen.modes().auto_wrap {
+                    1
+                } else {
+                    2
+                }
+            }
+            25 => {
+                if self.screen.modes().cursor_visible {
+                    1
+                } else {
+                    2
+                }
+            }
+            47 | 1047 | 1049 => {
+                if self.screen.modes().alternate_screen {
+                    1
+                } else {
+                    2
+                }
+            }
+            1000 => {
+                if self.screen.modes().mouse_vt200 {
+                    1
+                } else {
+                    2
+                }
+            }
+            1002 => {
+                if self.screen.modes().mouse_button_event {
+                    1
+                } else {
+                    2
+                }
+            }
+            1003 => {
+                if self.screen.modes().mouse_any_event {
+                    1
+                } else {
+                    2
+                }
+            }
+            1004 => {
+                if self.screen.modes().focus_events {
+                    1
+                } else {
+                    2
+                }
+            }
+            1006 => {
+                if self.screen.modes().mouse_sgr {
+                    1
+                } else {
+                    2
+                }
+            }
+            2004 => {
+                if self.screen.modes().bracketed_paste {
+                    1
+                } else {
+                    2
+                }
+            }
+            2026 => {
+                if self.screen.modes().synchronized_output {
+                    1
+                } else {
+                    2
+                }
+            }
+            // Modes we don't support - report as not recognized
+            _ => 0,
+        };
+        let response = format!("\x1b[?{};{}$y", mode, status);
+        self.queue_response(response.into_bytes());
+        log::debug!("DECRQM: mode {} status {}", mode, status);
     }
 
     /// Handle CSI sequences with intermediate bytes
@@ -759,6 +938,114 @@ impl Terminal {
         }
     }
 
+    /// Handle DCS (Device Control String) sequences
+    /// Used by tmux for capability queries (XTGETTCAP) and passthrough
+    fn handle_dcs(&mut self, intermediates: &[u8], final_byte: u8, data: &[u8]) {
+        match (intermediates, final_byte) {
+            ([b'+'], b'q') => {
+                // XTGETTCAP - Request terminal capability
+                // tmux sends DCS + q <hex-encoded-cap-name> ST
+                // We respond with DCS 1 + r <hex-encoded-cap-name>=<hex-encoded-value> ST
+                // or DCS 0 + r <hex-encoded-cap-name> ST if not found
+                self.handle_xtgettcap(data);
+            }
+            _ => {
+                // Check for tmux passthrough: DCS tmux; <escaped-data> ST
+                // The data starts after the final byte, so check if it looks like tmux passthrough
+                let data_str = String::from_utf8_lossy(data);
+                if let Some(inner) = data_str.strip_prefix("tmux;") {
+                    // tmux passthrough - unwrap the escaped content and process it
+                    // In tmux passthrough, ESC ESC becomes ESC
+                    let unescaped = inner.replace("\x1b\x1b", "\x1b");
+                    self.process(unescaped.as_bytes());
+                    log::debug!("DCS tmux passthrough: processed {} bytes", unescaped.len());
+                } else {
+                    log::debug!(
+                        "DCS sequence: intermediates={:?} final={} data_len={}",
+                        intermediates,
+                        final_byte as char,
+                        data.len()
+                    );
+                }
+            }
+        }
+    }
+
+    /// Handle XTGETTCAP - Terminal capability query
+    /// tmux sends hex-encoded capability names and expects hex-encoded responses
+    fn handle_xtgettcap(&mut self, data: &[u8]) {
+        let hex_names = String::from_utf8_lossy(data);
+
+        // Each capability name is hex-encoded, separated by ';'
+        for hex_name in hex_names.split(';') {
+            let name = Self::hex_decode(hex_name);
+            let value = Self::get_capability(&name);
+
+            if let Some(val) = value {
+                // Found: DCS 1 + r <hex-name>=<hex-value> ST
+                let hex_val = Self::hex_encode(&val);
+                let response = format!("\x1bP1+r{}={}\x1b\\", hex_name, hex_val);
+                self.queue_response(response.into_bytes());
+                log::debug!("XTGETTCAP: {} = {:?}", name, val);
+            } else {
+                // Not found: DCS 0 + r <hex-name> ST
+                let response = format!("\x1bP0+r{}\x1b\\", hex_name);
+                self.queue_response(response.into_bytes());
+                log::debug!("XTGETTCAP: {} not found", name);
+            }
+        }
+    }
+
+    /// Get a terminal capability value by name
+    fn get_capability(name: &str) -> Option<String> {
+        match name {
+            // True color support - critical for tmux
+            "Tc" | "RGB" => Some(String::new()), // empty value = flag is set
+            "colors" => Some("256".to_string()),
+            // Terminal name
+            "TN" | "name" => Some("xterm-256color".to_string()),
+            // Cursor style capabilities
+            "Ss" => Some("\x1b[%p1%d q".to_string()), // Set cursor style
+            "Se" => Some("\x1b[2 q".to_string()),     // Reset cursor style
+            // Synchronized output
+            "Sync" => Some(String::new()),
+            // Overline support
+            "Smol" => Some("\x1b[53m".to_string()),
+            // Extended underline (colored, styled)
+            "Setulc" => {
+                Some("\x1b[58:2:%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%dm".to_string())
+            }
+            // Strikethrough
+            "smxx" => Some("\x1b[9m".to_string()),
+            // OSC 52 clipboard
+            "Ms" => Some("\x1b]52;%p1%s;%p2%s\x07".to_string()),
+            _ => None,
+        }
+    }
+
+    /// Hex decode a string (e.g., "546F" -> "To")
+    fn hex_decode(hex: &str) -> String {
+        let bytes: Vec<u8> = hex
+            .as_bytes()
+            .chunks(2)
+            .filter_map(|chunk| {
+                if chunk.len() == 2 {
+                    let high = (chunk[0] as char).to_digit(16)?;
+                    let low = (chunk[1] as char).to_digit(16)?;
+                    Some((high * 16 + low) as u8)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        String::from_utf8_lossy(&bytes).to_string()
+    }
+
+    /// Hex encode a string (e.g., "To" -> "546f")
+    fn hex_encode(s: &str) -> String {
+        s.bytes().map(|b| format!("{:02x}", b)).collect()
+    }
+
     /// Resize the terminal
     pub fn resize(&mut self, cols: usize, rows: usize) {
         self.screen.resize(Dimensions::new(cols, rows));
@@ -879,5 +1166,135 @@ mod tests {
         assert_eq!(term.title(), "My Title");
         assert!(term.take_title_changed());
         assert!(!term.take_title_changed()); // Should be cleared
+    }
+
+    #[test]
+    fn test_da1_response() {
+        let mut term = Terminal::new(80, 24);
+        // Send DA1 request: CSI ? c (or CSI 0 c)
+        term.process(b"\x1b[?c");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        // Should respond as VT220 with extended capabilities
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1b[?62;"));
+    }
+
+    #[test]
+    fn test_da2_response() {
+        let mut term = Terminal::new(80, 24);
+        // Send DA2 request: CSI > c
+        term.process(b"\x1b[>c");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&responses[0]), "\x1b[>0;136;0c");
+    }
+
+    #[test]
+    fn test_xtversion_response() {
+        let mut term = Terminal::new(80, 24);
+        // Send XTVERSION request: CSI > q
+        term.process(b"\x1b[>q");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&responses[0]),
+            "\x1bP>|mochi(0.1.0)\x1b\\"
+        );
+    }
+
+    #[test]
+    fn test_decrqm_mode_query() {
+        let mut term = Terminal::new(80, 24);
+
+        // Query auto-wrap mode (7) - should be set by default
+        term.process(b"\x1b[?7$p");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&responses[0]),
+            "\x1b[?7;1$y" // 1 = set
+        );
+
+        // Query alternate screen (1049) - should be reset by default
+        term.process(b"\x1b[?1049$p");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&responses[0]),
+            "\x1b[?1049;2$y" // 2 = reset
+        );
+
+        // Query unknown mode - should be not recognized
+        term.process(b"\x1b[?9999$p");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&responses[0]),
+            "\x1b[?9999;0$y" // 0 = not recognized
+        );
+    }
+
+    #[test]
+    fn test_decxcpr_extended_cursor_report() {
+        let mut term = Terminal::new(80, 24);
+        term.process(b"\x1b[5;10H"); // Move to row 5, col 10
+
+        // Send DECXCPR request: CSI ? 6 n
+        term.process(b"\x1b[?6n");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&responses[0]), "\x1b[?5;10R");
+    }
+
+    #[test]
+    fn test_hex_encode_decode() {
+        assert_eq!(Terminal::hex_encode("Tc"), "5463");
+        assert_eq!(Terminal::hex_decode("5463"), "Tc");
+        assert_eq!(Terminal::hex_encode("RGB"), "524742");
+        assert_eq!(Terminal::hex_decode("524742"), "RGB");
+    }
+
+    #[test]
+    fn test_xtgettcap_tc() {
+        let mut term = Terminal::new(80, 24);
+        // Query Tc (true color) capability: DCS + q 5463 ST
+        // 5463 = hex("Tc")
+        term.process(b"\x1bP+q5463\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        // Should start with DCS 1 + r (capability found)
+        assert!(response.starts_with("\x1bP1+r5463="));
+    }
+
+    #[test]
+    fn test_xtgettcap_unknown() {
+        let mut term = Terminal::new(80, 24);
+        // Query unknown capability
+        // "unknown" in hex = "756e6b6e6f776e"
+        term.process(b"\x1bP+q756e6b6e6f776e\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        // Should start with DCS 0 + r (capability not found)
+        assert!(response.starts_with("\x1bP0+r"));
+    }
+
+    #[test]
+    fn test_da3_response() {
+        let mut term = Terminal::new(80, 24);
+        // Send DA3 request: CSI = c
+        term.process(b"\x1b[=c");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1bP!|"));
     }
 }

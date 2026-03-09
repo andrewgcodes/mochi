@@ -23,8 +23,13 @@ pub enum Action {
     /// OSC (Operating System Command) sequence
     Osc(OscAction),
 
-    /// DCS (Device Control String) - currently just consumed
-    Dcs { params: Params, data: Vec<u8> },
+    /// DCS (Device Control String)
+    Dcs {
+        params: Params,
+        intermediates: Vec<u8>,
+        final_byte: u8,
+        data: Vec<u8>,
+    },
 
     /// APC (Application Program Command) - consumed and ignored
     Apc(Vec<u8>),
@@ -85,6 +90,9 @@ pub struct CsiAction {
     pub final_byte: u8,
     /// Whether this is a private sequence (starts with ?)
     pub private: bool,
+    /// The prefix byte for the CSI sequence (?, >, <, =) or 0 for none.
+    /// This extends `private` to support non-? prefixes like > (used by DA2, XTVERSION).
+    pub prefix: u8,
 }
 
 impl CsiAction {
@@ -150,6 +158,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            prefix: 0,
         };
 
         assert_eq!(csi.param(0, 1), 10);
@@ -164,6 +173,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'H',
             private: false,
+            prefix: 0,
         };
 
         assert!(csi.is(b'H'));
@@ -178,6 +188,7 @@ mod tests {
             intermediates: vec![],
             final_byte: b'h',
             private: true,
+            prefix: b'?',
         };
 
         assert!(csi.is_private(b'h'));
