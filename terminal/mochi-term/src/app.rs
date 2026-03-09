@@ -30,6 +30,8 @@ const TAB_MAX_WIDTH: u32 = 200;
 const CLOSE_BTN_WIDTH: u32 = 20;
 /// Width of the new tab (+) button
 const NEW_TAB_BTN_WIDTH: u32 = 32;
+/// Width of the theme toggle button
+const THEME_BTN_WIDTH: u32 = 32;
 
 /// Compute tab bar height from the current cell size so it scales with HiDPI / font size.
 fn compute_tab_bar_height(cell_size: &crate::renderer::CellSize) -> u32 {
@@ -299,7 +301,7 @@ impl App {
 
         let window_width = window.inner_size().width;
         let num_tabs = self.tabs.len() as u32;
-        let available_width = window_width.saturating_sub(NEW_TAB_BTN_WIDTH);
+        let available_width = window_width.saturating_sub(NEW_TAB_BTN_WIDTH + THEME_BTN_WIDTH);
         let tab_width = if num_tabs > 0 {
             (available_width / num_tabs).min(TAB_MAX_WIDTH)
         } else {
@@ -311,6 +313,13 @@ impl App {
 
         if click_x >= tabs_end && click_x < tabs_end + NEW_TAB_BTN_WIDTH {
             self.create_new_tab();
+            return;
+        }
+
+        // Theme toggle button (after the + button)
+        let theme_btn_start = tabs_end + NEW_TAB_BTN_WIDTH;
+        if click_x >= theme_btn_start && click_x < theme_btn_start + THEME_BTN_WIDTH {
+            self.handle_toggle_theme();
             return;
         }
 
@@ -1068,8 +1077,7 @@ impl App {
         }
     }
 
-    /// Handle toggle theme (Ctrl+Shift+T on macOS)
-    #[allow(dead_code)]
+    /// Handle toggle theme
     fn handle_toggle_theme(&mut self) {
         let new_theme = self.config.theme.next();
         log::info!(
