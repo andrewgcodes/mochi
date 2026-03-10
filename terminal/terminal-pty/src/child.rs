@@ -180,10 +180,15 @@ impl Child {
         // Get current environment
         let env: Vec<(String, String)> = std::env::vars().collect();
 
-        // Add TERM variable
-        let mut env_with_term: Vec<(String, String)> =
-            env.into_iter().filter(|(k, _)| k != "TERM").collect();
+        // Add TERM and COLORTERM variables
+        // TERM=xterm-256color provides basic terminal identification
+        // COLORTERM=truecolor tells applications (including tmux) that true-color is supported
+        let mut env_with_term: Vec<(String, String)> = env
+            .into_iter()
+            .filter(|(k, _)| k != "TERM" && k != "COLORTERM")
+            .collect();
         env_with_term.push(("TERM".to_string(), "xterm-256color".to_string()));
+        env_with_term.push(("COLORTERM".to_string(), "truecolor".to_string()));
 
         // Launch as login shell to properly source shell profile
         // This is important for GUI-launched terminals (e.g., macOS app bundles)

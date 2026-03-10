@@ -9,6 +9,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::Color;
 
+/// Underline style variants (SGR 4:Ps)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum UnderlineStyle {
+    /// No underline
+    #[default]
+    None,
+    /// Single underline (SGR 4 or SGR 4:1)
+    Single,
+    /// Double underline (SGR 4:2 or SGR 21)
+    Double,
+    /// Curly/wavy underline (SGR 4:3) - used by spell checkers
+    Curly,
+    /// Dotted underline (SGR 4:4)
+    Dotted,
+    /// Dashed underline (SGR 4:5)
+    Dashed,
+}
+
 /// Attributes that affect how a cell is rendered
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CellAttributes {
@@ -16,14 +34,18 @@ pub struct CellAttributes {
     pub fg: Color,
     /// Background color
     pub bg: Color,
+    /// Underline color (SGR 58) - separate from fg for colored underlines
+    pub underline_color: Color,
     /// Bold text (SGR 1)
     pub bold: bool,
     /// Faint/dim text (SGR 2)
     pub faint: bool,
     /// Italic text (SGR 3)
     pub italic: bool,
-    /// Underlined text (SGR 4)
+    /// Underlined text (SGR 4) - kept for backward compatibility
     pub underline: bool,
+    /// Underline style (SGR 4:Ps) - extended underline styles
+    pub underline_style: UnderlineStyle,
     /// Blinking text (SGR 5) - typically rendered as bold or ignored
     pub blink: bool,
     /// Inverse/reverse video (SGR 7)
@@ -32,6 +54,8 @@ pub struct CellAttributes {
     pub hidden: bool,
     /// Strikethrough text (SGR 9)
     pub strikethrough: bool,
+    /// Overline (SGR 53)
+    pub overline: bool,
 }
 
 impl CellAttributes {

@@ -66,12 +66,17 @@ pub struct Parser {
     params_buf: Vec<u8>,
     /// CSI intermediate bytes
     intermediates: Vec<u8>,
-    /// Whether CSI sequence starts with ?
-    private_marker: bool,
+    /// CSI prefix byte (? for private, > for DA2/XTVERSION, < for SGR mouse, = for other)
+    /// 0 means no prefix
+    csi_prefix: u8,
     /// OSC/DCS string data
     osc_data: Vec<u8>,
     /// DCS parameters
     dcs_params: Vec<u8>,
+    /// DCS intermediate bytes
+    dcs_intermediates: Vec<u8>,
+    /// DCS final byte
+    dcs_final_byte: u8,
     /// Escape intermediate bytes
     esc_intermediates: Vec<u8>,
 }
@@ -84,9 +89,11 @@ impl Parser {
             utf8: Utf8Decoder::new(),
             params_buf: Vec::with_capacity(64),
             intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
-            private_marker: false,
+            csi_prefix: 0,
             osc_data: Vec::with_capacity(256),
             dcs_params: Vec::with_capacity(64),
+            dcs_intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
+            dcs_final_byte: 0,
             esc_intermediates: Vec::with_capacity(MAX_INTERMEDIATES),
         }
     }
@@ -102,9 +109,11 @@ impl Parser {
         self.utf8.reset();
         self.params_buf.clear();
         self.intermediates.clear();
-        self.private_marker = false;
+        self.csi_prefix = 0;
         self.osc_data.clear();
         self.dcs_params.clear();
+        self.dcs_intermediates.clear();
+        self.dcs_final_byte = 0;
         self.esc_intermediates.clear();
     }
 
@@ -429,7 +438,7 @@ impl Parser {
         self.state = ParserState::CsiEntry;
         self.params_buf.clear();
         self.intermediates.clear();
-        self.private_marker = false;
+        self.csi_prefix = 0;
     }
 
     fn handle_csi_entry<F>(&mut self, byte: u8, callback: &mut F)
@@ -438,8 +447,8 @@ impl Parser {
     {
         match byte {
             b'?' | b'>' | b'<' | b'=' => {
-                // Private marker
-                self.private_marker = byte == b'?';
+                // CSI prefix byte
+                self.csi_prefix = byte;
                 self.state = ParserState::CsiParam;
             }
             b'0'..=b'9' | b';' | b':' => {
@@ -528,7 +537,8 @@ impl Parser {
             params,
             intermediates: self.intermediates.clone(),
             final_byte,
-            private: self.private_marker,
+            private: self.csi_prefix == b'?',
+            prefix: self.csi_prefix,
         };
         callback(Action::Csi(action));
     }
@@ -541,6 +551,8 @@ impl Parser {
     fn enter_dcs(&mut self) {
         self.state = ParserState::DcsEntry;
         self.dcs_params.clear();
+        self.dcs_intermediates.clear();
+        self.dcs_final_byte = 0;
         self.osc_data.clear();
     }
 
@@ -550,8 +562,17 @@ impl Parser {
                 self.dcs_params.push(byte);
                 self.state = ParserState::DcsParam;
             }
+            0x20..=0x2F => {
+                // Intermediate byte (e.g., '+' in DCS + q for XTGETTCAP)
+                // Transition to DcsParam to prevent further param collection after intermediates
+                if self.dcs_intermediates.len() < MAX_INTERMEDIATES {
+                    self.dcs_intermediates.push(byte);
+                }
+                self.state = ParserState::DcsParam;
+            }
             0x40..=0x7E => {
                 // Final byte - enter passthrough
+                self.dcs_final_byte = byte;
                 self.state = ParserState::DcsPassthrough;
             }
             _ => {
@@ -563,10 +584,21 @@ impl Parser {
     fn handle_dcs_param(&mut self, byte: u8) {
         match byte {
             b'0'..=b'9' | b';' => {
-                self.dcs_params.push(byte);
+                // Only collect params if no intermediates have been seen yet
+                if self.dcs_intermediates.is_empty() {
+                    self.dcs_params.push(byte);
+                }
+                // If intermediates already collected, ignore param bytes per VT spec
+            }
+            0x20..=0x2F => {
+                // Intermediate byte
+                if self.dcs_intermediates.len() < MAX_INTERMEDIATES {
+                    self.dcs_intermediates.push(byte);
+                }
             }
             0x40..=0x7E => {
                 // Final byte - enter passthrough
+                self.dcs_final_byte = byte;
                 self.state = ParserState::DcsPassthrough;
             }
             _ => {
@@ -619,6 +651,8 @@ impl Parser {
                 let params = Params::parse(&self.dcs_params);
                 callback(Action::Dcs {
                     params,
+                    intermediates: self.dcs_intermediates.clone(),
+                    final_byte: self.dcs_final_byte,
                     data: self.osc_data.clone(),
                 });
             }
@@ -651,6 +685,8 @@ impl Parser {
                 let params = Params::parse(&self.dcs_params);
                 callback(Action::Dcs {
                     params,
+                    intermediates: self.dcs_intermediates.clone(),
+                    final_byte: self.dcs_final_byte,
                     data: self.osc_data.clone(),
                 });
             }

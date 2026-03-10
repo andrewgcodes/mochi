@@ -3,6 +3,7 @@
 //! Various modes that affect terminal behavior, including DEC private modes.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Terminal mode flags
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +45,12 @@ pub struct Modes {
     pub mouse_any_event: bool,
     /// Mouse tracking: SGR extended coordinates
     pub mouse_sgr: bool,
+    /// Mouse tracking: UTF-8 extended coordinates
+    pub mouse_utf8: bool,
+    /// Mouse tracking: urxvt extended coordinates
+    pub mouse_urxvt: bool,
+    /// Mouse tracking: SGR pixel coordinates
+    pub mouse_sgr_pixel: bool,
     /// Focus in/out events
     pub focus_events: bool,
     /// Alternate screen buffer
@@ -53,6 +60,11 @@ pub struct Modes {
     /// Synchronized output mode (DEC 2026) - used by TUI apps like Claude Code
     /// When enabled, the terminal should buffer output until the mode is disabled
     pub synchronized_output: bool,
+
+    /// Saved private mode values for XTSAVE/XTRESTORE (CSI ? s / CSI ? r)
+    /// Maps mode number to saved boolean value
+    #[serde(skip)]
+    saved_private_modes: HashMap<u16, bool>,
 }
 
 impl Modes {
@@ -80,10 +92,14 @@ impl Modes {
             mouse_button_event: false,
             mouse_any_event: false,
             mouse_sgr: false,
+            mouse_utf8: false,
+            mouse_urxvt: false,
+            mouse_sgr_pixel: false,
             focus_events: false,
             alternate_screen: false,
             bracketed_paste: false,
             synchronized_output: false,
+            saved_private_modes: HashMap::new(),
         }
     }
 
@@ -105,11 +121,15 @@ impl Modes {
             8 => self.auto_repeat = value,
             9 => self.mouse_x10 = value,
             25 => self.cursor_visible = value,
+            47 | 1047 => self.alternate_screen = value,
             1000 => self.mouse_vt200 = value,
             1002 => self.mouse_button_event = value,
             1003 => self.mouse_any_event = value,
             1004 => self.focus_events = value,
+            1005 => self.mouse_utf8 = value,
             1006 => self.mouse_sgr = value,
+            1015 => self.mouse_urxvt = value,
+            1016 => self.mouse_sgr_pixel = value,
             1049 => self.alternate_screen = value,
             2004 => self.bracketed_paste = value,
             2026 => self.synchronized_output = value,
@@ -132,16 +152,43 @@ impl Modes {
             8 => self.auto_repeat,
             9 => self.mouse_x10,
             25 => self.cursor_visible,
+            47 | 1047 => self.alternate_screen,
             1000 => self.mouse_vt200,
             1002 => self.mouse_button_event,
             1003 => self.mouse_any_event,
             1004 => self.focus_events,
+            1005 => self.mouse_utf8,
             1006 => self.mouse_sgr,
+            1015 => self.mouse_urxvt,
+            1016 => self.mouse_sgr_pixel,
             1049 => self.alternate_screen,
             2004 => self.bracketed_paste,
             2026 => self.synchronized_output,
             _ => false,
         }
+    }
+
+    /// Save current value of a private mode (XTSAVE - CSI ? Ps s)
+    pub fn save_dec_mode(&mut self, mode: u16) {
+        let value = self.get_dec_mode(mode);
+        self.saved_private_modes.insert(mode, value);
+    }
+
+    /// Restore saved value of a private mode (XTRESTORE - CSI ? Ps r)
+    /// Returns the restored value, or None if nothing was saved
+    pub fn restore_dec_mode(&mut self, mode: u16) -> Option<bool> {
+        if let Some(&value) = self.saved_private_modes.get(&mode) {
+            self.set_dec_mode(mode, value);
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    /// Get saved value of a private mode without restoring it.
+    /// Used by Terminal::set_dec_mode to restore with proper side effects.
+    pub fn get_saved_dec_mode(&self, mode: u16) -> Option<bool> {
+        self.saved_private_modes.get(&mode).copied()
     }
 
     /// Set a standard (non-DEC) mode by number
