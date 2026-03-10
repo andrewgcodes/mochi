@@ -289,6 +289,23 @@ impl Screen {
         self.cursor.pending_wrap = false;
     }
 
+    /// Handle backward tab (CBT) - move cursor to previous tab stop
+    pub fn backtab(&mut self) {
+        if self.cursor.col == 0 {
+            return;
+        }
+        let mut col = self.cursor.col - 1;
+        while col > 0 {
+            if self.tab_stops.get(col).copied().unwrap_or(false) {
+                break;
+            }
+            col -= 1;
+        }
+        // If col == 0, we either found a tab stop at 0 or reached the beginning
+        self.cursor.col = col;
+        self.cursor.pending_wrap = false;
+    }
+
     /// Handle carriage return (CR)
     pub fn carriage_return(&mut self) {
         self.cursor.col = 0;

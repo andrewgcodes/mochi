@@ -110,6 +110,11 @@ impl Params {
         self.values.is_empty()
     }
 
+    /// Check if any parameter has subparameters (colon-separated values)
+    pub fn has_subparams(&self) -> bool {
+        self.subparams.iter().any(|s| !s.is_empty())
+    }
+
     /// Get subparameters for a parameter
     pub fn subparams(&self, index: usize) -> Option<&[u16]> {
         self.subparams.get(index).map(|v| v.as_slice())

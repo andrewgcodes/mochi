@@ -2,7 +2,7 @@
 //!
 //! Integrates the parser and screen model to handle terminal emulation.
 
-use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot};
+use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot, UnderlineStyle};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
 
 /// Terminal emulator state
@@ -23,6 +23,12 @@ pub struct Terminal {
     /// Pending responses to send back to the PTY
     /// Used for DSR (Device Status Report), DA1 (Primary Device Attributes), etc.
     pending_responses: Vec<Vec<u8>>,
+    /// Last printed character for REP (CSI b) support
+    last_printed_char: Option<char>,
+    /// Pending focus events to send (true = focus in, false = focus out)
+    /// Used by notify_focus()/take_pending_focus_events() which are called by the GUI layer
+    #[allow(dead_code)]
+    pending_focus_events: Vec<bool>,
 }
 
 impl Terminal {
@@ -36,6 +42,8 @@ impl Terminal {
             bell: false,
             sync_output_first_enable: false,
             pending_responses: Vec::new(),
+            last_printed_char: None,
+            pending_focus_events: Vec::new(),
         }
     }
 
@@ -92,6 +100,7 @@ impl Terminal {
         match action {
             Action::Print(c) => {
                 self.screen.print(c);
+                self.last_printed_char = Some(c);
             }
             Action::Control(byte) => {
                 self.handle_control(byte);
@@ -327,6 +336,22 @@ impl Terminal {
                 let n = csi.param(0, 1) as usize;
                 self.screen.erase_chars(n);
             }
+            b'Z' => {
+                // CBT - Cursor Backward Tabulation
+                let n = csi.param(0, 1) as usize;
+                for _ in 0..n {
+                    self.screen.backtab();
+                }
+            }
+            b'b' => {
+                // REP - Repeat preceding character
+                if let Some(c) = self.last_printed_char {
+                    let n = csi.param(0, 1) as usize;
+                    for _ in 0..n {
+                        self.screen.print(c);
+                    }
+                }
+            }
             b'd' => {
                 // VPA - Vertical Position Absolute
                 let row = csi.param(0, 1) as usize;
@@ -461,6 +486,24 @@ impl Terminal {
                     }
                 }
             }
+            b's' => {
+                // XTSAVE - Save private mode values
+                for param in csi.params.iter() {
+                    self.screen.modes_mut().save_dec_mode(param);
+                }
+                log::debug!("XTSAVE: saved modes {:?}", csi.params);
+            }
+            b'r' => {
+                // XTRESTORE - Restore private mode values
+                for param in csi.params.iter() {
+                    self.screen.modes_mut().restore_dec_mode(param);
+                }
+                log::debug!("XTRESTORE: restored modes {:?}", csi.params);
+            }
+            b't' => {
+                // Window manipulation (XTWINOPS)
+                self.handle_window_ops(csi);
+            }
             _ => {
                 log::debug!(
                     "Unknown private CSI: ?{:?}{}",
@@ -498,11 +541,27 @@ impl Terminal {
                 // Disable key modifier options
                 log::debug!("Disable key modifier options (ignored)");
             }
+            (b'>', b'u') => {
+                // Kitty keyboard protocol - query current flags
+                // Response: CSI ? flags u
+                // We report 0 (no progressive enhancement active)
+                self.queue_response(b"\x1b[?0u".to_vec());
+                log::debug!("Kitty keyboard protocol query: responding with flags=0");
+            }
+            (b'<', b'u') => {
+                // Kitty keyboard protocol - pop from stack
+                // We don't track the stack, just acknowledge
+                log::debug!("Kitty keyboard protocol pop (ignored)");
+            }
             (b'=', b'c') => {
                 // DA3 - Tertiary Device Attributes
                 // Response: DCS ! | device-id ST
                 self.queue_response(b"\x1bP!|00000000\x1b\\".to_vec());
                 log::debug!("DA3 request: responding with device ID");
+            }
+            (b'=', b'u') => {
+                // Kitty keyboard protocol - push flags to stack
+                log::debug!("Kitty keyboard protocol push (ignored)");
             }
             _ => {
                 log::debug!(
@@ -522,86 +581,18 @@ impl Terminal {
     fn handle_decrqm(&mut self, csi: &CsiAction) {
         let mode = csi.param(0, 0);
         let status = match mode {
-            // Modes we actively track
-            1 => {
-                if self.screen.modes().cursor_keys_application {
+            // All modes we actively track - use get_dec_mode for uniform access
+            1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 25 | 1000 | 1002 | 1003 | 1004 | 1005 | 1006
+            | 1015 | 1016 | 2004 | 2026 => {
+                if self.screen.modes().get_dec_mode(mode) {
                     1
                 } else {
                     2
                 }
             }
-            6 => {
-                if self.screen.modes().origin_mode {
-                    1
-                } else {
-                    2
-                }
-            }
-            7 => {
-                if self.screen.modes().auto_wrap {
-                    1
-                } else {
-                    2
-                }
-            }
-            25 => {
-                if self.screen.modes().cursor_visible {
-                    1
-                } else {
-                    2
-                }
-            }
+            // Alternate screen variants
             47 | 1047 | 1049 => {
                 if self.screen.modes().alternate_screen {
-                    1
-                } else {
-                    2
-                }
-            }
-            1000 => {
-                if self.screen.modes().mouse_vt200 {
-                    1
-                } else {
-                    2
-                }
-            }
-            1002 => {
-                if self.screen.modes().mouse_button_event {
-                    1
-                } else {
-                    2
-                }
-            }
-            1003 => {
-                if self.screen.modes().mouse_any_event {
-                    1
-                } else {
-                    2
-                }
-            }
-            1004 => {
-                if self.screen.modes().focus_events {
-                    1
-                } else {
-                    2
-                }
-            }
-            1006 => {
-                if self.screen.modes().mouse_sgr {
-                    1
-                } else {
-                    2
-                }
-            }
-            2004 => {
-                if self.screen.modes().bracketed_paste {
-                    1
-                } else {
-                    2
-                }
-            }
-            2026 => {
-                if self.screen.modes().synchronized_output {
                     1
                 } else {
                     2
@@ -650,6 +641,21 @@ impl Terminal {
                     _ => {}
                 }
             }
+            ([b'!'], b'p') => {
+                // DECSTR - Soft Terminal Reset
+                self.screen.modes_mut().reset();
+                self.screen.cursor_mut().attrs.reset();
+                self.screen.cursor_mut().style = CursorStyle::Block;
+                self.screen.cursor_mut().blinking = true;
+                self.screen.cursor_mut().visible = true;
+                self.screen.clear_scroll_region();
+                log::debug!("DECSTR: soft terminal reset");
+            }
+            ([b'"'], b'p') => {
+                // DECSCL - Set Conformance Level
+                // tmux may query this; just acknowledge
+                log::debug!("DECSCL: set conformance level (ignored)");
+            }
             _ => {
                 log::debug!(
                     "Unknown CSI with intermediates: {:?} {:?} {}",
@@ -657,6 +663,50 @@ impl Terminal {
                     csi.params,
                     csi.final_byte as char
                 );
+            }
+        }
+    }
+
+    /// Handle CSI t / CSI ? t - Window manipulation operations
+    fn handle_window_ops(&mut self, csi: &CsiAction) {
+        let op = csi.param(0, 0);
+        match op {
+            14 => {
+                // Report window size in pixels
+                // Response: CSI 4 ; height ; width t
+                // Use 16px per cell as a reasonable default
+                let height = self.screen.rows() * 16;
+                let width = self.screen.cols() * 16;
+                let response = format!("\x1b[4;{};{}t", height, width);
+                self.queue_response(response.into_bytes());
+                log::debug!("Window ops 14: report pixel size {}x{}", width, height);
+            }
+            16 => {
+                // Report cell size in pixels
+                // Response: CSI 6 ; height ; width t
+                let response = format!("\x1b[6;{};{}t", 16, 8);
+                self.queue_response(response.into_bytes());
+                log::debug!("Window ops 16: report cell size");
+            }
+            18 => {
+                // Report terminal size in characters
+                // Response: CSI 8 ; rows ; cols t
+                let rows = self.screen.rows();
+                let cols = self.screen.cols();
+                let response = format!("\x1b[8;{};{}t", rows, cols);
+                self.queue_response(response.into_bytes());
+                log::debug!("Window ops 18: report text area size {}x{}", cols, rows);
+            }
+            22 => {
+                // Push title to stack
+                log::debug!("Window ops 22: push title (acknowledged)");
+            }
+            23 => {
+                // Pop title from stack
+                log::debug!("Window ops 23: pop title (acknowledged)");
+            }
+            _ => {
+                log::debug!("Window ops {}: ignored", op);
             }
         }
     }
@@ -784,6 +834,197 @@ impl Terminal {
             return;
         }
 
+        // Check for colon-separated subparameters (e.g., SGR 4:3 for curly underline)
+        // The parser stores subparameters for each parameter
+        let has_subparams = csi.params.has_subparams();
+
+        if has_subparams {
+            // Handle subparameter-style SGR (colon-separated)
+            for (param, subparams) in csi.params.iter_with_subparams() {
+                match param {
+                    4 => {
+                        // SGR 4:Ps - underline style
+                        if subparams.is_empty() {
+                            attrs.underline = true;
+                            attrs.underline_style = UnderlineStyle::Single;
+                        } else {
+                            match subparams[0] {
+                                0 => {
+                                    attrs.underline = false;
+                                    attrs.underline_style = UnderlineStyle::None;
+                                }
+                                1 => {
+                                    attrs.underline = true;
+                                    attrs.underline_style = UnderlineStyle::Single;
+                                }
+                                2 => {
+                                    attrs.underline = true;
+                                    attrs.underline_style = UnderlineStyle::Double;
+                                }
+                                3 => {
+                                    attrs.underline = true;
+                                    attrs.underline_style = UnderlineStyle::Curly;
+                                }
+                                4 => {
+                                    attrs.underline = true;
+                                    attrs.underline_style = UnderlineStyle::Dotted;
+                                }
+                                5 => {
+                                    attrs.underline = true;
+                                    attrs.underline_style = UnderlineStyle::Dashed;
+                                }
+                                _ => {
+                                    attrs.underline = true;
+                                    attrs.underline_style = UnderlineStyle::Single;
+                                }
+                            }
+                        }
+                    }
+                    38 => {
+                        // Colon-separated foreground color: 38:2:R:G:B or 38:5:N
+                        if !subparams.is_empty() {
+                            match subparams[0] {
+                                2 => {
+                                    // RGB: 38:2:R:G:B or 38:2:colorspace:R:G:B
+                                    if subparams.len() >= 4 {
+                                        // Check if colorspace is provided
+                                        let (r, g, b) = if subparams.len() >= 5 {
+                                            // 38:2:colorspace:R:G:B
+                                            (
+                                                subparams[2] as u8,
+                                                subparams[3] as u8,
+                                                subparams[4] as u8,
+                                            )
+                                        } else {
+                                            // 38:2:R:G:B
+                                            (
+                                                subparams[1] as u8,
+                                                subparams[2] as u8,
+                                                subparams[3] as u8,
+                                            )
+                                        };
+                                        attrs.fg = Color::Rgb { r, g, b };
+                                    }
+                                }
+                                5 => {
+                                    // 256 color: 38:5:N
+                                    if subparams.len() >= 2 {
+                                        attrs.fg = Color::Indexed(subparams[1] as u8);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    48 => {
+                        // Colon-separated background color
+                        if !subparams.is_empty() {
+                            match subparams[0] {
+                                2 => {
+                                    if subparams.len() >= 4 {
+                                        let (r, g, b) = if subparams.len() >= 5 {
+                                            (
+                                                subparams[2] as u8,
+                                                subparams[3] as u8,
+                                                subparams[4] as u8,
+                                            )
+                                        } else {
+                                            (
+                                                subparams[1] as u8,
+                                                subparams[2] as u8,
+                                                subparams[3] as u8,
+                                            )
+                                        };
+                                        attrs.bg = Color::Rgb { r, g, b };
+                                    }
+                                }
+                                5 => {
+                                    if subparams.len() >= 2 {
+                                        attrs.bg = Color::Indexed(subparams[1] as u8);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    58 => {
+                        // Colon-separated underline color: 58:2:R:G:B or 58:5:N
+                        if !subparams.is_empty() {
+                            match subparams[0] {
+                                2 => {
+                                    if subparams.len() >= 4 {
+                                        let (r, g, b) = if subparams.len() >= 5 {
+                                            (
+                                                subparams[2] as u8,
+                                                subparams[3] as u8,
+                                                subparams[4] as u8,
+                                            )
+                                        } else {
+                                            (
+                                                subparams[1] as u8,
+                                                subparams[2] as u8,
+                                                subparams[3] as u8,
+                                            )
+                                        };
+                                        attrs.underline_color = Color::Rgb { r, g, b };
+                                    }
+                                }
+                                5 => {
+                                    if subparams.len() >= 2 {
+                                        attrs.underline_color = Color::Indexed(subparams[1] as u8);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {
+                        // Inline standard SGR handling (can't call method due to borrow)
+                        match param {
+                            0 => attrs.reset(),
+                            1 => attrs.bold = true,
+                            2 => attrs.faint = true,
+                            3 => attrs.italic = true,
+                            5 => attrs.blink = true,
+                            7 => attrs.inverse = true,
+                            8 => attrs.hidden = true,
+                            9 => attrs.strikethrough = true,
+                            21 => {
+                                attrs.underline = true;
+                                attrs.underline_style = UnderlineStyle::Double;
+                            }
+                            22 => {
+                                attrs.bold = false;
+                                attrs.faint = false;
+                            }
+                            23 => attrs.italic = false,
+                            24 => {
+                                attrs.underline = false;
+                                attrs.underline_style = UnderlineStyle::None;
+                            }
+                            25 => attrs.blink = false,
+                            27 => attrs.inverse = false,
+                            28 => attrs.hidden = false,
+                            29 => attrs.strikethrough = false,
+                            30..=37 => attrs.fg = Color::Indexed((param - 30) as u8),
+                            39 => attrs.fg = Color::Default,
+                            40..=47 => attrs.bg = Color::Indexed((param - 40) as u8),
+                            49 => attrs.bg = Color::Default,
+                            53 => attrs.overline = true,
+                            55 => attrs.overline = false,
+                            59 => attrs.underline_color = Color::Default,
+                            90..=97 => attrs.fg = Color::Indexed((param - 90 + 8) as u8),
+                            100..=107 => attrs.bg = Color::Indexed((param - 100 + 8) as u8),
+                            _ => {
+                                log::debug!("Unknown SGR parameter in subparam mode: {}", param);
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         let mut i = 0;
         let params: Vec<u16> = csi.params.iter().collect();
 
@@ -794,18 +1035,28 @@ impl Terminal {
                 1 => attrs.bold = true,
                 2 => attrs.faint = true,
                 3 => attrs.italic = true,
-                4 => attrs.underline = true,
+                4 => {
+                    attrs.underline = true;
+                    attrs.underline_style = UnderlineStyle::Single;
+                }
                 5 => attrs.blink = true,
                 7 => attrs.inverse = true,
                 8 => attrs.hidden = true,
                 9 => attrs.strikethrough = true,
-                21 => attrs.bold = false, // Double underline or bold off
+                21 => {
+                    // Double underline (SGR 21)
+                    attrs.underline = true;
+                    attrs.underline_style = UnderlineStyle::Double;
+                }
                 22 => {
                     attrs.bold = false;
                     attrs.faint = false;
                 }
                 23 => attrs.italic = false,
-                24 => attrs.underline = false,
+                24 => {
+                    attrs.underline = false;
+                    attrs.underline_style = UnderlineStyle::None;
+                }
                 25 => attrs.blink = false,
                 27 => attrs.inverse = false,
                 28 => attrs.hidden = false,
@@ -870,6 +1121,35 @@ impl Terminal {
                     }
                 }
                 49 => attrs.bg = Color::Default,
+                53 => attrs.overline = true,
+                55 => attrs.overline = false,
+                58 => {
+                    // Extended underline color (semicolon-separated fallback)
+                    if i + 1 < params.len() {
+                        match params[i + 1] {
+                            5 => {
+                                // 256 color: 58;5;N
+                                if i + 2 < params.len() {
+                                    attrs.underline_color = Color::Indexed(params[i + 2] as u8);
+                                    i += 2;
+                                }
+                            }
+                            2 => {
+                                // True color: 58;2;R;G;B
+                                if i + 4 < params.len() {
+                                    attrs.underline_color = Color::Rgb {
+                                        r: params[i + 2] as u8,
+                                        g: params[i + 3] as u8,
+                                        b: params[i + 4] as u8,
+                                    };
+                                    i += 4;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                59 => attrs.underline_color = Color::Default,
                 90..=97 => {
                     // Bright foreground colors
                     attrs.fg = Color::Indexed((param - 90 + 8) as u8);
@@ -912,16 +1192,52 @@ impl Terminal {
                 log::debug!("OSC 52 clipboard: {} bytes", data.len());
             }
             OscAction::SetColor { index, color } => {
-                log::debug!("Set color {}: {}", index, color);
+                if color == "?" {
+                    // OSC 4 color query - respond with current palette color
+                    // Response: OSC 4 ; index ; rgb:RR/GG/BB ST
+                    let (r, g, b) = Self::default_palette_color(index);
+                    let response =
+                        format!("\x1b]4;{};rgb:{:02x}/{:02x}/{:02x}\x1b\\", index, r, g, b);
+                    self.queue_response(response.into_bytes());
+                    log::debug!(
+                        "OSC 4 query: color {} = rgb:{:02x}/{:02x}/{:02x}",
+                        index,
+                        r,
+                        g,
+                        b
+                    );
+                } else {
+                    log::debug!("Set color {}: {}", index, color);
+                }
             }
             OscAction::SetForegroundColor(color) => {
-                log::debug!("Set foreground color: {}", color);
+                if color == "?" {
+                    // OSC 10 color query - respond with foreground color
+                    // Default foreground: light gray
+                    self.queue_response(b"\x1b]10;rgb:dd/dd/dd\x1b\\".to_vec());
+                    log::debug!("OSC 10 query: foreground color");
+                } else {
+                    log::debug!("Set foreground color: {}", color);
+                }
             }
             OscAction::SetBackgroundColor(color) => {
-                log::debug!("Set background color: {}", color);
+                if color == "?" {
+                    // OSC 11 color query - respond with background color
+                    // Default background: black
+                    self.queue_response(b"\x1b]11;rgb:00/00/00\x1b\\".to_vec());
+                    log::debug!("OSC 11 query: background color");
+                } else {
+                    log::debug!("Set background color: {}", color);
+                }
             }
             OscAction::SetCursorColor(color) => {
-                log::debug!("Set cursor color: {}", color);
+                if color == "?" {
+                    // OSC 12 color query - respond with cursor color
+                    self.queue_response(b"\x1b]12;rgb:dd/dd/dd\x1b\\".to_vec());
+                    log::debug!("OSC 12 query: cursor color");
+                } else {
+                    log::debug!("Set cursor color: {}", color);
+                }
             }
             OscAction::SetCurrentDirectory(dir) => {
                 log::debug!("Set current directory: {}", dir);
@@ -949,6 +1265,11 @@ impl Terminal {
                 // or DCS 0 + r <hex-encoded-cap-name> ST if not found
                 self.handle_xtgettcap(data);
             }
+            ([b'$'], b'q') => {
+                // DECRQSS - Request Selection or Setting
+                // tmux uses this to query terminal state
+                self.handle_decrqss(data);
+            }
             _ => {
                 // Check for tmux passthrough: DCS tmux; <escaped-data> ST
                 // The parser consumes the first byte after intermediates as the DCS final_byte,
@@ -970,6 +1291,84 @@ impl Terminal {
                         data.len()
                     );
                 }
+            }
+        }
+    }
+
+    /// Handle DECRQSS - Request Selection or Setting
+    /// Responds with current terminal settings
+    fn handle_decrqss(&mut self, data: &[u8]) {
+        let request = String::from_utf8_lossy(data);
+        match request.as_ref() {
+            "m" => {
+                // Query current SGR attributes
+                // Response: DCS 1 $ r <SGR-params> m ST
+                let attrs = self.screen.cursor().attrs;
+                let mut sgr_parts: Vec<String> = vec!["0".to_string()];
+                if attrs.bold {
+                    sgr_parts.push("1".to_string());
+                }
+                if attrs.faint {
+                    sgr_parts.push("2".to_string());
+                }
+                if attrs.italic {
+                    sgr_parts.push("3".to_string());
+                }
+                if attrs.underline {
+                    sgr_parts.push("4".to_string());
+                }
+                if attrs.blink {
+                    sgr_parts.push("5".to_string());
+                }
+                if attrs.inverse {
+                    sgr_parts.push("7".to_string());
+                }
+                if attrs.hidden {
+                    sgr_parts.push("8".to_string());
+                }
+                if attrs.strikethrough {
+                    sgr_parts.push("9".to_string());
+                }
+                if attrs.overline {
+                    sgr_parts.push("53".to_string());
+                }
+                let sgr_str = sgr_parts.join(";");
+                let response = format!("\x1bP1$r{}m\x1b\\", sgr_str);
+                self.queue_response(response.into_bytes());
+                log::debug!("DECRQSS SGR: {}", sgr_str);
+            }
+            "r" => {
+                // Query scroll region (DECSTBM)
+                let (top, bottom) = self.screen.scroll_region();
+                let response = format!("\x1bP1$r{};{}r\x1b\\", top + 1, bottom + 1);
+                self.queue_response(response.into_bytes());
+                log::debug!("DECRQSS DECSTBM: {};{}", top + 1, bottom + 1);
+            }
+            "\"p" => {
+                // Query conformance level (DECSCL)
+                // Respond as VT220, 8-bit controls accepted
+                let response = "\x1bP1$r62;1\"p\x1b\\".to_string();
+                self.queue_response(response.into_bytes());
+                log::debug!("DECRQSS DECSCL: 62;1");
+            }
+            " q" => {
+                // Query cursor style (DECSCUSR)
+                let style_num = match (self.screen.cursor().style, self.screen.cursor().blinking) {
+                    (CursorStyle::Block, true) => 1,
+                    (CursorStyle::Block, false) => 2,
+                    (CursorStyle::Underline, true) => 3,
+                    (CursorStyle::Underline, false) => 4,
+                    (CursorStyle::Bar, true) => 5,
+                    (CursorStyle::Bar, false) => 6,
+                };
+                let response = format!("\x1bP1$r{} q\x1b\\", style_num);
+                self.queue_response(response.into_bytes());
+                log::debug!("DECRQSS DECSCUSR: {}", style_num);
+            }
+            _ => {
+                // Not recognized - respond with DCS 0 $ r ST
+                self.queue_response(b"\x1bP0$r\x1b\\".to_vec());
+                log::debug!("DECRQSS unknown: {:?}", request);
             }
         }
     }
@@ -1014,15 +1413,112 @@ impl Terminal {
             "Sync" => Some(String::new()),
             // Overline support
             "Smol" => Some("\x1b[53m".to_string()),
+            "Rmol" => Some("\x1b[55m".to_string()),
             // Extended underline (colored, styled)
             "Setulc" => {
                 Some("\x1b[58:2:%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%dm".to_string())
             }
+            // Underline style
+            "Smulx" => Some("\x1b[4:%p1%dm".to_string()),
             // Strikethrough
             "smxx" => Some("\x1b[9m".to_string()),
+            "rmxx" => Some("\x1b[29m".to_string()),
             // OSC 52 clipboard
             "Ms" => Some("\x1b]52;%p1%s;%p2%s\x07".to_string()),
+            // Focus events
+            "fd" => Some("\x1b[?1004l".to_string()),
+            "fe" => Some("\x1b[?1004h".to_string()),
+            // Bracketed paste
+            "BE" => Some("\x1b[?2004h".to_string()),
+            "BD" => Some("\x1b[?2004l".to_string()),
+            "PS" => Some("\x1b[200~".to_string()),
+            "PE" => Some("\x1b[201~".to_string()),
+            // Extended mouse
+            "XM" => Some(String::new()),
+            // Cursor movement
+            "cup" => Some("\x1b[%i%p1%d;%p2%dH".to_string()),
+            // Clear screen
+            "clear" => Some("\x1b[H\x1b[2J".to_string()),
+            // Key capabilities
+            "kbs" => Some("\x7f".to_string()),
+            "kcuu1" => Some("\x1bOA".to_string()),
+            "kcud1" => Some("\x1bOB".to_string()),
+            "kcuf1" => Some("\x1bOC".to_string()),
+            "kcub1" => Some("\x1bOD".to_string()),
+            "khome" => Some("\x1bOH".to_string()),
+            "kend" => Some("\x1bOF".to_string()),
+            "knp" => Some("\x1b[6~".to_string()),
+            "kpp" => Some("\x1b[5~".to_string()),
+            "kdch1" => Some("\x1b[3~".to_string()),
+            "kich1" => Some("\x1b[2~".to_string()),
+            // Function keys
+            "kf1" => Some("\x1bOP".to_string()),
+            "kf2" => Some("\x1bOQ".to_string()),
+            "kf3" => Some("\x1bOR".to_string()),
+            "kf4" => Some("\x1bOS".to_string()),
+            "kf5" => Some("\x1b[15~".to_string()),
+            "kf6" => Some("\x1b[17~".to_string()),
+            "kf7" => Some("\x1b[18~".to_string()),
+            "kf8" => Some("\x1b[19~".to_string()),
+            "kf9" => Some("\x1b[20~".to_string()),
+            "kf10" => Some("\x1b[21~".to_string()),
+            "kf11" => Some("\x1b[23~".to_string()),
+            "kf12" => Some("\x1b[24~".to_string()),
+            // Alternate charset
+            "acsc" => Some("``aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~".to_string()),
+            // Bold/dim/italics/etc
+            "bold" => Some("\x1b[1m".to_string()),
+            "dim" => Some("\x1b[2m".to_string()),
+            "sitm" => Some("\x1b[3m".to_string()),
+            "ritm" => Some("\x1b[23m".to_string()),
+            "smul" => Some("\x1b[4m".to_string()),
+            "rmul" => Some("\x1b[24m".to_string()),
+            "rev" => Some("\x1b[7m".to_string()),
+            "sgr0" => Some("\x1b[m".to_string()),
+            // Columns/lines
+            "cols" => Some("80".to_string()),
+            "lines" => Some("24".to_string()),
             _ => None,
+        }
+    }
+
+    /// Get default palette color for index (xterm-256color compatible)
+    fn default_palette_color(index: u8) -> (u8, u8, u8) {
+        match index {
+            // Standard colors
+            0 => (0, 0, 0),       // Black
+            1 => (205, 0, 0),     // Red
+            2 => (0, 205, 0),     // Green
+            3 => (205, 205, 0),   // Yellow
+            4 => (0, 0, 238),     // Blue
+            5 => (205, 0, 205),   // Magenta
+            6 => (0, 205, 205),   // Cyan
+            7 => (229, 229, 229), // White
+            // Bright colors
+            8 => (127, 127, 127),  // Bright Black
+            9 => (255, 0, 0),      // Bright Red
+            10 => (0, 255, 0),     // Bright Green
+            11 => (255, 255, 0),   // Bright Yellow
+            12 => (92, 92, 255),   // Bright Blue
+            13 => (255, 0, 255),   // Bright Magenta
+            14 => (0, 255, 255),   // Bright Cyan
+            15 => (255, 255, 255), // Bright White
+            // 216 color cube (indices 16-231)
+            16..=231 => {
+                let idx = index - 16;
+                let b_val = idx % 6;
+                let g_val = (idx / 6) % 6;
+                let r_val = idx / 36;
+                let r = if r_val > 0 { r_val * 40 + 55 } else { 0 };
+                let g = if g_val > 0 { g_val * 40 + 55 } else { 0 };
+                let b = if b_val > 0 { b_val * 40 + 55 } else { 0 };
+                (r, g, b)
+            }
+            // Grayscale ramp (indices 232-255)
+            232..=255 => {
+                let v = (index - 232) * 10 + 8;
+                (v, v, v)
+            }
         }
     }
 
@@ -1071,6 +1567,28 @@ impl Terminal {
     /// Returns all pending responses and clears the queue
     pub fn take_pending_responses(&mut self) -> Vec<Vec<u8>> {
         std::mem::take(&mut self.pending_responses)
+    }
+
+    /// Send a focus event notification
+    /// When focus_events mode is enabled (CSI ? 1004 h), the terminal
+    /// should send CSI I (focus in) or CSI O (focus out) to the application
+    #[allow(dead_code)]
+    pub fn notify_focus(&mut self, focused: bool) {
+        if self.screen.modes().focus_events {
+            let response = if focused {
+                b"\x1b[I".to_vec()
+            } else {
+                b"\x1b[O".to_vec()
+            };
+            self.pending_responses.push(response);
+        }
+        self.pending_focus_events.push(focused);
+    }
+
+    /// Take pending focus events
+    #[allow(dead_code)]
+    pub fn take_pending_focus_events(&mut self) -> Vec<bool> {
+        std::mem::take(&mut self.pending_focus_events)
     }
 
     /// Queue a response to be sent back to the PTY
@@ -1299,5 +1817,345 @@ mod tests {
         assert_eq!(responses.len(), 1);
         let response = String::from_utf8_lossy(&responses[0]);
         assert!(response.starts_with("\x1bP!|"));
+    }
+
+    #[test]
+    fn test_sgr_underline_styles() {
+        let mut term = Terminal::new(80, 24);
+
+        // SGR 4 - single underline
+        term.process(b"\x1b[4mA");
+        let attrs = &term.screen().line(0).cell(0).attrs;
+        assert!(attrs.underline);
+        assert_eq!(attrs.underline_style, UnderlineStyle::Single);
+
+        // SGR 21 - double underline
+        term.process(b"\x1b[0m\x1b[21mB");
+        let attrs = &term.screen().line(0).cell(1).attrs;
+        assert!(attrs.underline);
+        assert_eq!(attrs.underline_style, UnderlineStyle::Double);
+
+        // SGR 24 - underline off
+        term.process(b"\x1b[24mC");
+        let attrs = &term.screen().line(0).cell(2).attrs;
+        assert!(!attrs.underline);
+        assert_eq!(attrs.underline_style, UnderlineStyle::None);
+    }
+
+    #[test]
+    fn test_sgr_overline() {
+        let mut term = Terminal::new(80, 24);
+
+        // SGR 53 - overline on
+        term.process(b"\x1b[53mA");
+        let attrs = &term.screen().line(0).cell(0).attrs;
+        assert!(attrs.overline);
+
+        // SGR 55 - overline off
+        term.process(b"\x1b[55mB");
+        let attrs = &term.screen().line(0).cell(1).attrs;
+        assert!(!attrs.overline);
+    }
+
+    #[test]
+    fn test_sgr_underline_color_semicolon() {
+        let mut term = Terminal::new(80, 24);
+
+        // SGR 58;2;R;G;B - underline color RGB
+        term.process(b"\x1b[58;2;255;128;64mA");
+        let attrs = &term.screen().line(0).cell(0).attrs;
+        assert_eq!(
+            attrs.underline_color,
+            Color::Rgb {
+                r: 255,
+                g: 128,
+                b: 64
+            }
+        );
+
+        // SGR 59 - reset underline color
+        term.process(b"\x1b[59mB");
+        let attrs = &term.screen().line(0).cell(1).attrs;
+        assert_eq!(attrs.underline_color, Color::Default);
+    }
+
+    #[test]
+    fn test_rep_repeat_character() {
+        let mut term = Terminal::new(80, 24);
+        // Print 'X' then repeat it 4 times
+        term.process(b"X\x1b[4b");
+
+        assert_eq!(term.screen().line(0).cell(0).display_char(), 'X');
+        assert_eq!(term.screen().line(0).cell(1).display_char(), 'X');
+        assert_eq!(term.screen().line(0).cell(2).display_char(), 'X');
+        assert_eq!(term.screen().line(0).cell(3).display_char(), 'X');
+        assert_eq!(term.screen().line(0).cell(4).display_char(), 'X');
+    }
+
+    #[test]
+    fn test_cbt_backward_tab() {
+        let mut term = Terminal::new(80, 24);
+        // Move forward with tabs then backward
+        term.process(b"\tA"); // Tab to col 8, print A at col 8
+        assert_eq!(term.screen().cursor().col, 9); // After printing A
+        term.process(b"\x1b[Z"); // CBT - backward tab
+        assert_eq!(term.screen().cursor().col, 8); // Should go back to tab stop at 8
+    }
+
+    #[test]
+    fn test_decstr_soft_reset() {
+        let mut term = Terminal::new(80, 24);
+        // Set some modes
+        term.process(b"\x1b[?25l"); // Hide cursor
+        term.process(b"\x1b[1m"); // Bold
+        assert!(!term.screen().modes().cursor_visible);
+
+        // DECSTR - soft reset
+        term.process(b"\x1b[!p");
+
+        // Modes should be reset
+        assert!(term.screen().modes().cursor_visible);
+        assert!(term.screen().modes().auto_wrap);
+    }
+
+    #[test]
+    fn test_xtsave_xtrestore() {
+        let mut term = Terminal::new(80, 24);
+
+        // Set bracketed paste mode
+        term.process(b"\x1b[?2004h");
+        assert!(term.screen().modes().bracketed_paste);
+
+        // Save the mode
+        term.process(b"\x1b[?2004s");
+
+        // Reset it
+        term.process(b"\x1b[?2004l");
+        assert!(!term.screen().modes().bracketed_paste);
+
+        // Restore it
+        term.process(b"\x1b[?2004r");
+        assert!(term.screen().modes().bracketed_paste);
+    }
+
+    #[test]
+    fn test_window_ops_report_size() {
+        let mut term = Terminal::new(80, 24);
+
+        // CSI ? 18 t - report terminal size in characters
+        term.process(b"\x1b[?18t");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&responses[0]), "\x1b[8;24;80t");
+    }
+
+    #[test]
+    fn test_window_ops_report_cell_size() {
+        let mut term = Terminal::new(80, 24);
+
+        // CSI ? 16 t - report cell size in pixels
+        term.process(b"\x1b[?16t");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&responses[0]), "\x1b[6;16;8t");
+    }
+
+    #[test]
+    fn test_osc_10_foreground_query() {
+        let mut term = Terminal::new(80, 24);
+        // OSC 10 ; ? ST - query foreground color
+        term.process(b"\x1b]10;?\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1b]10;rgb:"));
+    }
+
+    #[test]
+    fn test_osc_11_background_query() {
+        let mut term = Terminal::new(80, 24);
+        // OSC 11 ; ? ST - query background color
+        term.process(b"\x1b]11;?\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1b]11;rgb:"));
+    }
+
+    #[test]
+    fn test_osc_12_cursor_color_query() {
+        let mut term = Terminal::new(80, 24);
+        // OSC 12 ; ? ST - query cursor color
+        term.process(b"\x1b]12;?\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1b]12;rgb:"));
+    }
+
+    #[test]
+    fn test_decrqss_sgr() {
+        let mut term = Terminal::new(80, 24);
+        // Set bold
+        term.process(b"\x1b[1m");
+        // Query SGR: DCS $ q m ST
+        term.process(b"\x1bP$qm\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1bP1$r"));
+        assert!(response.contains("1")); // bold
+    }
+
+    #[test]
+    fn test_decrqss_decstbm() {
+        let mut term = Terminal::new(80, 24);
+        // Set scroll region
+        term.process(b"\x1b[5;20r");
+        // Query scroll region: DCS $ q r ST
+        term.process(b"\x1bP$qr\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1bP1$r"));
+    }
+
+    #[test]
+    fn test_decrqss_cursor_style() {
+        let mut term = Terminal::new(80, 24);
+        // Set cursor to bar blinking
+        term.process(b"\x1b[5 q");
+        // Query cursor style: DCS $ q SP q ST
+        term.process(b"\x1bP$q q\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1bP1$r"));
+        assert!(response.contains("5")); // bar blinking
+    }
+
+    #[test]
+    fn test_decrqss_unknown() {
+        let mut term = Terminal::new(80, 24);
+        // Query unknown setting
+        term.process(b"\x1bP$qXYZ\x1b\\");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1bP0$r")); // not recognized
+    }
+
+    #[test]
+    fn test_focus_events() {
+        let mut term = Terminal::new(80, 24);
+
+        // Focus event without mode enabled - no response queued
+        term.notify_focus(true);
+        let responses = term.take_pending_responses();
+        assert!(responses.is_empty());
+
+        // Enable focus events
+        term.process(b"\x1b[?1004h");
+        assert!(term.screen().modes().focus_events);
+
+        // Focus in
+        term.notify_focus(true);
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&responses[0]), "\x1b[I");
+
+        // Focus out
+        term.notify_focus(false);
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&responses[0]), "\x1b[O");
+    }
+
+    #[test]
+    fn test_kitty_keyboard_query() {
+        let mut term = Terminal::new(80, 24);
+        // CSI > u - query keyboard protocol flags
+        term.process(b"\x1b[>u");
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&responses[0]), "\x1b[?0u");
+    }
+
+    #[test]
+    fn test_xtgettcap_expanded() {
+        let mut term = Terminal::new(80, 24);
+
+        // Query Smulx (underline style) capability
+        let hex_name = Terminal::hex_encode("Smulx");
+        let query = format!("\x1bP+q{}\x1b\\", hex_name);
+        term.process(query.as_bytes());
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1bP1+r")); // found
+
+        // Query BE (bracketed paste enable) capability
+        let hex_name = Terminal::hex_encode("BE");
+        let query = format!("\x1bP+q{}\x1b\\", hex_name);
+        term.process(query.as_bytes());
+
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        let response = String::from_utf8_lossy(&responses[0]);
+        assert!(response.starts_with("\x1bP1+r")); // found
+    }
+
+    #[test]
+    fn test_decrqm_mouse_modes() {
+        let mut term = Terminal::new(80, 24);
+
+        // Query mouse UTF-8 mode (1005) - should be reset
+        term.process(b"\x1b[?1005$p");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&responses[0]),
+            "\x1b[?1005;2$y" // 2 = reset
+        );
+
+        // Enable and query
+        term.process(b"\x1b[?1005h");
+        term.process(b"\x1b[?1005$p");
+        let responses = term.take_pending_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&responses[0]),
+            "\x1b[?1005;1$y" // 1 = set
+        );
+    }
+
+    #[test]
+    fn test_default_palette_colors() {
+        // Test standard colors
+        assert_eq!(Terminal::default_palette_color(0), (0, 0, 0)); // Black
+        assert_eq!(Terminal::default_palette_color(1), (205, 0, 0)); // Red
+        assert_eq!(Terminal::default_palette_color(7), (229, 229, 229)); // White
+                                                                         // Test bright colors
+        assert_eq!(Terminal::default_palette_color(9), (255, 0, 0)); // Bright Red
+        assert_eq!(Terminal::default_palette_color(15), (255, 255, 255)); // Bright White
+                                                                          // Test grayscale
+        assert_eq!(Terminal::default_palette_color(232), (8, 8, 8)); // Darkest gray
+    }
+
+    #[test]
+    fn test_decscl_intermediate() {
+        let mut term = Terminal::new(80, 24);
+        // DECSCL - set conformance level (should not crash)
+        term.process(b"\x1b[62;1\"p");
+        // Just verify it doesn't panic
     }
 }
