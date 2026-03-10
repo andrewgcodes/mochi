@@ -2,7 +2,9 @@
 //!
 //! Integrates the parser and screen model to handle terminal emulation.
 
-use terminal_core::{Color, CursorStyle, Dimensions, Screen, Snapshot, UnderlineStyle};
+use terminal_core::{
+    CellAttributes, Color, CursorStyle, Dimensions, Screen, Snapshot, UnderlineStyle,
+};
 use terminal_parser::{Action, CsiAction, EscAction, OscAction, Parser};
 
 /// Terminal emulator state
@@ -495,8 +497,13 @@ impl Terminal {
             }
             b'r' => {
                 // XTRESTORE - Restore private mode values
-                for param in csi.params.iter() {
-                    self.screen.modes_mut().restore_dec_mode(param);
+                // Route through Terminal::set_dec_mode to apply side effects
+                // (cursor visibility, alternate screen, origin mode, etc.)
+                let params: Vec<u16> = csi.params.iter().collect();
+                for param in params {
+                    if let Some(value) = self.screen.modes().get_saved_dec_mode(param) {
+                        self.set_dec_mode(param, value);
+                    }
                 }
                 log::debug!("XTRESTORE: restored modes {:?}", csi.params);
             }
@@ -826,6 +833,10 @@ impl Terminal {
     }
 
     /// Handle SGR (Select Graphic Rendition)
+    ///
+    /// Supports both semicolon-separated (38;2;R;G;B) and colon-separated (38:2:R:G:B)
+    /// extended color sequences, as well as mixed sequences like 4:3;38;5;196.
+    /// Uses a unified index-based loop that checks subparams per-parameter.
     fn handle_sgr(&mut self, csi: &CsiAction) {
         let attrs = &mut self.screen.cursor_mut().attrs;
 
@@ -834,202 +845,130 @@ impl Terminal {
             return;
         }
 
-        // Check for colon-separated subparameters (e.g., SGR 4:3 for curly underline)
-        // The parser stores subparameters for each parameter
-        let has_subparams = csi.params.has_subparams();
+        // Collect params and subparams into vectors for index-based iteration.
+        // This allows us to peek ahead for semicolon-separated extended colors
+        // (38;5;N, 38;2;R;G;B) while also handling colon-separated subparams
+        // (4:3, 38:2:R:G:B) on a per-parameter basis.
+        let items: Vec<(u16, Vec<u16>)> = csi
+            .params
+            .iter_with_subparams()
+            .map(|(v, s)| (v, s.to_vec()))
+            .collect();
 
-        if has_subparams {
-            // Handle subparameter-style SGR (colon-separated)
-            for (param, subparams) in csi.params.iter_with_subparams() {
+        let mut i = 0;
+        while i < items.len() {
+            let (param, ref subparams) = items[i];
+
+            // If this parameter has colon-separated subparameters, handle them
+            if !subparams.is_empty() {
                 match param {
                     4 => {
                         // SGR 4:Ps - underline style
-                        if subparams.is_empty() {
-                            attrs.underline = true;
-                            attrs.underline_style = UnderlineStyle::Single;
-                        } else {
-                            match subparams[0] {
-                                0 => {
-                                    attrs.underline = false;
-                                    attrs.underline_style = UnderlineStyle::None;
-                                }
-                                1 => {
-                                    attrs.underline = true;
-                                    attrs.underline_style = UnderlineStyle::Single;
-                                }
-                                2 => {
-                                    attrs.underline = true;
-                                    attrs.underline_style = UnderlineStyle::Double;
-                                }
-                                3 => {
-                                    attrs.underline = true;
-                                    attrs.underline_style = UnderlineStyle::Curly;
-                                }
-                                4 => {
-                                    attrs.underline = true;
-                                    attrs.underline_style = UnderlineStyle::Dotted;
-                                }
-                                5 => {
-                                    attrs.underline = true;
-                                    attrs.underline_style = UnderlineStyle::Dashed;
-                                }
-                                _ => {
-                                    attrs.underline = true;
-                                    attrs.underline_style = UnderlineStyle::Single;
-                                }
+                        match subparams[0] {
+                            0 => {
+                                attrs.underline = false;
+                                attrs.underline_style = UnderlineStyle::None;
+                            }
+                            1 => {
+                                attrs.underline = true;
+                                attrs.underline_style = UnderlineStyle::Single;
+                            }
+                            2 => {
+                                attrs.underline = true;
+                                attrs.underline_style = UnderlineStyle::Double;
+                            }
+                            3 => {
+                                attrs.underline = true;
+                                attrs.underline_style = UnderlineStyle::Curly;
+                            }
+                            4 => {
+                                attrs.underline = true;
+                                attrs.underline_style = UnderlineStyle::Dotted;
+                            }
+                            5 => {
+                                attrs.underline = true;
+                                attrs.underline_style = UnderlineStyle::Dashed;
+                            }
+                            _ => {
+                                attrs.underline = true;
+                                attrs.underline_style = UnderlineStyle::Single;
                             }
                         }
                     }
                     38 => {
                         // Colon-separated foreground color: 38:2:R:G:B or 38:5:N
-                        if !subparams.is_empty() {
-                            match subparams[0] {
-                                2 => {
-                                    // RGB: 38:2:R:G:B or 38:2:colorspace:R:G:B
-                                    if subparams.len() >= 4 {
-                                        // Check if colorspace is provided
-                                        let (r, g, b) = if subparams.len() >= 5 {
-                                            // 38:2:colorspace:R:G:B
-                                            (
-                                                subparams[2] as u8,
-                                                subparams[3] as u8,
-                                                subparams[4] as u8,
-                                            )
-                                        } else {
-                                            // 38:2:R:G:B
-                                            (
-                                                subparams[1] as u8,
-                                                subparams[2] as u8,
-                                                subparams[3] as u8,
-                                            )
-                                        };
-                                        attrs.fg = Color::Rgb { r, g, b };
-                                    }
+                        match subparams[0] {
+                            2 => {
+                                if subparams.len() >= 4 {
+                                    let (r, g, b) = if subparams.len() >= 5 {
+                                        (subparams[2] as u8, subparams[3] as u8, subparams[4] as u8)
+                                    } else {
+                                        (subparams[1] as u8, subparams[2] as u8, subparams[3] as u8)
+                                    };
+                                    attrs.fg = Color::Rgb { r, g, b };
                                 }
-                                5 => {
-                                    // 256 color: 38:5:N
-                                    if subparams.len() >= 2 {
-                                        attrs.fg = Color::Indexed(subparams[1] as u8);
-                                    }
-                                }
-                                _ => {}
                             }
+                            5 => {
+                                if subparams.len() >= 2 {
+                                    attrs.fg = Color::Indexed(subparams[1] as u8);
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     48 => {
                         // Colon-separated background color
-                        if !subparams.is_empty() {
-                            match subparams[0] {
-                                2 => {
-                                    if subparams.len() >= 4 {
-                                        let (r, g, b) = if subparams.len() >= 5 {
-                                            (
-                                                subparams[2] as u8,
-                                                subparams[3] as u8,
-                                                subparams[4] as u8,
-                                            )
-                                        } else {
-                                            (
-                                                subparams[1] as u8,
-                                                subparams[2] as u8,
-                                                subparams[3] as u8,
-                                            )
-                                        };
-                                        attrs.bg = Color::Rgb { r, g, b };
-                                    }
+                        match subparams[0] {
+                            2 => {
+                                if subparams.len() >= 4 {
+                                    let (r, g, b) = if subparams.len() >= 5 {
+                                        (subparams[2] as u8, subparams[3] as u8, subparams[4] as u8)
+                                    } else {
+                                        (subparams[1] as u8, subparams[2] as u8, subparams[3] as u8)
+                                    };
+                                    attrs.bg = Color::Rgb { r, g, b };
                                 }
-                                5 => {
-                                    if subparams.len() >= 2 {
-                                        attrs.bg = Color::Indexed(subparams[1] as u8);
-                                    }
-                                }
-                                _ => {}
                             }
+                            5 => {
+                                if subparams.len() >= 2 {
+                                    attrs.bg = Color::Indexed(subparams[1] as u8);
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     58 => {
-                        // Colon-separated underline color: 58:2:R:G:B or 58:5:N
-                        if !subparams.is_empty() {
-                            match subparams[0] {
-                                2 => {
-                                    if subparams.len() >= 4 {
-                                        let (r, g, b) = if subparams.len() >= 5 {
-                                            (
-                                                subparams[2] as u8,
-                                                subparams[3] as u8,
-                                                subparams[4] as u8,
-                                            )
-                                        } else {
-                                            (
-                                                subparams[1] as u8,
-                                                subparams[2] as u8,
-                                                subparams[3] as u8,
-                                            )
-                                        };
-                                        attrs.underline_color = Color::Rgb { r, g, b };
-                                    }
+                        // Colon-separated underline color
+                        match subparams[0] {
+                            2 => {
+                                if subparams.len() >= 4 {
+                                    let (r, g, b) = if subparams.len() >= 5 {
+                                        (subparams[2] as u8, subparams[3] as u8, subparams[4] as u8)
+                                    } else {
+                                        (subparams[1] as u8, subparams[2] as u8, subparams[3] as u8)
+                                    };
+                                    attrs.underline_color = Color::Rgb { r, g, b };
                                 }
-                                5 => {
-                                    if subparams.len() >= 2 {
-                                        attrs.underline_color = Color::Indexed(subparams[1] as u8);
-                                    }
-                                }
-                                _ => {}
                             }
+                            5 => {
+                                if subparams.len() >= 2 {
+                                    attrs.underline_color = Color::Indexed(subparams[1] as u8);
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     _ => {
-                        // Inline standard SGR handling (can't call method due to borrow)
-                        match param {
-                            0 => attrs.reset(),
-                            1 => attrs.bold = true,
-                            2 => attrs.faint = true,
-                            3 => attrs.italic = true,
-                            5 => attrs.blink = true,
-                            7 => attrs.inverse = true,
-                            8 => attrs.hidden = true,
-                            9 => attrs.strikethrough = true,
-                            21 => {
-                                attrs.underline = true;
-                                attrs.underline_style = UnderlineStyle::Double;
-                            }
-                            22 => {
-                                attrs.bold = false;
-                                attrs.faint = false;
-                            }
-                            23 => attrs.italic = false,
-                            24 => {
-                                attrs.underline = false;
-                                attrs.underline_style = UnderlineStyle::None;
-                            }
-                            25 => attrs.blink = false,
-                            27 => attrs.inverse = false,
-                            28 => attrs.hidden = false,
-                            29 => attrs.strikethrough = false,
-                            30..=37 => attrs.fg = Color::Indexed((param - 30) as u8),
-                            39 => attrs.fg = Color::Default,
-                            40..=47 => attrs.bg = Color::Indexed((param - 40) as u8),
-                            49 => attrs.bg = Color::Default,
-                            53 => attrs.overline = true,
-                            55 => attrs.overline = false,
-                            59 => attrs.underline_color = Color::Default,
-                            90..=97 => attrs.fg = Color::Indexed((param - 90 + 8) as u8),
-                            100..=107 => attrs.bg = Color::Indexed((param - 100 + 8) as u8),
-                            _ => {
-                                log::debug!("Unknown SGR parameter in subparam mode: {}", param);
-                            }
-                        }
+                        // Standard SGR param that happens to be in a sequence with subparams
+                        Self::apply_simple_sgr(attrs, param);
                     }
                 }
+                i += 1;
+                continue;
             }
-            return;
-        }
 
-        let mut i = 0;
-        let params: Vec<u16> = csi.params.iter().collect();
-
-        while i < params.len() {
-            let param = params[i];
+            // No subparams: handle as standard SGR with semicolon-separated
+            // extended colors that consume subsequent parameters
             match param {
                 0 => attrs.reset(),
                 1 => attrs.bold = true,
@@ -1044,7 +983,6 @@ impl Terminal {
                 8 => attrs.hidden = true,
                 9 => attrs.strikethrough = true,
                 21 => {
-                    // Double underline (SGR 21)
                     attrs.underline = true;
                     attrs.underline_style = UnderlineStyle::Double;
                 }
@@ -1065,23 +1003,21 @@ impl Terminal {
                     attrs.fg = Color::Indexed((param - 30) as u8);
                 }
                 38 => {
-                    // Extended foreground color
-                    if i + 1 < params.len() {
-                        match params[i + 1] {
+                    // Extended foreground color (semicolon-separated)
+                    if i + 1 < items.len() {
+                        match items[i + 1].0 {
                             5 => {
-                                // 256 color: 38;5;N
-                                if i + 2 < params.len() {
-                                    attrs.fg = Color::Indexed(params[i + 2] as u8);
+                                if i + 2 < items.len() {
+                                    attrs.fg = Color::Indexed(items[i + 2].0 as u8);
                                     i += 2;
                                 }
                             }
                             2 => {
-                                // True color: 38;2;R;G;B
-                                if i + 4 < params.len() {
+                                if i + 4 < items.len() {
                                     attrs.fg = Color::Rgb {
-                                        r: params[i + 2] as u8,
-                                        g: params[i + 3] as u8,
-                                        b: params[i + 4] as u8,
+                                        r: items[i + 2].0 as u8,
+                                        g: items[i + 3].0 as u8,
+                                        b: items[i + 4].0 as u8,
                                     };
                                     i += 4;
                                 }
@@ -1095,23 +1031,21 @@ impl Terminal {
                     attrs.bg = Color::Indexed((param - 40) as u8);
                 }
                 48 => {
-                    // Extended background color
-                    if i + 1 < params.len() {
-                        match params[i + 1] {
+                    // Extended background color (semicolon-separated)
+                    if i + 1 < items.len() {
+                        match items[i + 1].0 {
                             5 => {
-                                // 256 color: 48;5;N
-                                if i + 2 < params.len() {
-                                    attrs.bg = Color::Indexed(params[i + 2] as u8);
+                                if i + 2 < items.len() {
+                                    attrs.bg = Color::Indexed(items[i + 2].0 as u8);
                                     i += 2;
                                 }
                             }
                             2 => {
-                                // True color: 48;2;R;G;B
-                                if i + 4 < params.len() {
+                                if i + 4 < items.len() {
                                     attrs.bg = Color::Rgb {
-                                        r: params[i + 2] as u8,
-                                        g: params[i + 3] as u8,
-                                        b: params[i + 4] as u8,
+                                        r: items[i + 2].0 as u8,
+                                        g: items[i + 3].0 as u8,
+                                        b: items[i + 4].0 as u8,
                                     };
                                     i += 4;
                                 }
@@ -1124,23 +1058,21 @@ impl Terminal {
                 53 => attrs.overline = true,
                 55 => attrs.overline = false,
                 58 => {
-                    // Extended underline color (semicolon-separated fallback)
-                    if i + 1 < params.len() {
-                        match params[i + 1] {
+                    // Extended underline color (semicolon-separated)
+                    if i + 1 < items.len() {
+                        match items[i + 1].0 {
                             5 => {
-                                // 256 color: 58;5;N
-                                if i + 2 < params.len() {
-                                    attrs.underline_color = Color::Indexed(params[i + 2] as u8);
+                                if i + 2 < items.len() {
+                                    attrs.underline_color = Color::Indexed(items[i + 2].0 as u8);
                                     i += 2;
                                 }
                             }
                             2 => {
-                                // True color: 58;2;R;G;B
-                                if i + 4 < params.len() {
+                                if i + 4 < items.len() {
                                     attrs.underline_color = Color::Rgb {
-                                        r: params[i + 2] as u8,
-                                        g: params[i + 3] as u8,
-                                        b: params[i + 4] as u8,
+                                        r: items[i + 2].0 as u8,
+                                        g: items[i + 3].0 as u8,
+                                        b: items[i + 4].0 as u8,
                                     };
                                     i += 4;
                                 }
@@ -1151,11 +1083,9 @@ impl Terminal {
                 }
                 59 => attrs.underline_color = Color::Default,
                 90..=97 => {
-                    // Bright foreground colors
                     attrs.fg = Color::Indexed((param - 90 + 8) as u8);
                 }
                 100..=107 => {
-                    // Bright background colors
                     attrs.bg = Color::Indexed((param - 100 + 8) as u8);
                 }
                 _ => {
@@ -1163,6 +1093,54 @@ impl Terminal {
                 }
             }
             i += 1;
+        }
+    }
+
+    /// Apply a simple (non-extended-color) SGR parameter to cell attributes.
+    /// Used by the colon-separated subparams path for params that don't have subparams.
+    fn apply_simple_sgr(attrs: &mut CellAttributes, param: u16) {
+        match param {
+            0 => attrs.reset(),
+            1 => attrs.bold = true,
+            2 => attrs.faint = true,
+            3 => attrs.italic = true,
+            4 => {
+                attrs.underline = true;
+                attrs.underline_style = UnderlineStyle::Single;
+            }
+            5 => attrs.blink = true,
+            7 => attrs.inverse = true,
+            8 => attrs.hidden = true,
+            9 => attrs.strikethrough = true,
+            21 => {
+                attrs.underline = true;
+                attrs.underline_style = UnderlineStyle::Double;
+            }
+            22 => {
+                attrs.bold = false;
+                attrs.faint = false;
+            }
+            23 => attrs.italic = false,
+            24 => {
+                attrs.underline = false;
+                attrs.underline_style = UnderlineStyle::None;
+            }
+            25 => attrs.blink = false,
+            27 => attrs.inverse = false,
+            28 => attrs.hidden = false,
+            29 => attrs.strikethrough = false,
+            30..=37 => attrs.fg = Color::Indexed((param - 30) as u8),
+            39 => attrs.fg = Color::Default,
+            40..=47 => attrs.bg = Color::Indexed((param - 40) as u8),
+            49 => attrs.bg = Color::Default,
+            53 => attrs.overline = true,
+            55 => attrs.overline = false,
+            59 => attrs.underline_color = Color::Default,
+            90..=97 => attrs.fg = Color::Indexed((param - 90 + 8) as u8),
+            100..=107 => attrs.bg = Color::Indexed((param - 100 + 8) as u8),
+            _ => {
+                log::debug!("Unknown SGR parameter: {}", param);
+            }
         }
     }
 
@@ -2157,5 +2135,62 @@ mod tests {
         // DECSCL - set conformance level (should not crash)
         term.process(b"\x1b[62;1\"p");
         // Just verify it doesn't panic
+    }
+
+    #[test]
+    fn test_sgr_mixed_colon_semicolon() {
+        let mut term = Terminal::new(80, 24);
+
+        // Mixed: curly underline (colon-separated) + 256-color foreground (semicolon-separated)
+        // 4:3;38;5;196 = curly underline + color index 196
+        term.process(b"\x1b[4:3;38;5;196mA");
+        let attrs = &term.screen().line(0).cell(0).attrs;
+        assert!(attrs.underline);
+        assert_eq!(attrs.underline_style, UnderlineStyle::Curly);
+        assert_eq!(attrs.fg, Color::Indexed(196));
+        // blink should NOT be set (bug was: param 5 matched as blink)
+        assert!(!attrs.blink);
+    }
+
+    #[test]
+    fn test_sgr_colon_rgb_foreground() {
+        let mut term = Terminal::new(80, 24);
+
+        // Colon-separated RGB foreground: 38:2:255:128:64
+        term.process(b"\x1b[38:2:255:128:64mA");
+        let attrs = &term.screen().line(0).cell(0).attrs;
+        assert_eq!(
+            attrs.fg,
+            Color::Rgb {
+                r: 255,
+                g: 128,
+                b: 64
+            }
+        );
+    }
+
+    #[test]
+    fn test_xtrestore_cursor_visibility() {
+        let mut term = Terminal::new(80, 24);
+
+        // Cursor starts visible
+        assert!(term.screen().modes().cursor_visible);
+
+        // Hide cursor
+        term.process(b"\x1b[?25l");
+        assert!(!term.screen().modes().cursor_visible);
+
+        // Save the hidden state
+        term.process(b"\x1b[?25s");
+
+        // Show cursor again
+        term.process(b"\x1b[?25h");
+        assert!(term.screen().modes().cursor_visible);
+
+        // Restore saved (hidden) state - should route through Terminal::set_dec_mode
+        term.process(b"\x1b[?25r");
+        assert!(!term.screen().modes().cursor_visible);
+        // Cursor object should also be updated (not just modes flag)
+        assert!(!term.screen().cursor().visible);
     }
 }

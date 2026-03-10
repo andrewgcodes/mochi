@@ -183,6 +183,12 @@ impl Modes {
         }
     }
 
+    /// Get saved value of a private mode without restoring it.
+    /// Used by Terminal::set_dec_mode to restore with proper side effects.
+    pub fn get_saved_dec_mode(&self, mode: u16) -> Option<bool> {
+        self.saved_private_modes.get(&mode).copied()
+    }
+
     /// Set a standard (non-DEC) mode by number
     pub fn set_mode(&mut self, mode: u16, value: bool) {
         match mode {
